@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { PrismaModule } from './prisma/prisma.module';
@@ -21,6 +21,9 @@ import { TreatmentsModule } from './treatments/treatments.module';
 import { ChannelGatewayModule } from './channel-gateway/channel-gateway.module';
 import { AgentModule } from './agent/agent.module';
 import { ClinicalProtocolsModule } from './clinical-protocols/clinical-protocols.module';
+import { AuditLogModule } from './audit-log/audit-log.module';
+import { AuditLogInterceptor } from './audit-log/audit-log.interceptor';
+import { ScheduledActionsModule } from './scheduled-actions/scheduled-actions.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { ThrottleGuard } from './common/guards/throttle.guard';
 
@@ -49,6 +52,8 @@ import { ThrottleGuard } from './common/guards/throttle.guard';
     ChannelGatewayModule,
     AgentModule,
     ClinicalProtocolsModule,
+    AuditLogModule,
+    ScheduledActionsModule,
   ],
   controllers: [AppController],
   providers: [
@@ -61,6 +66,11 @@ import { ThrottleGuard } from './common/guards/throttle.guard';
     {
       provide: APP_GUARD,
       useClass: JwtAuthGuard,
+    },
+    // Audit logging - persists all CREATE/UPDATE/DELETE actions automatically
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: AuditLogInterceptor,
     },
   ],
 })
