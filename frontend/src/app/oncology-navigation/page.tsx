@@ -384,6 +384,7 @@ export default function OncologyNavigationPage() {
                           cancerType={cancerType}
                           isExpanded={expandedPatients.has(patient.id)}
                           onToggle={() => togglePatient(patient.id)}
+                          apiUrl={apiUrl}
                         />
                       ))}
                     </div>
@@ -403,6 +404,7 @@ interface PatientNavigationCardProps {
   cancerType: string;
   isExpanded: boolean;
   onToggle: () => void;
+  apiUrl: string;
 }
 
 function PatientNavigationCard({
@@ -410,6 +412,7 @@ function PatientNavigationCard({
   cancerType,
   isExpanded,
   onToggle,
+  apiUrl,
 }: PatientNavigationCardProps) {
   const { data: navigationSteps, isLoading } = usePatientNavigationSteps(
     patient.id || null
@@ -540,7 +543,7 @@ function PatientNavigationCard({
                   </div>
                   <div className="p-4 space-y-2">
                     {steps.map((step) => (
-                      <StepCard key={step.id} step={step} />
+                      <StepCard key={step.id} step={step} apiUrl={apiUrl} />
                     ))}
                   </div>
                 </div>
@@ -555,9 +558,10 @@ function PatientNavigationCard({
 
 interface StepCardProps {
   step: NavigationStep;
+  apiUrl: string;
 }
 
-function StepCard({ step }: StepCardProps) {
+function StepCard({ step, apiUrl }: StepCardProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [notes, setNotes] = useState(step.notes || '');
   const [isCompleted, setIsCompleted] = useState(step.isCompleted);

@@ -33,14 +33,14 @@ export interface ScheduledAction {
 
 export const agentConfigApi = {
   get: (): Promise<AgentConfig | null> =>
-    apiClient.get('/agent/config').catch(() => null),
+    apiClient.get<AgentConfig>('/agent/config').catch(() => null),
 
   update: (data: Partial<AgentConfig>): Promise<AgentConfig> =>
-    apiClient.patch('/agent/config', data),
+    apiClient.patch<AgentConfig>('/agent/config', data),
 
   getScheduledActions: (params?: {
     status?: string;
     patientId?: string;
   }): Promise<ScheduledAction[]> =>
-    apiClient.get('/agent/scheduled-actions', { params }),
+    apiClient.get<ScheduledAction[]>('/agent/scheduled-actions', { params }),
 };
