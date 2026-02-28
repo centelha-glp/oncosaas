@@ -7,7 +7,6 @@ import { getApiUrl } from '@/lib/utils/api-config';
 import { usePatients } from '@/hooks/usePatients';
 import {
   usePatientNavigationSteps,
-  useInitializeAllPatients,
   useUpdateNavigationStep,
   useUploadStepFile,
 } from '@/hooks/useOncologyNavigation';
@@ -23,7 +22,6 @@ import {
   CheckCircle2,
   Clock,
   XCircle,
-  RefreshCw,
   Search,
   Edit,
   Upload,
@@ -102,8 +100,6 @@ export default function OncologyNavigationPage() {
   const [expandedPatients, setExpandedPatients] = useState<Set<string>>(
     new Set()
   );
-  const initializeAllPatients = useInitializeAllPatients();
-
   useEffect(() => {
     initialize();
   }, [initialize]);
@@ -216,23 +212,6 @@ export default function OncologyNavigationPage() {
     });
   };
 
-  const handleInitializeAll = async () => {
-    try {
-      const result = await initializeAllPatients.mutateAsync();
-      toast.success(
-        `Etapas inicializadas: ${result.initialized} pacientes. ${result.skipped} já tinham etapas. ${result.errors} erros.`
-      );
-    } catch (error: unknown) {
-      const errorMessage =
-        error instanceof Error
-          ? error.message
-          : 'Erro desconhecido ao inicializar etapas';
-      toast.error('Erro ao inicializar etapas', {
-        description: errorMessage,
-      });
-    }
-  };
-
   if (!isAuthenticated) {
     return null;
   }
@@ -250,20 +229,6 @@ export default function OncologyNavigationPage() {
               <Navigation className="h-6 w-6" />
               Navegação Oncológica
             </h1>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleInitializeAll}
-              disabled={initializeAllPatients.isPending}
-              className="flex items-center gap-2"
-            >
-              <RefreshCw
-                className={`h-4 w-4 ${initializeAllPatients.isPending ? 'animate-spin' : ''}`}
-              />
-              {initializeAllPatients.isPending
-                ? 'Inicializando...'
-                : 'Inicializar Etapas'}
-            </Button>
           </div>
 
           {/* Campo de busca */}

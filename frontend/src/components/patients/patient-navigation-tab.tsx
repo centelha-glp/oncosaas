@@ -7,17 +7,15 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { CheckCircle2, Clock, AlertCircle, Edit, Plus } from 'lucide-react';
+import { CheckCircle2, Clock, AlertCircle, Edit } from 'lucide-react';
 import {
   Accordion,
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
 } from '@/components/ui/accordion';
-import { NavigationStep, navigationApi } from '@/lib/api/navigation';
+import { NavigationStep } from '@/lib/api/navigation';
 import { NavigationStepDialog } from './navigation-step-dialog';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { toast } from 'sonner';
 
 interface PatientNavigationTabProps {
   patient: PatientDetail;
@@ -70,7 +68,6 @@ export function PatientNavigationTab({
 }: PatientNavigationTabProps): JSX.Element {
   const [selectedStep, setSelectedStep] = useState<NavigationStep | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const queryClient = useQueryClient();
 
   // Agrupar etapas por journeyStage
   const stepsByStage = useMemo((): Map<string, NavigationStep[]> => {
@@ -111,34 +108,6 @@ export function PatientNavigationTab({
     setIsDialogOpen(true);
   };
 
-  // Mutation para criar etapas faltantes
-  const createMissingStepsMutation = useMutation({
-    mutationFn: async (journeyStage: string) => {
-      return navigationApi.createMissingStepsForStage(patient.id, journeyStage);
-    },
-    onSuccess: (data, journeyStage) => {
-      toast.success(
-        `${data.created} etapa(s) criada(s) para ${JOURNEY_STAGE_LABELS[journeyStage] || journeyStage}. ${data.skipped} etapa(s) já existente(s) foram mantidas.`
-      );
-      // Invalidar e refetch das etapas do paciente
-      queryClient.invalidateQueries({
-        queryKey: ['patient', patient.id, 'detail'],
-      });
-      queryClient.invalidateQueries({
-        queryKey: ['navigation-steps', patient.id],
-      });
-    },
-    onError: (error: Error) => {
-      toast.error(
-        `Erro ao criar etapas: ${error.message || 'Não foi possível criar as etapas faltantes.'}`
-      );
-    },
-  });
-
-  const handleCreateMissingSteps = (journeyStage: string): void => {
-    createMissingStepsMutation.mutate(journeyStage);
-  };
-
   // Sempre mostrar todos os estágios da jornada, mesmo que vazios
   // Isso dá uma visão completa da jornada do paciente
   const availableStages = useMemo(() => {
@@ -177,29 +146,11 @@ export function PatientNavigationTab({
               return (
                 <AccordionItem key={stage} value={stage}>
                   <AccordionTrigger className="text-left">
-                    <div className="flex items-center justify-between w-full pr-4">
-                      <div className="flex items-center gap-2">
-                        <span className="font-semibold">{stageLabel}</span>
-                        <Badge variant="outline" className="ml-2">
-                          {steps.length}
-                        </Badge>
-                      </div>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={(e) => {
-                          e.stopPropagation(); // Prevenir que o accordion abra/feche ao clicar no botão
-                          handleCreateMissingSteps(stage);
-                        }}
-                        disabled={createMissingStepsMutation.isPending}
-                      >
-                        <Plus className="h-4 w-4 mr-2" />
-                        {createMissingStepsMutation.isPending
-                          ? 'Criando...'
-                          : steps.length === 0
-                            ? 'Criar Etapas'
-                            : 'Criar Etapas Faltantes'}
-                      </Button>
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold">{stageLabel}</span>
+                      <Badge variant="outline" className="ml-2">
+                        {steps.length}
+                      </Badge>
                     </div>
                   </AccordionTrigger>
                   <AccordionContent>

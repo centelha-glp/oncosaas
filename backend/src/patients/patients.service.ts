@@ -933,9 +933,30 @@ export class PatientsService {
       isActive: createDto.isActive ?? true,
     };
 
-    return this.prisma.cancerDiagnosis.create({
+    const diagnosis = await this.prisma.cancerDiagnosis.create({
       data: diagnosisData,
     });
+
+    // Inicializar etapas de navegação automaticamente ao adicionar diagnóstico
+    if (this.navigationService) {
+      try {
+        const cancerTypeStr = String(createDto.cancerType);
+        const journeyStage = patient.currentStage || JourneyStage.SCREENING;
+        await this.navigationService.initializeNavigationSteps(
+          patientId,
+          tenantId,
+          cancerTypeStr,
+          journeyStage
+        );
+      } catch (error) {
+        this.logger.error(
+          'Erro ao inicializar etapas de navegação após diagnóstico:',
+          error instanceof Error ? error.stack : String(error)
+        );
+      }
+    }
+
+    return diagnosis;
   }
 
   /**
