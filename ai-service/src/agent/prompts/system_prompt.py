@@ -2,7 +2,7 @@
 System prompt templates for the oncology navigation agent.
 """
 
-from typing import Dict, Optional
+from typing import Optional
 
 
 def build_system_prompt(

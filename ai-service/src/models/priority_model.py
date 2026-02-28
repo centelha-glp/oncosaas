@@ -4,7 +4,6 @@ Modelo de ML para priorização de casos oncológicos
 
 import numpy as np
 import pandas as pd
-from typing import Dict, List, Optional
 from sklearn.ensemble import RandomForestRegressor, VotingRegressor
 from xgboost import XGBRegressor
 from lightgbm import LGBMRegressor

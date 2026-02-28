@@ -189,7 +189,6 @@ class ClinicalContextBuilder:
 
         for alert in alerts[:5]:
             severity = alert.get("severity", "MEDIUM")
-            alert_type = alert.get("type", "")
             message = alert.get("message", "")
             status = alert.get("status", "PENDING")
 

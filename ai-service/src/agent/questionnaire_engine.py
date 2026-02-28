@@ -636,8 +636,8 @@ class QuestionnaireEngine:
             high_count = sum(1 for a in alerts if a.get("severity") in ("HIGH", "CRITICAL"))
             if high_count > 0:
                 base += (
-                    f"\n\nPercebi que você relatou alguns sintomas que merecem atenção. "
-                    f"Vou notificar a equipe de enfermagem para que entrem em contato com você em breve."
+                    "\n\nPercebi que você relatou alguns sintomas que merecem atenção. "
+                    "Vou notificar a equipe de enfermagem para que entrem em contato com você em breve."
                 )
         else:
             base += "\n\nTudo parece bem controlado. Continue assim! 💪"
