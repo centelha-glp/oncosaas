@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { EmptyState } from '@/components/ui/empty-state';
-import { MessageSquare, Send, UserCheck } from 'lucide-react';
+import { MessageSquare, Send, UserCheck, HandshakeIcon } from 'lucide-react';
 
 interface Message {
   id: string;
@@ -85,34 +85,66 @@ export function ConversationView({
     }
   };
 
+  const priorityBadgeClass = (category: string) => {
+    switch (category.toLowerCase()) {
+      case 'critico':
+      case 'critical':
+        return 'bg-red-100 text-red-700 border border-red-300';
+      case 'alto':
+      case 'high':
+        return 'bg-orange-100 text-orange-700 border border-orange-300';
+      case 'medio':
+      case 'medium':
+        return 'bg-yellow-100 text-yellow-700 border border-yellow-300';
+      default:
+        return 'bg-green-100 text-green-700 border border-green-300';
+    }
+  };
+
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="border-b p-4">
-        <div className="flex items-start justify-between mb-2">
-          <h2 className="text-xl font-semibold">Conversa: {patientName}</h2>
-          {/* Badge de conversa assumida */}
-          {assumedBy && assumedAt && (
-            <div className="flex items-center gap-2 px-3 py-1 bg-green-100 border border-green-300 rounded-md">
-              <UserCheck className="h-4 w-4 text-green-700" />
-              <div className="text-xs">
-                <div className="font-semibold text-green-800">
-                  Assumido por: {assumedBy}
-                </div>
-                <div className="text-green-600">
-                  {format(new Date(assumedAt), "dd/MM/yyyy 'às' HH:mm", {
-                    locale: ptBR,
-                  })}
-                </div>
-              </div>
+      <div className="border-b p-3 flex items-center gap-3 flex-wrap">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h2 className="text-base font-semibold truncate">{patientName}</h2>
+            <span
+              className={`text-xs px-2 py-0.5 rounded-full font-semibold flex-shrink-0 ${priorityBadgeClass(patientInfo.priorityCategory)}`}
+            >
+              {patientInfo.priorityCategory.toUpperCase()} · {patientInfo.priorityScore}
+            </span>
+          </div>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            {patientInfo.cancerType}
+            {patientInfo.stage ? ` · ${patientInfo.stage}` : ''}
+            {patientInfo.age ? ` · ${patientInfo.age} anos` : ''}
+          </p>
+        </div>
+
+        {/* Status e botão Assumir no header */}
+        {assumedBy && assumedAt ? (
+          <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-green-100 border border-green-300 rounded-md flex-shrink-0">
+            <UserCheck className="h-3.5 w-3.5 text-green-700" />
+            <div className="text-xs">
+              <span className="font-semibold text-green-800">{assumedBy}</span>
+              <span className="text-green-600 ml-1">
+                {format(new Date(assumedAt), "HH:mm", { locale: ptBR })}
+              </span>
             </div>
-          )}
-        </div>
-        <div className="text-sm text-muted-foreground">
-          {patientInfo.cancerType} - {patientInfo.stage} | Idade:{' '}
-          {patientInfo.age} | Score: {patientInfo.priorityScore} (
-          {patientInfo.priorityCategory.toUpperCase()})
-        </div>
+          </div>
+        ) : (
+          !isNursingActive && (
+            <Button
+              onClick={onTakeOver}
+              size="sm"
+              variant="outline"
+              className="flex-shrink-0 gap-1.5 border-indigo-300 text-indigo-700 hover:bg-indigo-50"
+            >
+              <HandshakeIcon className="h-3.5 w-3.5" />
+              Assumir
+            </Button>
+          )
+        )}
       </div>
 
       {/* Messages */}
@@ -177,30 +209,28 @@ export function ConversationView({
       )}
 
       {/* Input */}
-      <div className="border-t p-4">
-        {!isNursingActive && (
-          <Button onClick={onTakeOver} className="mb-2 w-full">
-            Assumir Conversa
-          </Button>
-        )}
+      <div className="border-t p-3">
         <div className="flex gap-2">
           <input
             type="text"
             value={messageInput}
             onChange={(e) => setMessageInput(e.target.value)}
-            onKeyPress={(e) => e.key === 'Enter' && !isSending && handleSend()}
+            onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && !isSending && handleSend()}
             placeholder={
               isNursingActive
                 ? 'Digite sua mensagem...'
-                : 'Ative a conversa para enviar mensagens'
+                : 'Assuma a conversa para enviar mensagens'
             }
             disabled={!isNursingActive || isSending}
-            className="flex-1 px-3 py-2 border rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex-1 px-3 py-2 border rounded-md text-sm disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-indigo-500"
           />
           <Button
             onClick={handleSend}
+            size="sm"
             disabled={!isNursingActive || !messageInput.trim() || isSending}
+            className="gap-1.5"
           >
+            <Send className="h-3.5 w-3.5" />
             {isSending ? 'Enviando...' : 'Enviar'}
           </Button>
         </div>

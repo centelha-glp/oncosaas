@@ -9,7 +9,7 @@ import {
   FileText,
   Activity,
   AlertCircle,
-  Search,
+  Mail,
 } from 'lucide-react';
 import { Patient } from '@/lib/api/patients';
 import { OncologyNavigationPanel } from './oncology-navigation-panel';
@@ -130,7 +130,7 @@ export function PatientDetails({ patient, isLoading }: PatientDetailsProps) {
 
         {patient.email && (
           <div className="flex items-start gap-3">
-            <User className="h-5 w-5 text-gray-400 mt-0.5" />
+            <Mail className="h-5 w-5 text-gray-400 mt-0.5" />
             <div className="flex-1">
               <p className="text-sm text-gray-500">Email</p>
               <p className="text-sm">{patient.email}</p>

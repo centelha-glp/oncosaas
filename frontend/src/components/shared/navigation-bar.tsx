@@ -14,6 +14,8 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/stores/auth-store';
+import { useUnassumedMessagesCount } from '@/hooks/useMessages';
+import { useCriticalAlertsCount } from '@/hooks/useAlerts';
 
 interface NavItem {
   path: string;
@@ -69,6 +71,8 @@ export function NavigationBar() {
   const router = useRouter();
   const pathname = usePathname();
   const { user, logout } = useAuthStore();
+  const { data: unassumedCount } = useUnassumedMessagesCount();
+  const { data: criticalCount } = useCriticalAlertsCount();
 
   // Verificar se o usuário tem permissão para ver usuários
   const canManageUsers =
@@ -118,6 +122,16 @@ export function NavigationBar() {
     router.push('/login');
   };
 
+  const getBadge = (path: string) => {
+    if (path === '/chat' && unassumedCount && unassumedCount.count > 0) {
+      return unassumedCount.count;
+    }
+    if (path === '/dashboard' && criticalCount && criticalCount.count > 0) {
+      return criticalCount.count;
+    }
+    return null;
+  };
+
   return (
     <nav className="bg-white border-b px-4 py-3">
       <div className="flex items-center justify-between">
@@ -125,6 +139,7 @@ export function NavigationBar() {
           {navItems.map((item) => {
             const Icon = item.icon;
             const active = isActive(item.path);
+            const badge = getBadge(item.path);
 
             return (
               <Button
@@ -133,12 +148,17 @@ export function NavigationBar() {
                 size="sm"
                 onClick={() => router.push(item.path)}
                 className={cn(
-                  'flex items-center gap-2',
+                  'relative flex items-center gap-2',
                   active && 'bg-indigo-600 text-white hover:bg-indigo-700'
                 )}
               >
                 <Icon className="h-4 w-4" />
                 <span>{item.label}</span>
+                {badge !== null && (
+                  <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white leading-none">
+                    {badge > 99 ? '99+' : badge}
+                  </span>
+                )}
               </Button>
             );
           })}
@@ -164,12 +184,15 @@ export function NavigationBar() {
               );
             })}
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
           {user && (
             <>
-              <div className="text-sm text-gray-600">
-                {user.name} ({user.role}) -{' '}
-                {user?.tenant?.name || 'Hospital Teste'}
+              <div className="text-sm text-gray-600 hidden md:block">
+                <span className="font-medium">{user.name}</span>
+                <span className="text-gray-400 mx-1">·</span>
+                <span className="text-xs text-gray-500">
+                  {user?.tenant?.name || 'Hospital Teste'}
+                </span>
               </div>
               <Button variant="outline" size="sm" onClick={handleLogout}>
                 <LogOut className="h-4 w-4 mr-2" />

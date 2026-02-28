@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { Button } from '@/components/ui/button';
 import { AlertTriangle } from 'lucide-react';
 
 interface Patient {
@@ -18,17 +17,15 @@ interface Patient {
 interface PatientListProps {
   patients: Patient[];
   onPatientClick: (patientId: string) => void;
-  onTakeOver: (patientId: string) => void;
+  onTakeOver?: (patientId: string) => void;
   selectedPatientId?: string | null;
-  hideActionButtons?: boolean; // Nova prop para esconder botões de ação
+  hideActionButtons?: boolean;
 }
 
 export function PatientList({
   patients,
   onPatientClick,
-  onTakeOver,
   selectedPatientId,
-  hideActionButtons = false,
 }: PatientListProps) {
   // Refs para cada card de paciente (para scroll automático)
   const patientRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -53,24 +50,24 @@ export function PatientList({
       case 'critico':
         return 'border-l-4 border-l-red-500 bg-red-50';
       case 'alto':
-        return 'border-l-4 border-l-yellow-500 bg-yellow-50';
+        return 'border-l-4 border-l-orange-500 bg-orange-50';
       case 'medio':
-        return 'border-l-4 border-l-green-500 bg-green-50';
+        return 'border-l-4 border-l-yellow-400 bg-yellow-50';
       default:
-        return 'border-l-4 border-l-gray-500 bg-gray-50';
+        return 'border-l-4 border-l-green-500 bg-green-50';
     }
   };
 
-  const getPriorityIcon = (category: string) => {
+  const getPriorityDot = (category: string) => {
     switch (category) {
       case 'critico':
-        return '🔴';
+        return 'bg-red-500';
       case 'alto':
-        return '🟡';
+        return 'bg-orange-500';
       case 'medio':
-        return '🟢';
+        return 'bg-yellow-400';
       default:
-        return '⚪';
+        return 'bg-green-500';
     }
   };
 
@@ -82,77 +79,49 @@ export function PatientList({
           ref={(el) => {
             patientRefs.current[patient.id] = el;
           }}
-          className={`p-4 rounded-lg border ${getPriorityColor(patient.priorityCategory)} cursor-pointer hover:shadow-md transition-shadow relative overflow-hidden ${
+          className={`px-3 py-2.5 rounded-lg border ${getPriorityColor(patient.priorityCategory)} cursor-pointer hover:shadow-md transition-all relative overflow-hidden ${
             selectedPatientId === patient.id
-              ? 'ring-2 ring-indigo-500 ring-offset-2 shadow-lg'
+              ? 'ring-2 ring-indigo-500 ring-offset-1 shadow-md'
               : ''
           }`}
           onClick={() => onPatientClick(patient.id)}
         >
-          <div className="flex flex-col gap-3">
-            {/* Header com nome e informações básicas */}
-            <div className="flex items-start gap-2">
-              <span className="text-xl flex-shrink-0">
-                {getPriorityIcon(patient.priorityCategory)}
-              </span>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <h3 className="font-semibold text-lg truncate">
-                    {patient.name}
-                  </h3>
-                  {patient.alertCount > 0 && (
-                    <span className="flex items-center gap-1 px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-xs font-semibold border border-red-300">
-                      <AlertTriangle className="h-3 w-3" />
-                      {patient.alertCount}
-                    </span>
-                  )}
-                </div>
-                <span className="text-sm text-muted-foreground">
-                  {patient.cancerType} - {patient.stage}
+          <div className="flex items-center gap-2.5">
+            {/* Indicador de prioridade */}
+            <span
+              className={`h-2.5 w-2.5 rounded-full flex-shrink-0 ${getPriorityDot(patient.priorityCategory)}`}
+            />
+
+            {/* Conteúdo principal */}
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <h3 className="font-semibold text-sm truncate">
+                  {patient.name}
+                </h3>
+                {patient.alertCount > 0 && (
+                  <span className="flex items-center gap-0.5 px-1.5 py-0.5 bg-red-100 text-red-700 rounded-full text-xs font-semibold border border-red-300 flex-shrink-0">
+                    <AlertTriangle className="h-2.5 w-2.5" />
+                    {patient.alertCount}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2 mt-0.5">
+                <span className="text-xs text-muted-foreground truncate">
+                  {patient.cancerType}
+                  {patient.stage ? ` · ${patient.stage}` : ''}
                 </span>
+                {patient.lastInteraction && (
+                  <span className="text-xs text-muted-foreground flex-shrink-0">
+                    {patient.lastInteraction}
+                  </span>
+                )}
               </div>
             </div>
 
-            {/* Informações de score */}
-            <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
-              <span>
-                Score: {patient.priorityScore}/100 (
-                {patient.priorityCategory.toUpperCase()})
-              </span>
-              {patient.lastInteraction && (
-                <span className="hidden sm:inline">
-                  Última interação: {patient.lastInteraction}
-                </span>
-              )}
-            </div>
-
-            {/* Botões de ação */}
-            {!hideActionButtons && (
-              <div className="flex gap-2 pt-2 border-t border-gray-200">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="flex-1"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onPatientClick(patient.id);
-                  }}
-                >
-                  Ver Conversa
-                </Button>
-                <Button
-                  variant="default"
-                  size="sm"
-                  className="flex-1"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onTakeOver(patient.id);
-                  }}
-                >
-                  Assumir
-                </Button>
-              </div>
-            )}
+            {/* Score badge */}
+            <span className="text-xs font-semibold text-gray-500 flex-shrink-0">
+              {patient.priorityScore}
+            </span>
           </div>
         </div>
       ))}

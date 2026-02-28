@@ -141,80 +141,116 @@ export function AlertsPanel({
     }
   };
 
+  const getSeverityBadgeClass = (severity: string) => {
+    switch (severity) {
+      case 'CRITICAL':
+        return 'bg-red-100 text-red-700 border border-red-300';
+      case 'HIGH':
+        return 'bg-orange-100 text-orange-700 border border-orange-300';
+      case 'MEDIUM':
+        return 'bg-yellow-100 text-yellow-700 border border-yellow-300';
+      default:
+        return 'bg-gray-100 text-gray-600 border border-gray-300';
+    }
+  };
+
+  const getSeverityLabel = (severity: string) => {
+    switch (severity) {
+      case 'CRITICAL':
+        return 'Crítico';
+      case 'HIGH':
+        return 'Alto';
+      case 'MEDIUM':
+        return 'Médio';
+      default:
+        return 'Baixo';
+    }
+  };
+
+  const getAlertTypeLabel = (type: string) => {
+    return type
+      .split('_')
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+      .join(' ');
+  };
+
   return (
-    <div className="space-y-4">
-      <h2 className="text-lg font-semibold mb-4">Alertas Pendentes</h2>
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-gray-700">Alertas Pendentes</h2>
+        <span className="text-xs px-2 py-0.5 bg-red-100 text-red-700 border border-red-300 rounded-full font-semibold">
+          {filteredAlerts.length}
+        </span>
+      </div>
       {filteredAlerts.map((alert) => (
         <div
           key={alert.id}
-          className={`p-4 rounded-lg border-l-4 ${getSeverityColor(
+          className={`px-3 py-2.5 rounded-lg border-l-4 ${getSeverityColor(
             alert.severity
           )} relative overflow-hidden cursor-pointer transition-all hover:shadow-md ${
             selectedAlertId === alert.id ? 'ring-2 ring-indigo-500' : ''
           }`}
           onClick={() => onAlertSelect?.(alert)}
         >
-          <div className="flex flex-col gap-3">
-            {/* Header com ícone, nome e severidade */}
-            <div className="flex items-start gap-3">
-              <div className="flex-shrink-0 mt-0.5">
-                {getSeverityIcon(alert.severity)}
+          <div className="flex items-start gap-2.5">
+            <div className="flex-shrink-0 mt-0.5">
+              {getSeverityIcon(alert.severity)}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
+                <h3 className="font-semibold text-sm truncate">
+                  {alert.patient?.name || 'Paciente'}
+                </h3>
+                <span
+                  className={`text-xs px-1.5 py-0.5 rounded-full font-semibold flex-shrink-0 ${getSeverityBadgeClass(alert.severity)}`}
+                >
+                  {getSeverityLabel(alert.severity)}
+                </span>
               </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1 flex-wrap">
-                  <h3 className="font-semibold truncate">
-                    {alert.patient?.name || 'Paciente'}
-                  </h3>
-                  <span className="text-xs px-2 py-1 rounded bg-white flex-shrink-0">
-                    {alert.severity}
-                  </span>
-                </div>
-                <p className="text-sm text-gray-700 mb-2 break-words">
-                  {alert.message}
-                </p>
-                <div className="flex items-center gap-4 text-xs text-gray-500 flex-wrap">
-                  <span>
-                    {formatDistanceToNow(new Date(alert.createdAt), {
-                      addSuffix: true,
-                      locale: ptBR,
-                    })}
-                  </span>
-                  {alert.type && (
-                    <span className="capitalize">
-                      {alert.type.replace('_', ' ')}
-                    </span>
-                  )}
-                </div>
+              <p className="text-xs text-gray-700 mb-1.5 break-words line-clamp-2">
+                {alert.message}
+              </p>
+              <div className="flex items-center gap-3 text-xs text-gray-500 flex-wrap">
+                <span>
+                  {formatDistanceToNow(new Date(alert.createdAt), {
+                    addSuffix: true,
+                    locale: ptBR,
+                  })}
+                </span>
+                {alert.type && (
+                  <span>{getAlertTypeLabel(alert.type)}</span>
+                )}
               </div>
             </div>
+          </div>
 
-            {/* Botões de ação */}
-            <div className="flex gap-2 pt-2 border-t border-gray-200">
-              <Button
-                variant="outline"
-                size="sm"
-                className="flex-1"
-                onClick={(e) => {
-                  e.stopPropagation(); // Evitar que o clique no botão também selecione o alerta
-                  acknowledgeAlert.mutate(alert.id);
-                }}
-                disabled={acknowledgeAlert.isPending}
-              >
-                Reconhecer
-              </Button>
-              <Button
-                variant="default"
-                size="sm"
-                className="flex-1"
-                onClick={(e) => {
-                  e.stopPropagation(); // Evitar que o clique no botão também selecione o alerta
-                  resolveAlert.mutate(alert.id);
-                }}
-                disabled={resolveAlert.isPending}
-              >
-                Resolver
-              </Button>
-            </div>
+          {/* Botões de ação */}
+          <div className="flex gap-2 mt-2 pt-2 border-t border-gray-200">
+            <Button
+              variant="outline"
+              size="sm"
+              className="flex-1 h-7 text-xs"
+              onClick={(e) => {
+                e.stopPropagation();
+                acknowledgeAlert.mutate(alert.id);
+              }}
+              disabled={acknowledgeAlert.isPending}
+            >
+              <CheckCircle className="h-3 w-3 mr-1" />
+              Reconhecer
+            </Button>
+            <Button
+              size="sm"
+              className="flex-1 h-7 text-xs"
+              onClick={(e) => {
+                e.stopPropagation();
+                resolveAlert.mutate(alert.id);
+              }}
+              disabled={resolveAlert.isPending}
+            >
+              <XCircle className="h-3 w-3 mr-1" />
+              Resolver
+            </Button>
           </div>
         </div>
       ))}
