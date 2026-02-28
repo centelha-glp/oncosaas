@@ -597,16 +597,77 @@ export class WhatsAppConnectionsService {
   }
 
   /**
-   * Configurar webhook global (se necessário)
+   * C1: Configurar webhook no nível de app via Meta Graph API.
+   *
+   * Registra o callback_url + verify_token para a subscription
+   * `whatsapp_business_account`, habilitando recepção de eventos
+   * de mensagens, entrega e leitura.
+   *
+   * Deve ser chamado uma vez por app (não por tenant). Usa o
+   * App Access Token (APP_ID|APP_SECRET) — sem necessidade de
+   * token de usuário.
    */
   private async setupWebhookIfNeeded(): Promise<void> {
-    // Verificar se webhook já está configurado
-    // Se não, configurar usando app access token
-    // Isso pode ser feito uma vez por app, não por tenant
-    // Por enquanto, apenas logar que precisa ser configurado manualmente
-    this.logger.log(
-      'Webhook configuration should be done manually in Meta App Dashboard'
-    );
+    const appId = this.configService.get<string>('META_APP_ID');
+    const appSecret = this.configService.get<string>('META_APP_SECRET');
+
+    if (!appId || !appSecret) {
+      this.logger.warn(
+        'META_APP_ID or META_APP_SECRET not configured — skipping automatic webhook registration. ' +
+          'Configure the webhook manually in the Meta App Dashboard.'
+      );
+      return;
+    }
+
+    const backendUrl =
+      this.configService.get<string>('BACKEND_URL') || 'http://localhost:3002';
+    const webhookUrl =
+      this.configService.get<string>('WEBHOOK_URL') ||
+      `${backendUrl}/api/v1/channel-gateway/webhook/whatsapp`;
+    const verifyToken =
+      this.configService.get<string>('WHATSAPP_WEBHOOK_VERIFY_TOKEN') ||
+      'webhook-verify-token-change-in-production';
+    const apiVersion =
+      this.configService.get<string>('META_API_VERSION') || 'v18.0';
+
+    // App Access Token = APP_ID|APP_SECRET (static, no expiry)
+    const appAccessToken = `${appId}|${appSecret}`;
+
+    try {
+      const response = await axios.post(
+        `https://graph.facebook.com/${apiVersion}/${appId}/subscriptions`,
+        null,
+        {
+          params: {
+            object: 'whatsapp_business_account',
+            callback_url: webhookUrl,
+            verify_token: verifyToken,
+            fields: 'messages,message_deliveries,message_reads,messaging_postbacks',
+            include_values: 'true',
+            access_token: appAccessToken,
+          },
+        }
+      );
+
+      if (response.data?.success) {
+        this.logger.log(
+          `Webhook registered successfully: ${webhookUrl} (fields: messages, deliveries, reads)`
+        );
+      } else {
+        this.logger.warn(
+          `Webhook registration response unexpected: ${JSON.stringify(response.data)}`
+        );
+      }
+    } catch (error: any) {
+      const detail =
+        error?.response?.data?.error?.message || error?.message || 'unknown';
+      // Non-fatal: log but don't throw — the rest of the signup still completes.
+      // Common cause: webhook URL not publicly accessible in development.
+      this.logger.error(
+        `Failed to register webhook with Meta (${webhookUrl}): ${detail}. ` +
+          'Configure the webhook manually in the Meta App Dashboard if this persists.'
+      );
+    }
   }
 
   /**
@@ -1002,9 +1063,10 @@ export class WhatsAppConnectionsService {
       const backendUrl =
         this.configService.get<string>('BACKEND_URL') ||
         'http://localhost:3002';
+      // C2: correct controller path is /api/v1/channel-gateway/webhook/whatsapp
       const webhookUrl =
         this.configService.get<string>('WEBHOOK_URL') ||
-        `${backendUrl}/api/v1/whatsapp-connections/webhook`;
+        `${backendUrl}/api/v1/channel-gateway/webhook/whatsapp`;
       const verifyToken =
         this.configService.get<string>('WHATSAPP_WEBHOOK_VERIFY_TOKEN') ||
         'webhook-verify-token-change-in-production';

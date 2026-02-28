@@ -15,6 +15,7 @@ export interface OutgoingMessage {
   to: string; // Phone number or recipient ID
   content: string;
   channel: ChannelType;
+  tenantId: string;
   mediaUrl?: string;
 }
 

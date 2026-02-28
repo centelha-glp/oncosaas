@@ -90,7 +90,44 @@ export class AgentService {
     });
 
     if (!aiResponse) {
-      this.logger.warn('AI service returned no response');
+      this.logger.warn(
+        `AI service unavailable for conversation ${conversationId}. Sending fallback message to patient.`
+      );
+      // B2: Send a fallback message so the patient is not left without a response
+      const fallbackMessage =
+        'Olá! Estou com uma pequena instabilidade no momento. ' +
+        'Por favor, aguarde alguns instantes ou entre em contato com a equipe de enfermagem em caso de urgência.';
+      await this.channelGateway.sendMessage(
+        patientId,
+        tenantId,
+        fallbackMessage,
+        conversation.channel,
+        conversationId
+      );
+      return null;
+    }
+
+    // A2: Validate AI response structure before using it.
+    // A malformed response (missing `response` string) would silently send
+    // nothing to the patient. Treat it like an unavailable AI service.
+    if (
+      typeof aiResponse !== 'object' ||
+      (aiResponse.response !== undefined && typeof aiResponse.response !== 'string')
+    ) {
+      this.logger.error(
+        `AI service returned invalid response structure for conversation ${conversationId}: ` +
+          JSON.stringify(aiResponse).substring(0, 200)
+      );
+      const fallbackMessage =
+        'Olá! Recebi uma resposta inesperada do sistema. ' +
+        'A equipe de enfermagem foi notificada e entrará em contato em breve.';
+      await this.channelGateway.sendMessage(
+        patientId,
+        tenantId,
+        fallbackMessage,
+        conversation.channel,
+        conversationId
+      );
       return null;
     }
 
@@ -336,6 +373,28 @@ export class AgentService {
             conversationId
           );
           break;
+        case 'CHANGE_TREATMENT_STATUS':
+          await this.changeTreatmentStatus(decision, tenantId, patientId);
+          break;
+        case 'RECOMMEND_APPOINTMENT':
+          await this.recommendAppointment(
+            decision,
+            tenantId,
+            patientId,
+            conversationId
+          );
+          break;
+        case 'HANDOFF_TO_SPECIALIST':
+          await this.handoffToSpecialist(
+            decision,
+            tenantId,
+            patientId,
+            conversationId
+          );
+          break;
+        case 'CRITICAL_ESCALATION':
+          await this.criticalEscalation(decision, tenantId, patientId);
+          break;
         case 'START_QUESTIONNAIRE':
         case 'CONTINUE_QUESTIONNAIRE':
         case 'PROTOCOL_ALERT':
@@ -434,6 +493,148 @@ export class AgentService {
 
     this.logger.log(
       `Scheduled ${frequency} check-in for patient ${patientId} at ${scheduledAt.toISOString()}`
+    );
+  }
+
+  private async changeTreatmentStatus(
+    decision: any,
+    tenantId: string,
+    patientId: string
+  ) {
+    const { treatmentId, newStatus, reason } =
+      decision.outputAction?.payload || {};
+    if (!treatmentId || !newStatus) {
+      this.logger.warn('CHANGE_TREATMENT_STATUS missing treatmentId or newStatus');
+      return;
+    }
+
+    const treatment = await this.prisma.treatment.findFirst({
+      where: { id: treatmentId, patientId, tenantId },
+    });
+
+    if (!treatment) {
+      this.logger.warn(
+        `Treatment ${treatmentId} not found for patient ${patientId}`
+      );
+      return;
+    }
+
+    await this.prisma.treatment.update({
+      where: { id: treatmentId },
+      data: {
+        status: newStatus,
+        notes: reason
+          ? `${treatment.notes ? treatment.notes + '\n' : ''}[Agent] ${reason}`
+          : treatment.notes,
+      },
+    });
+
+    this.logger.log(
+      `Treatment ${treatmentId} status changed to ${newStatus} for patient ${patientId}`
+    );
+  }
+
+  private async recommendAppointment(
+    decision: any,
+    tenantId: string,
+    patientId: string,
+    conversationId: string
+  ) {
+    const payload = decision.outputAction?.payload || {};
+    const { reason, urgency, specialty } = payload;
+
+    const scheduledAt = new Date();
+    scheduledAt.setDate(scheduledAt.getDate() + (urgency === 'URGENT' ? 1 : 7));
+
+    await this.prisma.scheduledAction.create({
+      data: {
+        tenantId,
+        patientId,
+        conversationId,
+        actionType: 'APPOINTMENT',
+        scheduledAt,
+        payload: { reason, urgency, specialty, ...payload },
+      },
+    });
+
+    // Create an informational alert for the nursing team
+    const severity = urgency === 'URGENT' ? 'HIGH' : 'MEDIUM';
+    const alert = await this.prisma.alert.create({
+      data: {
+        tenantId,
+        patientId,
+        type: 'APPOINTMENT_RECOMMENDED',
+        severity,
+        message: `Consulta recomendada${specialty ? ` com ${specialty}` : ''}${reason ? `: ${reason}` : ''}`,
+        context: decision.inputData,
+      },
+    });
+
+    this.alertsGateway.emitNewAlert(tenantId, alert);
+    this.logger.log(
+      `Appointment recommended for patient ${patientId} (urgency: ${urgency})`
+    );
+  }
+
+  private async handoffToSpecialist(
+    decision: any,
+    tenantId: string,
+    patientId: string,
+    conversationId: string
+  ) {
+    const payload = decision.outputAction?.payload || {};
+    const { specialistType, reason } = payload;
+
+    // Escalate the conversation to nursing/specialist
+    await this.prisma.conversation.update({
+      where: { id: conversationId },
+      data: {
+        handledBy: 'NURSING',
+        status: 'WAITING',
+      },
+    });
+
+    const alert = await this.prisma.alert.create({
+      data: {
+        tenantId,
+        patientId,
+        type: 'SPECIALIST_HANDOFF',
+        severity: 'HIGH',
+        message: `Paciente necessita de encaminhamento${specialistType ? ` para ${specialistType}` : ''}${reason ? `: ${reason}` : ''}`,
+        context: decision.inputData,
+      },
+    });
+
+    this.alertsGateway.emitNewAlert(tenantId, alert);
+    this.logger.log(
+      `Conversation ${conversationId} handed off to specialist for patient ${patientId}`
+    );
+  }
+
+  private async criticalEscalation(
+    decision: any,
+    tenantId: string,
+    patientId: string
+  ) {
+    const payload = decision.outputAction?.payload || {};
+    const { message, symptoms } = payload;
+
+    const alert = await this.prisma.alert.create({
+      data: {
+        tenantId,
+        patientId,
+        type: 'CRITICAL_SYMPTOM',
+        severity: 'CRITICAL',
+        message:
+          message ||
+          'Sintomas críticos detectados. Avaliação imediata necessária.',
+        context: { ...decision.inputData, symptoms },
+      },
+    });
+
+    this.alertsGateway.emitNewAlert(tenantId, alert);
+    this.logger.warn(
+      `CRITICAL escalation created for patient ${patientId}: ${alert.id}`
     );
   }
 

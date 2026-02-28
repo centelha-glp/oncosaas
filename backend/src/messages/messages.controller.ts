@@ -31,8 +31,18 @@ export class MessagesController {
     UserRole.NURSE,
     UserRole.COORDINATOR
   )
-  findAll(@CurrentUser() user: any, @Query('patientId') patientId?: string) {
-    return this.messagesService.findAll(user.tenantId, patientId);
+  findAll(
+    @CurrentUser() user: any,
+    @Query('patientId') patientId?: string,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string
+  ) {
+    return this.messagesService.findAll(
+      user.tenantId,
+      patientId,
+      limit ? parseInt(limit, 10) : undefined,
+      offset ? parseInt(offset, 10) : undefined
+    );
   }
 
   @Get('unassumed/count')

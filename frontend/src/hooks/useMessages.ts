@@ -1,10 +1,13 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { messagesApi, Message, SendMessageDto } from '@/lib/api/messages';
 
+// Default page size for message history; keeps initial load fast.
+const MESSAGES_PAGE_SIZE = 100;
+
 export const useMessages = (patientId?: string) => {
   return useQuery({
     queryKey: ['messages', patientId],
-    queryFn: () => messagesApi.getAll(patientId),
+    queryFn: () => messagesApi.getAll(patientId, MESSAGES_PAGE_SIZE),
     enabled: !!patientId, // Só fazer requisição se houver patientId
     staleTime: 1 * 60 * 1000, // 1 minuto
   });

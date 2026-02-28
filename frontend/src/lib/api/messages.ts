@@ -38,9 +38,17 @@ export interface SendMessageDto {
 }
 
 export const messagesApi = {
-  async getAll(patientId?: string): Promise<Message[]> {
-    const url = patientId ? `/messages?patientId=${patientId}` : '/messages';
-    return apiClient.get<Message[]>(url);
+  async getAll(
+    patientId?: string,
+    limit?: number,
+    offset?: number
+  ): Promise<Message[]> {
+    const params = new URLSearchParams();
+    if (patientId) params.set('patientId', patientId);
+    if (limit !== undefined) params.set('limit', String(limit));
+    if (offset !== undefined) params.set('offset', String(offset));
+    const query = params.toString();
+    return apiClient.get<Message[]>(query ? `/messages?${query}` : '/messages');
   },
 
   async getById(id: string): Promise<Message> {
@@ -56,15 +64,14 @@ export const messagesApi = {
   },
 
   async send(data: SendMessageDto): Promise<Message> {
-    // Gerar IDs únicos para WhatsApp (simulado, em produção viria do WhatsApp API)
-    const whatsappMessageId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    const whatsappTimestamp = new Date().toISOString();
-
+    // A3: crypto.randomUUID() is universally unique — avoids the collision that
+    // Date.now() would produce when two messages are sent within the same ms,
+    // which would cause the backend to discard the second as a duplicate.
     return apiClient.post<Message>('/messages', {
       patientId: data.patientId,
       conversationId: data.conversationId,
-      whatsappMessageId,
-      whatsappTimestamp,
+      whatsappMessageId: `nursing_${crypto.randomUUID()}`,
+      whatsappTimestamp: new Date().toISOString(),
       type: 'TEXT',
       direction: 'OUTBOUND',
       content: data.content,

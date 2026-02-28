@@ -23,13 +23,24 @@ export class WhatsAppChannel implements IChannel {
   async send(message: OutgoingMessage): Promise<SendResult> {
     try {
       // Find active WhatsApp connection for the tenant
-      // The tenantId is resolved by the gateway service before calling send
-      const connection = await this.getDefaultConnection(message.to);
+      const connection = await this.getDefaultConnection(message.tenantId);
 
       if (!connection) {
         return {
           success: false,
           error: 'No active WhatsApp connection found',
+        };
+      }
+
+      // B3: Check if OAuth token is expired before using it
+      if (connection.oauthExpiresAt && new Date() >= connection.oauthExpiresAt) {
+        this.logger.error(
+          `WhatsApp OAuth token for tenant ${message.tenantId} expired at ${connection.oauthExpiresAt.toISOString()}. ` +
+            'Reconnect the WhatsApp connection via the integrations page.'
+        );
+        return {
+          success: false,
+          error: 'WhatsApp OAuth token has expired. Please reconnect the integration.',
         };
       }
 
@@ -107,17 +118,25 @@ export class WhatsAppChannel implements IChannel {
   }
 
   /**
-   * Find default WhatsApp connection (used for sending)
+   * Find default WhatsApp connection for a specific tenant (used for sending)
    */
-  private async getDefaultConnection(recipientPhone: string) {
-    // Find connections that are connected and active
-    return this.prisma.whatsAppConnection.findFirst({
+  private async getDefaultConnection(tenantId: string) {
+    const connection = await this.prisma.whatsAppConnection.findFirst({
       where: {
+        tenantId,
         isActive: true,
         isDefault: true,
         status: 'CONNECTED',
       },
     });
+
+    if (!connection) {
+      this.logger.warn(
+        `No default active WhatsApp connection found for tenant ${tenantId}`
+      );
+    }
+
+    return connection;
   }
 
   /**
@@ -147,6 +166,50 @@ export class WhatsAppChannel implements IChannel {
     }
 
     return null;
+  }
+
+  /**
+   * C3: Resolve a WhatsApp Media ID to a downloadable URL.
+   *
+   * The Meta webhook delivers media as an opaque Media ID (e.g. "12345678").
+   * To get the actual download URL, we must call:
+   *   GET https://graph.facebook.com/{version}/{media-id}
+   *
+   * The returned URL is a short-lived (~5 min) CDN link. Returns null when the
+   * connection or token is unavailable, or when the API call fails.
+   */
+  async resolveMediaUrl(
+    mediaId: string,
+    tenantId: string
+  ): Promise<string | null> {
+    try {
+      const connection = await this.getDefaultConnection(tenantId);
+      if (!connection) return null;
+
+      const accessToken = this.getAccessToken(connection);
+      if (!accessToken) return null;
+
+      const apiVersion =
+        this.configService.get<string>('META_API_VERSION') || 'v18.0';
+
+      const response = await fetch(
+        `https://graph.facebook.com/${apiVersion}/${mediaId}`,
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+
+      if (!response.ok) {
+        this.logger.warn(
+          `Failed to resolve media ID ${mediaId}: HTTP ${response.status}`
+        );
+        return null;
+      }
+
+      const data: any = await response.json();
+      return data.url ?? null;
+    } catch (error) {
+      this.logger.error(`resolveMediaUrl failed for ID ${mediaId}`, error);
+      return null;
+    }
   }
 
   /**

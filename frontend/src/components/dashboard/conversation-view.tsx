@@ -179,7 +179,21 @@ export function ConversationView({
                   <div className="text-xs font-semibold mb-1">
                     {getSenderLabel(message.sender)}
                   </div>
-                  <div className="text-sm">{message.content}</div>
+                  {message.type === 'audio' && message.audioUrl ? (
+                    <audio
+                      controls
+                      className="w-full max-w-xs mt-1"
+                      src={message.audioUrl}
+                    >
+                      <span className="text-sm text-muted-foreground">
+                        {message.content || 'Mensagem de áudio'}
+                      </span>
+                    </audio>
+                  ) : (
+                    <div className="text-sm whitespace-pre-wrap break-words">
+                      {message.content}
+                    </div>
+                  )}
                   <div className="text-xs text-muted-foreground mt-1">
                     {format(new Date(message.timestamp), 'dd/MM/yyyy HH:mm', {
                       locale: ptBR,
@@ -194,19 +208,42 @@ export function ConversationView({
         )}
       </div>
 
-      {/* Structured Data */}
-      {structuredData && (
-        <div className="border-t p-4 bg-gray-50">
-          <h3 className="font-semibold mb-2">Dados Estruturados Extraídos</h3>
-          <div className="grid grid-cols-2 gap-2 text-sm">
-            {Object.entries(structuredData.symptoms).map(([key, value]) => (
-              <div key={key}>
-                <span className="font-medium">{key}:</span> {value}/10
-              </div>
-            ))}
+      {/* Structured Data — only render when there are actual symptom entries */}
+      {structuredData &&
+        Object.keys(structuredData.symptoms).length > 0 && (
+          <div className="border-t p-3 bg-amber-50">
+            <h3 className="text-xs font-semibold text-amber-800 mb-2 uppercase tracking-wide">
+              Sintomas Extraídos pela IA
+            </h3>
+            <div className="grid grid-cols-2 gap-1.5 text-sm">
+              {Object.entries(structuredData.symptoms).map(([key, value]) => (
+                <div key={key} className="flex items-center gap-1">
+                  <span
+                    className={`inline-block w-2 h-2 rounded-full flex-shrink-0 ${
+                      value >= 7
+                        ? 'bg-red-500'
+                        : value >= 4
+                          ? 'bg-yellow-500'
+                          : 'bg-green-500'
+                    }`}
+                  />
+                  <span className="font-medium capitalize">{key}:</span>
+                  <span
+                    className={
+                      value >= 7
+                        ? 'text-red-700 font-bold'
+                        : value >= 4
+                          ? 'text-yellow-700'
+                          : 'text-green-700'
+                    }
+                  >
+                    {value}/10
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
       {/* Input */}
       <div className="border-t p-3">

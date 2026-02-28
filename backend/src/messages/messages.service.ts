@@ -12,7 +12,12 @@ export class MessagesService {
     private readonly messagesGateway: MessagesGateway
   ) {}
 
-  async findAll(tenantId: string, patientId?: string): Promise<Message[]> {
+  async findAll(
+    tenantId: string,
+    patientId?: string,
+    limit?: number,
+    offset?: number
+  ): Promise<Message[]> {
     const where: any = { tenantId };
     if (patientId) {
       where.patientId = patientId;
@@ -20,7 +25,9 @@ export class MessagesService {
 
     return this.prisma.message.findMany({
       where,
-      orderBy: { createdAt: 'desc' },
+      orderBy: { createdAt: 'asc' },
+      take: limit && limit > 0 ? Math.min(limit, 200) : undefined,
+      skip: offset && offset > 0 ? offset : undefined,
       include: {
         patient: {
           select: {

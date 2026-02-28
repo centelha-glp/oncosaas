@@ -167,6 +167,28 @@ export default function ChatPage() {
     clearFiltersFromStorage();
   };
 
+  // F1: Extract structured symptom data from the most recent message that has it
+  const latestStructuredData = (() => {
+    const msgWithData = messages
+      ?.filter((m) => {
+        const d = m.structuredData as
+          | { symptoms?: Record<string, number> }
+          | null
+          | undefined;
+        return d?.symptoms && Object.keys(d.symptoms).length > 0;
+      })
+      .sort(
+        (a, b) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      )[0];
+    if (!msgWithData?.structuredData) return undefined;
+    const d = msgWithData.structuredData as {
+      symptoms: Record<string, number>;
+      scales?: Record<string, number>;
+    };
+    return { symptoms: d.symptoms, scales: d.scales };
+  })();
+
   // Nome do usuário que assumiu (se for o usuário atual, usar o nome dele)
   const assumedByName =
     assumedMessage?.assumedBy === user?.id
@@ -503,10 +525,13 @@ export default function ChatPage() {
                       timestamp: new Date(
                         msg.whatsappTimestamp || msg.createdAt
                       ),
+                      type: msg.type?.toLowerCase() as
+                        | 'text'
+                        | 'audio'
+                        | undefined,
+                      audioUrl: msg.audioUrl ?? undefined,
                     }))}
-                    structuredData={{
-                      symptoms: {},
-                    }}
+                    structuredData={latestStructuredData}
                     onSendMessage={handleSendMessage}
                     onTakeOver={handleTakeOver}
                     isNursingActive={
