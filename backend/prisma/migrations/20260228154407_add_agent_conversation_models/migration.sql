@@ -283,5 +283,14 @@ ALTER TABLE "scheduled_actions" ADD CONSTRAINT "scheduled_actions_conversationId
 -- AddForeignKey
 ALTER TABLE "clinical_protocols" ADD CONSTRAINT "clinical_protocols_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "tenants"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
+-- Clean up orphaned conversationId references before adding FK constraint
+-- (existing seed data may reference conversation IDs that don't exist yet)
+UPDATE "messages"
+SET "conversationId" = NULL
+WHERE "conversationId" IS NOT NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM "conversations" WHERE "id" = "messages"."conversationId"
+  );
+
 -- AddForeignKey
 ALTER TABLE "messages" ADD CONSTRAINT "messages_conversationId_fkey" FOREIGN KEY ("conversationId") REFERENCES "conversations"("id") ON DELETE SET NULL ON UPDATE CASCADE;
