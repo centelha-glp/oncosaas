@@ -14,11 +14,17 @@ from ..models.schemas import (
     SymptomAnalysisRequest,
     SymptomAnalysisResponse,
     DetectedSymptom,
+    QuestionnaireScoreRequest,
+    QuestionnaireScoreResponse,
+    ProtocolEvaluateRequest,
+    ProtocolEvaluateResponse,
 )
 from ..agent.whatsapp_agent import whatsapp_agent
 from ..agent.orchestrator import orchestrator
 from ..agent.context_builder import context_builder
 from ..agent.symptom_analyzer import symptom_analyzer
+from ..agent.questionnaire_engine import questionnaire_engine
+from ..agent.protocol_engine import protocol_engine
 
 router = APIRouter()
 
@@ -254,6 +260,57 @@ async def analyze_symptoms(request: SymptomAnalysisRequest):
         )
 
 
+@router.post("/agent/score-questionnaire", response_model=QuestionnaireScoreResponse)
+async def score_questionnaire(request: QuestionnaireScoreRequest):
+    """
+    Calcula e interpreta scores de questionário (ESAS ou PRO-CTCAE).
+    """
+    try:
+        scores = questionnaire_engine.score_responses(
+            questionnaire_type=request.questionnaire_type,
+            answers=request.answers,
+        )
+
+        return QuestionnaireScoreResponse(
+            questionnaire_type=request.questionnaire_type,
+            scores=scores,
+            interpretation=scores.get("interpretation", ""),
+            alerts=scores.get("alerts", []),
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao calcular score do questionário: {str(e)}",
+        )
+
+
+@router.post("/agent/evaluate-protocol", response_model=ProtocolEvaluateResponse)
+async def evaluate_protocol(request: ProtocolEvaluateRequest):
+    """
+    Avalia regras do protocolo clínico para um paciente.
+    """
+    try:
+        actions = protocol_engine.evaluate(
+            cancer_type=request.cancer_type,
+            journey_stage=request.journey_stage,
+            symptom_analysis=request.symptom_analysis,
+            agent_state=request.agent_state,
+            protocol=request.protocol,
+        )
+
+        return ProtocolEvaluateResponse(
+            actions=actions,
+            required_questionnaire=protocol_engine.get_required_questionnaire(
+                request.cancer_type or "", request.journey_stage or ""
+            ),
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao avaliar protocolo: {str(e)}",
+        )
+
+
 # ============================================
 # Health check
 # ============================================
@@ -264,13 +321,15 @@ async def health():
     return {
         "status": "ok",
         "service": "ai-service",
-        "version": "0.2.0",
+        "version": "0.3.0",
         "model_trained": priority_model.is_trained,
         "capabilities": [
             "prioritization",
             "agent_orchestrator",
             "symptom_analysis",
             "context_building",
+            "questionnaire_engine",
+            "protocol_engine",
         ],
     }
 

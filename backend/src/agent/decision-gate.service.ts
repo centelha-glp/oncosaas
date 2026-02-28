@@ -8,11 +8,17 @@ import { AgentDecision } from './interfaces/agent-decision.interface';
 const AUTO_APPROVED_ACTIONS = new Set([
   'RESPOND_TO_QUESTION',
   'APPLY_QUESTIONNAIRE',
+  'START_QUESTIONNAIRE',
+  'CONTINUE_QUESTIONNAIRE',
+  'QUESTIONNAIRE_COMPLETE',
   'SCHEDULE_CHECK_IN',
   'SEND_REMINDER',
   'RECORD_SYMPTOM',
   'CREATE_LOW_ALERT',
   'UPDATE_NAVIGATION_STEP',
+  // Protocol-driven auto-approved actions
+  'CHECK_IN_SCHEDULED',
+  'PROTOCOL_ALERT', // Protocol alerts go to nursing dashboard
 ]);
 
 /**
@@ -24,6 +30,8 @@ const NEEDS_APPROVAL_ACTIONS = new Set([
   'CREATE_HIGH_CRITICAL_ALERT',
   'RECOMMEND_APPOINTMENT',
   'HANDOFF_TO_SPECIALIST',
+  // Questionnaire-triggered high-severity escalations
+  'QUESTIONNAIRE_ESCALATION',
 ]);
 
 @Injectable()

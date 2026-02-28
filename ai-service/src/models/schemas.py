@@ -126,3 +126,58 @@ class SymptomAnalysisResponse(BaseModel):
     requires_escalation: bool = False
     structured_data: Dict[str, Any] = Field(default_factory=dict)
     escalation_reason: Optional[str] = None
+
+
+# ============================================
+# Questionnaire Scoring
+# ============================================
+
+class QuestionnaireScoreRequest(BaseModel):
+    """Request to score a completed questionnaire."""
+
+    questionnaire_type: str = Field(..., description="'ESAS' or 'PRO_CTCAE'")
+    answers: Dict[str, Any] = Field(
+        ..., description="Map of item keys to numeric values"
+    )
+    patient_id: Optional[str] = None
+    tenant_id: Optional[str] = None
+
+
+class QuestionnaireScoreResponse(BaseModel):
+    """Scored questionnaire results."""
+
+    questionnaire_type: str
+    scores: Dict[str, Any] = Field(..., description="Computed scores per item/total")
+    interpretation: str = Field("", description="Human-readable interpretation")
+    alerts: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="High-score alerts that should trigger nursing notification",
+    )
+
+
+# ============================================
+# Protocol Evaluation
+# ============================================
+
+class ProtocolEvaluateRequest(BaseModel):
+    """Request to evaluate protocol rules for a patient."""
+
+    cancer_type: Optional[str] = None
+    journey_stage: Optional[str] = None
+    symptom_analysis: Optional[Dict[str, Any]] = None
+    agent_state: Optional[Dict[str, Any]] = None
+    protocol: Optional[Dict[str, Any]] = None
+    patient_id: Optional[str] = None
+    tenant_id: Optional[str] = None
+
+
+class ProtocolEvaluateResponse(BaseModel):
+    """Protocol evaluation result."""
+
+    actions: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Protocol-driven actions to execute",
+    )
+    required_questionnaire: Optional[str] = Field(
+        None, description="Questionnaire type required for this stage (ESAS, PRO_CTCAE, or None)"
+    )

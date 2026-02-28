@@ -320,12 +320,28 @@ export class AgentService {
           await this.createAlert(decision, tenantId, patientId);
           break;
         case 'SCHEDULE_CHECK_IN':
+        case 'CHECK_IN_SCHEDULED':
           await this.scheduleCheckIn(
             decision,
             tenantId,
             patientId,
             conversationId
           );
+          break;
+        case 'QUESTIONNAIRE_COMPLETE':
+          await this.saveQuestionnaireResult(
+            decision,
+            tenantId,
+            patientId,
+            conversationId
+          );
+          break;
+        case 'START_QUESTIONNAIRE':
+        case 'CONTINUE_QUESTIONNAIRE':
+        case 'PROTOCOL_ALERT':
+        case 'RESPOND_TO_QUESTION':
+          // These are handled by the orchestrator response or are informational
+          this.logger.debug(`Action handled by orchestrator: ${actionType}`);
           break;
         default:
           this.logger.log(`No handler for action type: ${actionType}`);
@@ -389,10 +405,21 @@ export class AgentService {
     patientId: string,
     conversationId: string
   ) {
-    const { scheduledAt, payload } = decision.outputAction || {};
-    if (!scheduledAt) {
-      return;
-    }
+    const payload = decision.outputAction?.payload || {};
+    const frequency = payload.frequency || 'weekly';
+
+    // Determine scheduledAt based on frequency
+    const now = new Date();
+    const frequencyDays: Record<string, number> = {
+      daily: 1,
+      twice_weekly: 3,
+      weekly: 7,
+      biweekly: 14,
+      monthly: 30,
+    };
+    const daysAhead = frequencyDays[frequency] || 7;
+    const scheduledAt = new Date(now);
+    scheduledAt.setDate(scheduledAt.getDate() + daysAhead);
 
     await this.prisma.scheduledAction.create({
       data: {
@@ -400,9 +427,93 @@ export class AgentService {
         patientId,
         conversationId,
         actionType: 'CHECK_IN',
-        scheduledAt: new Date(scheduledAt),
-        payload: payload || {},
+        scheduledAt,
+        payload: { frequency, ...payload },
       },
     });
+
+    this.logger.log(
+      `Scheduled ${frequency} check-in for patient ${patientId} at ${scheduledAt.toISOString()}`
+    );
+  }
+
+  private async saveQuestionnaireResult(
+    decision: any,
+    tenantId: string,
+    patientId: string,
+    conversationId: string
+  ) {
+    const payload = decision.outputAction?.payload || {};
+    const { questionnaireType, answers, scores } = payload;
+
+    if (!questionnaireType || !answers) {
+      return;
+    }
+
+    try {
+      // Look up or create the Questionnaire template record
+      const typeMap: Record<string, 'ESAS' | 'PRO_CTCAE' | 'CUSTOM'> = {
+        ESAS: 'ESAS',
+        PRO_CTCAE: 'PRO_CTCAE',
+      };
+      const prismaType = typeMap[questionnaireType] ?? 'CUSTOM';
+
+      let questionnaire = await this.prisma.questionnaire.findFirst({
+        where: { tenantId, type: prismaType },
+      });
+
+      if (!questionnaire) {
+        questionnaire = await this.prisma.questionnaire.create({
+          data: {
+            tenantId,
+            code: questionnaireType,
+            name:
+              questionnaireType === 'ESAS'
+                ? 'ESAS - Edmonton Symptom Assessment'
+                : 'PRO-CTCAE',
+            type: prismaType,
+            structure: {},
+          },
+        });
+      }
+
+      await this.prisma.questionnaireResponse.create({
+        data: {
+          tenantId,
+          patientId,
+          questionnaireId: questionnaire.id,
+          conversationId,
+          responses: answers,
+          scores: scores || {},
+          completedAt: new Date(),
+        },
+      });
+
+      this.logger.log(
+        `Saved ${questionnaireType} questionnaire for patient ${patientId}`
+      );
+
+      // If scores have high-severity alerts, emit a real-time alert
+      const alerts: any[] = scores?.alerts || [];
+      const hasHighAlerts = alerts.some(
+        (a: any) => a.severity === 'HIGH' || a.severity === 'CRITICAL'
+      );
+
+      if (hasHighAlerts) {
+        const alert = await this.prisma.alert.create({
+          data: {
+            tenantId,
+            patientId,
+            type: 'SCORE_CHANGE',
+            severity: 'HIGH',
+            message: `Pontuação alta no questionário ${questionnaireType}: ${scores?.interpretation || ''}`,
+            context: { questionnaireType, scores, alerts },
+          },
+        });
+        this.alertsGateway.emitNewAlert(tenantId, alert);
+      }
+    } catch (error) {
+      this.logger.error('Failed to save questionnaire result', error);
+    }
   }
 }
