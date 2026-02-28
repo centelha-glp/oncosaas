@@ -98,11 +98,22 @@ export class DecisionGateService {
   }
 
   /**
-   * Approve a pending decision
+   * Approve a pending decision.
+   * A1: uses update() (not updateMany) so we get a NotFoundException on
+   * unknown IDs and never overwrite an already-approved decision.
    */
   async approveDecision(decisionId: string, tenantId: string, userId: string) {
-    return this.prisma.agentDecisionLog.updateMany({
+    const existing = await this.prisma.agentDecisionLog.findFirst({
       where: { id: decisionId, tenantId },
+    });
+    if (!existing) {
+      throw new Error(`Decision ${decisionId} not found for tenant ${tenantId}`);
+    }
+    if (existing.approvedBy !== null) {
+      throw new Error(`Decision ${decisionId} has already been approved`);
+    }
+    return this.prisma.agentDecisionLog.update({
+      where: { id: decisionId },
       data: {
         approvedBy: userId,
         approvedAt: new Date(),
@@ -112,7 +123,8 @@ export class DecisionGateService {
   }
 
   /**
-   * Reject a pending decision
+   * Reject a pending decision.
+   * A1: uses update() (not updateMany) with same guard as approve.
    */
   async rejectDecision(
     decisionId: string,
@@ -120,8 +132,17 @@ export class DecisionGateService {
     userId: string,
     reason: string
   ) {
-    return this.prisma.agentDecisionLog.updateMany({
+    const existing = await this.prisma.agentDecisionLog.findFirst({
       where: { id: decisionId, tenantId },
+    });
+    if (!existing) {
+      throw new Error(`Decision ${decisionId} not found for tenant ${tenantId}`);
+    }
+    if (existing.rejected) {
+      throw new Error(`Decision ${decisionId} has already been rejected`);
+    }
+    return this.prisma.agentDecisionLog.update({
+      where: { id: decisionId },
       data: {
         approvedBy: userId,
         approvedAt: new Date(),

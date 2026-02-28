@@ -64,13 +64,13 @@ export const messagesApi = {
   },
 
   async send(data: SendMessageDto): Promise<Message> {
-    // F6: whatsappMessageId is generated server-side for outbound messages.
-    // We send a stable temporary ID so the backend can deduplicate if needed;
-    // the real WhatsApp message ID is returned after the channel sends it.
+    // A3: crypto.randomUUID() is universally unique — avoids the collision that
+    // Date.now() would produce when two messages are sent within the same ms,
+    // which would cause the backend to discard the second as a duplicate.
     return apiClient.post<Message>('/messages', {
       patientId: data.patientId,
       conversationId: data.conversationId,
-      whatsappMessageId: `nursing_${Date.now()}`,
+      whatsappMessageId: `nursing_${crypto.randomUUID()}`,
       whatsappTimestamp: new Date().toISOString(),
       type: 'TEXT',
       direction: 'OUTBOUND',

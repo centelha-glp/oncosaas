@@ -5,6 +5,7 @@ import {
   Inject,
   forwardRef,
 } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { ChannelType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { MessagesGateway } from '../gateways/messages.gateway';
@@ -81,6 +82,22 @@ export class ChannelGatewayService {
       channel
     );
 
+    // C3: Resolve Media ID → downloadable URL for audio/image/document messages.
+    // The Meta webhook delivers an opaque Media ID; we must call the Graph API
+    // to get the actual CDN URL before saving so the frontend can render it.
+    let resolvedMediaUrl = mediaUrl;
+    if (mediaUrl && (type === 'AUDIO' || type === 'IMAGE' || type === 'DOCUMENT')) {
+      const url = await this.whatsAppChannel.resolveMediaUrl(mediaUrl, tenantId);
+      if (url) {
+        resolvedMediaUrl = url;
+        this.logger.log(`Resolved media ID ${mediaUrl} → URL for ${type} message`);
+      } else {
+        this.logger.warn(
+          `Could not resolve media ID ${mediaUrl} for ${type} message — storing ID as fallback`
+        );
+      }
+    }
+
     // 3. Save message
     const message = await this.prisma.message.create({
       data: {
@@ -93,7 +110,7 @@ export class ChannelGatewayService {
         type,
         direction: 'INBOUND',
         content,
-        audioUrl: mediaUrl,
+        audioUrl: resolvedMediaUrl,
         audioDuration,
       },
       include: {
@@ -197,7 +214,7 @@ export class ChannelGatewayService {
         patientId,
         conversationId,
         channel,
-        whatsappMessageId: sendResult.externalMessageId || `out_${Date.now()}`,
+        whatsappMessageId: sendResult.externalMessageId || `out_${randomUUID()}`,
         whatsappTimestamp: new Date(),
         type: 'TEXT',
         direction: 'OUTBOUND',

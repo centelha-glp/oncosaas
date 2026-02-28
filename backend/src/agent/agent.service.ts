@@ -107,6 +107,30 @@ export class AgentService {
       return null;
     }
 
+    // A2: Validate AI response structure before using it.
+    // A malformed response (missing `response` string) would silently send
+    // nothing to the patient. Treat it like an unavailable AI service.
+    if (
+      typeof aiResponse !== 'object' ||
+      (aiResponse.response !== undefined && typeof aiResponse.response !== 'string')
+    ) {
+      this.logger.error(
+        `AI service returned invalid response structure for conversation ${conversationId}: ` +
+          JSON.stringify(aiResponse).substring(0, 200)
+      );
+      const fallbackMessage =
+        'Olá! Recebi uma resposta inesperada do sistema. ' +
+        'A equipe de enfermagem foi notificada e entrará em contato em breve.';
+      await this.channelGateway.sendMessage(
+        patientId,
+        tenantId,
+        fallbackMessage,
+        conversation.channel,
+        conversationId
+      );
+      return null;
+    }
+
     // 7. Evaluate decisions through decision gate
     const { autoApproved, needsApproval } = this.decisionGate.evaluate(
       aiResponse.decisions || []

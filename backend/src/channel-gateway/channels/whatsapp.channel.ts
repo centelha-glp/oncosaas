@@ -169,6 +169,50 @@ export class WhatsAppChannel implements IChannel {
   }
 
   /**
+   * C3: Resolve a WhatsApp Media ID to a downloadable URL.
+   *
+   * The Meta webhook delivers media as an opaque Media ID (e.g. "12345678").
+   * To get the actual download URL, we must call:
+   *   GET https://graph.facebook.com/{version}/{media-id}
+   *
+   * The returned URL is a short-lived (~5 min) CDN link. Returns null when the
+   * connection or token is unavailable, or when the API call fails.
+   */
+  async resolveMediaUrl(
+    mediaId: string,
+    tenantId: string
+  ): Promise<string | null> {
+    try {
+      const connection = await this.getDefaultConnection(tenantId);
+      if (!connection) return null;
+
+      const accessToken = this.getAccessToken(connection);
+      if (!accessToken) return null;
+
+      const apiVersion =
+        this.configService.get<string>('META_API_VERSION') || 'v18.0';
+
+      const response = await fetch(
+        `https://graph.facebook.com/${apiVersion}/${mediaId}`,
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+
+      if (!response.ok) {
+        this.logger.warn(
+          `Failed to resolve media ID ${mediaId}: HTTP ${response.status}`
+        );
+        return null;
+      }
+
+      const data: any = await response.json();
+      return data.url ?? null;
+    } catch (error) {
+      this.logger.error(`resolveMediaUrl failed for ID ${mediaId}`, error);
+      return null;
+    }
+  }
+
+  /**
    * Parse incoming Meta webhook payload into normalized messages
    */
   parseWebhookPayload(body: any): Array<{
