@@ -417,6 +417,141 @@ async function main() {
     }
   }
 
+  // ─── AgentConfig ────────────────────────────────────────────────────────────
+  const existingAgentConfig = await prisma.agentConfig.findUnique({
+    where: { tenantId: tenant.id },
+  });
+  if (!existingAgentConfig) {
+    await prisma.agentConfig.create({
+      data: {
+        tenantId: tenant.id,
+        llmProvider: 'anthropic',
+        llmModel: 'claude-sonnet-4-6',
+        llmFallbackProvider: 'openai',
+        llmFallbackModel: 'gpt-4o-mini',
+        maxAutoReplies: 10,
+        agentLanguage: 'pt-BR',
+        escalationRules: {
+          threshold: 'HIGH',
+          workingHoursStart: '08:00',
+          workingHoursEnd: '20:00',
+        },
+        defaultCheckInFrequency: { TREATMENT: 'daily', FOLLOW_UP: 'weekly' },
+        riskBasedAdjustment: true,
+      },
+    });
+    console.log('✅ AgentConfig criado para o tenant');
+  } else {
+    console.log('✅ AgentConfig já existe');
+  }
+
+  // ─── ClinicalProtocols ───────────────────────────────────────────────────────
+  const protocolTypes = ['colorectal', 'bladder', 'renal', 'prostate'];
+  for (const cancerType of protocolTypes) {
+    const existing = await prisma.clinicalProtocol.findFirst({
+      where: { tenantId: tenant.id, cancerType },
+    });
+    if (!existing) {
+      await prisma.clinicalProtocol.create({
+        data: {
+          tenantId: tenant.id,
+          name: `Protocolo ${cancerType.charAt(0).toUpperCase() + cancerType.slice(1)}`,
+          cancerType,
+          version: '1.0',
+          isActive: true,
+          definition: {
+            stages: ['SCREENING', 'DIAGNOSIS', 'TREATMENT', 'FOLLOW_UP'],
+          },
+          checkInRules: {
+            SCREENING: { frequency: 'weekly', questionnaire: null },
+            DIAGNOSIS: { frequency: 'twice_weekly', questionnaire: null },
+            TREATMENT: { frequency: 'daily', questionnaire: 'ESAS' },
+            FOLLOW_UP: { frequency: 'weekly', questionnaire: 'PRO_CTCAE' },
+          },
+          criticalSymptoms: {
+            TREATMENT: [
+              'febre neutropênica',
+              'falta de ar',
+              'sangramento',
+              'obstrução intestinal',
+            ],
+          },
+        },
+      });
+      console.log(`✅ Protocolo ${cancerType} criado`);
+    } else {
+      console.log(`✅ Protocolo ${cancerType} já existe`);
+    }
+  }
+
+  // ─── ESAS Questionnaire template ─────────────────────────────────────────────
+  const esasExists = await prisma.questionnaire.findFirst({
+    where: { tenantId: tenant.id, type: 'ESAS' },
+  });
+  if (!esasExists) {
+    await prisma.questionnaire.create({
+      data: {
+        tenantId: tenant.id,
+        code: 'ESAS',
+        name: 'ESAS — Edmonton Symptom Assessment System',
+        type: 'ESAS',
+        isActive: true,
+        structure: {
+          items: [
+            { key: 'pain', label: 'Dor', scale: '0-10' },
+            { key: 'fatigue', label: 'Cansaço', scale: '0-10' },
+            { key: 'nausea', label: 'Náusea', scale: '0-10' },
+            { key: 'depression', label: 'Humor/Depressão', scale: '0-10' },
+            { key: 'anxiety', label: 'Ansiedade', scale: '0-10' },
+            { key: 'drowsiness', label: 'Sonolência', scale: '0-10' },
+            { key: 'appetite', label: 'Apetite', scale: '0-10' },
+            { key: 'wellbeing', label: 'Bem-estar geral', scale: '0-10' },
+            { key: 'dyspnea', label: 'Falta de ar', scale: '0-10' },
+          ],
+          alertThreshold: 7,
+          totalAlertThreshold: 50,
+        },
+      },
+    });
+    console.log('✅ Questionário ESAS criado');
+  } else {
+    console.log('✅ Questionário ESAS já existe');
+  }
+
+  // ─── PRO-CTCAE Questionnaire template ────────────────────────────────────────
+  const proCtcaeExists = await prisma.questionnaire.findFirst({
+    where: { tenantId: tenant.id, type: 'PRO_CTCAE' },
+  });
+  if (!proCtcaeExists) {
+    await prisma.questionnaire.create({
+      data: {
+        tenantId: tenant.id,
+        code: 'PRO_CTCAE',
+        name: 'PRO-CTCAE — Patient-Reported Outcomes CTCAE',
+        type: 'PRO_CTCAE',
+        isActive: true,
+        structure: {
+          items: [
+            { key: 'pain', attributes: ['severity', 'interference'] },
+            { key: 'fatigue', attributes: ['severity', 'interference'] },
+            { key: 'nausea', attributes: ['frequency', 'severity'] },
+            { key: 'diarrhea', attributes: ['frequency', 'severity'] },
+            { key: 'constipation', attributes: ['severity'] },
+            { key: 'appetite_loss', attributes: ['severity', 'interference'] },
+            { key: 'dyspnea', attributes: ['severity', 'interference'] },
+            { key: 'insomnia', attributes: ['frequency', 'severity'] },
+            { key: 'neuropathy', attributes: ['severity', 'interference'] },
+            { key: 'mucositis', attributes: ['severity', 'interference'] },
+          ],
+          alertGrade: 3,
+        },
+      },
+    });
+    console.log('✅ Questionário PRO-CTCAE criado');
+  } else {
+    console.log('✅ Questionário PRO-CTCAE já existe');
+  }
+
   console.log('');
   console.log('🎉 Seed concluído com sucesso!');
   console.log('');
