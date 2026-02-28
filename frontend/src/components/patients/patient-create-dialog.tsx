@@ -23,7 +23,7 @@ import {
   createPatientSchema,
   CreatePatientFormData,
 } from '@/lib/validations/patient';
-import { patientsApi } from '@/lib/api/patients';
+import { patientsApi, CreatePatientDto } from '@/lib/api/patients';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
@@ -67,7 +67,7 @@ export function PatientCreateDialog({
   });
 
   const createPatientMutation = useMutation({
-    mutationFn: (data: CreatePatientFormData) => patientsApi.create(data),
+    mutationFn: (data: CreatePatientDto) => patientsApi.create(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['patients'] });
       toast.success('Paciente criado com sucesso!');
@@ -113,7 +113,7 @@ export function PatientCreateDialog({
           : undefined,
       ehrId: data.ehrPatientId,
     };
-    createPatientMutation.mutate(patientData as any);
+    createPatientMutation.mutate(patientData as unknown as CreatePatientDto);
   };
 
   const handleNext = () => {

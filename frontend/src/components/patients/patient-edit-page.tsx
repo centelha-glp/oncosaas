@@ -179,21 +179,21 @@ export function PatientEditPage({ patientId }: PatientEditPageProps) {
         phone: formatPhoneForDisplay(patient.phone),
         email: patient.email || '',
         // Manter valores como strings quando existirem
-        cancerType: cancerType || undefined,
+        cancerType: (cancerType ||
+          undefined) as CreatePatientFormData['cancerType'],
         stage: stage || undefined,
         // Campos TNM estruturados
-        tStage: tStage || undefined,
-        nStage: nStage || undefined,
-        mStage: mStage || undefined,
-        grade: grade || undefined,
+        tStage: (tStage || undefined) as CreatePatientFormData['tStage'],
+        nStage: (nStage || undefined) as CreatePatientFormData['nStage'],
+        mStage: (mStage || undefined) as CreatePatientFormData['mStage'],
+        grade: (grade || undefined) as CreatePatientFormData['grade'],
         diagnosisDate: diagnosisDate || undefined,
         // currentStage deve ser uma string válida do enum JourneyStage
-        currentStage:
-          patient.currentStage &&
-          typeof patient.currentStage === 'string' &&
-          patient.currentStage.trim() !== ''
-            ? patient.currentStage
-            : undefined,
+        currentStage: (patient.currentStage &&
+        typeof patient.currentStage === 'string' &&
+        patient.currentStage.trim() !== ''
+          ? patient.currentStage
+          : undefined) as CreatePatientFormData['currentStage'] | undefined,
         // performanceStatus deve ser um número (não string) para o schema Zod
         performanceStatus: performanceStatusValue,
         smokingHistory: patient.smokingHistory || '',
@@ -620,7 +620,11 @@ export function PatientEditPage({ patientId }: PatientEditPageProps) {
                         shouldValidate: true,
                       });
                     } else {
-                      setValue('currentStage', value, { shouldValidate: true });
+                      setValue(
+                        'currentStage',
+                        value as CreatePatientFormData['currentStage'],
+                        { shouldValidate: true }
+                      );
                     }
                   }}
                 >
@@ -654,7 +658,11 @@ export function PatientEditPage({ patientId }: PatientEditPageProps) {
                         shouldValidate: true,
                       });
                     } else {
-                      setValue('cancerType', value, { shouldValidate: true });
+                      setValue(
+                        'cancerType',
+                        value as CreatePatientFormData['cancerType'],
+                        { shouldValidate: true }
+                      );
                     }
                   }}
                 >
