@@ -40,9 +40,38 @@ if [ ! -f "$CLAUDE_PROJECT_DIR/backend/.env" ]; then
   sed 's/:5433/:5432/' "$CLAUDE_PROJECT_DIR/.env.example" > "$CLAUDE_PROJECT_DIR/backend/.env"
 fi
 
+# Generate Prisma client
+echo "Generating Prisma client..."
+cd "$CLAUDE_PROJECT_DIR/backend"
+npx prisma generate
+
 # Run migrations
 echo "Running database migrations..."
 cd "$CLAUDE_PROJECT_DIR/backend"
 npx prisma migrate deploy
 
+# Seed database if empty (check if tenants table has data)
+echo "Checking if database needs seeding..."
+TENANT_COUNT=$(su -c "psql -tc \"SELECT count(*) FROM \\\"ONCONAV_development\\\".tenants;\"" postgres 2>/dev/null | tr -d ' ' || echo "0")
+if [ "$TENANT_COUNT" = "0" ] || [ "$TENANT_COUNT" = "" ]; then
+  echo "Seeding database with test data..."
+  cd "$CLAUDE_PROJECT_DIR/backend"
+  npx prisma db seed || echo "Seed failed (may not be configured yet)"
+fi
+
+# Validate setup
+echo "Validating environment setup..."
+if [ -f "$CLAUDE_PROJECT_DIR/scripts/validate-setup.sh" ]; then
+  bash "$CLAUDE_PROJECT_DIR/scripts/validate-setup.sh" || echo "Validation completed with warnings"
+fi
+
+echo ""
+echo "========================================="
+echo "  ONCONAV Development Environment Ready"
+echo "========================================="
+echo "  Frontend:  http://localhost:3000"
+echo "  Backend:   http://localhost:3002/api/v1"
+echo "  AI Service: http://localhost:8001"
+echo "  PostgreSQL: localhost:5432"
+echo "========================================="
 echo "Database setup complete."
