@@ -11,6 +11,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Users, Search, Filter, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { mapPriorityToDisplay } from '@/lib/utils/priority';
+import { getPatientCancerType } from '@/lib/utils/patient-cancer-type';
 
 interface PatientListConnectedProps {
   onPatientSelect?: (patientId: string) => void;
@@ -149,14 +151,10 @@ export function PatientListConnected({
   const transformedPatients = sortedPatients.map((patient) => ({
     id: patient.id,
     name: patient.name,
-    cancerType: patient.cancerType,
+    cancerType: getPatientCancerType(patient),
     stage: patient.stage,
     priorityScore: patient.priorityScore,
-    priorityCategory: (patient.priorityCategory || 'MEDIUM').toLowerCase() as
-      | 'critico'
-      | 'alto'
-      | 'medio'
-      | 'baixo',
+    priorityCategory: mapPriorityToDisplay(patient.priorityCategory || 'MEDIUM'),
     lastInteraction: patient.lastInteraction
       ? formatDistanceToNow(new Date(patient.lastInteraction), {
           addSuffix: true,

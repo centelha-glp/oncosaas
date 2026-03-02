@@ -6,6 +6,7 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { Request } from 'express';
+import { RedisService } from '../../redis/redis.service';
 
 interface RateLimitRecord {
   count: number;
@@ -13,55 +14,77 @@ interface RateLimitRecord {
 }
 
 /**
- * Guard simples de Rate Limiting
- * Limita requisições por IP para prevenir abusos
+ * Guard de Rate Limiting com Redis como store primário.
+ * Faz fallback para in-memory quando Redis não está disponível.
  *
- * Configuração:
- * - 100 requisições por minuto para endpoints gerais
- * - 10 requisições por minuto para login/register (mais restritivo)
- * - 200 requisições por minuto para webhooks (WhatsApp pode enviar muitas notificações)
- * - 30 requisições por minuto para health/ready (monitoramento)
+ * Limites:
+ * - 100 req/min para endpoints gerais
+ * - 10 req/min para login/register
+ * - 200 req/min para webhooks WhatsApp
+ * - 30 req/min para health checks
  */
 @Injectable()
 export class ThrottleGuard implements CanActivate {
-  private readonly store = new Map<string, RateLimitRecord>();
-  private readonly defaultLimit = 100; // requisições
-  private readonly defaultTtl = 60000; // 1 minuto em ms
-  private readonly loginLimit = 10; // limite mais restritivo para login/register
-  private readonly webhookLimit = 200; // limite para webhooks (WhatsApp pode enviar muitas notificações)
-  private readonly healthLimit = 30; // limite para health checks
-  private readonly cleanupInterval = 60000; // limpar registros antigos a cada minuto
+  private readonly fallbackStore = new Map<string, RateLimitRecord>();
+  private readonly defaultLimit = 100;
+  private readonly defaultTtl = 60; // segundos
+  private readonly loginLimit = 10;
+  private readonly webhookLimit = 200;
+  private readonly healthLimit = 30;
 
-  constructor() {
-    // Limpar registros antigos periodicamente para evitar memory leak
-    setInterval(() => this.cleanup(), this.cleanupInterval);
+  constructor(private readonly redisService: RedisService) {
+    // Limpeza periódica do fallback in-memory
+    setInterval(() => {
+      const now = Date.now();
+      for (const [key, record] of this.fallbackStore.entries()) {
+        if (now > record.resetTime) {
+          this.fallbackStore.delete(key);
+        }
+      }
+    }, 60000);
   }
 
-  canActivate(context: ExecutionContext): boolean {
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<Request>();
     const ip = this.getClientIp(request);
     const path = request.path;
 
-    // Determinar limite baseado no endpoint
-    let limit = this.defaultLimit;
-    if (this.isLoginEndpoint(path)) {
-      limit = this.loginLimit;
-    } else if (this.isWebhookEndpoint(path)) {
-      limit = this.webhookLimit;
-    } else if (this.isHealthEndpoint(path)) {
-      limit = this.healthLimit;
+    const limit = this.getLimit(path);
+    const key = `rl:${ip}:${path}`;
+
+    if (this.redisService.isConnected()) {
+      return this.checkRedis(key, limit);
     }
 
-    const key = `${ip}:${path}`;
+    return this.checkMemory(key, limit);
+  }
 
+  private async checkRedis(key: string, limit: number): Promise<boolean> {
+    const count = await this.redisService.increment(key, this.defaultTtl);
+
+    if (count > limit) {
+      const remaining = await this.redisService.ttl(key);
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.TOO_MANY_REQUESTS,
+          message: 'Muitas requisições. Tente novamente em alguns segundos.',
+          retryAfter: remaining > 0 ? remaining : this.defaultTtl,
+        },
+        HttpStatus.TOO_MANY_REQUESTS
+      );
+    }
+
+    return true;
+  }
+
+  private checkMemory(key: string, limit: number): boolean {
     const now = Date.now();
-    const record = this.store.get(key);
+    const record = this.fallbackStore.get(key);
 
     if (!record || now > record.resetTime) {
-      // Primeiro request ou TTL expirado
-      this.store.set(key, {
+      this.fallbackStore.set(key, {
         count: 1,
-        resetTime: now + this.defaultTtl,
+        resetTime: now + this.defaultTtl * 1000,
       });
       return true;
     }
@@ -82,8 +105,28 @@ export class ThrottleGuard implements CanActivate {
     return true;
   }
 
+  private getLimit(path: string): number {
+    if (path.includes('/auth/login') || path.includes('/auth/register')) {
+      return this.loginLimit;
+    }
+    if (
+      path.includes('/webhook') ||
+      (path.includes('/whatsapp-connections') && path.includes('/webhook'))
+    ) {
+      return this.webhookLimit;
+    }
+    if (
+      path === '/health' ||
+      path === '/ready' ||
+      path === '/api/v1/health' ||
+      path === '/api/v1/ready'
+    ) {
+      return this.healthLimit;
+    }
+    return this.defaultLimit;
+  }
+
   private getClientIp(request: Request): string {
-    // Considerar headers de proxy reverso
     const forwarded = request.headers['x-forwarded-for'];
     if (forwarded) {
       const ips = Array.isArray(forwarded)
@@ -92,34 +135,5 @@ export class ThrottleGuard implements CanActivate {
       return ips.trim();
     }
     return request.ip || request.socket.remoteAddress || 'unknown';
-  }
-
-  private isLoginEndpoint(path: string): boolean {
-    return path.includes('/auth/login') || path.includes('/auth/register');
-  }
-
-  private isWebhookEndpoint(path: string): boolean {
-    return (
-      path.includes('/webhook') ||
-      (path.includes('/whatsapp-connections') && path.includes('/webhook'))
-    );
-  }
-
-  private isHealthEndpoint(path: string): boolean {
-    return (
-      path === '/health' ||
-      path === '/ready' ||
-      path === '/api/v1/health' ||
-      path === '/api/v1/ready'
-    );
-  }
-
-  private cleanup(): void {
-    const now = Date.now();
-    for (const [key, record] of this.store.entries()) {
-      if (now > record.resetTime) {
-        this.store.delete(key);
-      }
-    }
   }
 }

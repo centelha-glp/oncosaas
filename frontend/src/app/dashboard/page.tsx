@@ -35,6 +35,9 @@ import {
 import { useDashboardSocket } from '@/hooks/useDashboardSocket';
 import { Calendar, RefreshCw } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { mapPriorityToDisplay } from '@/lib/utils/priority';
+import { getPatientCancerType, getPatientAllCancerTypes } from '@/lib/utils/patient-cancer-type';
+import { ChartDrillDownModal } from '@/components/dashboard/shared/chart-drill-down-modal';
 
 // Componente do Dashboard Específico para Enfermeiros
 import { NurseSpecificDashboard } from '@/components/dashboard/nurse/nurse-specific-dashboard';
@@ -187,26 +190,21 @@ function NursingDashboard() {
                     patientName={selectedPatientData.name}
                     patientInfo={{
                       cancerType:
-                        selectedPatientData.cancerDiagnoses &&
-                        selectedPatientData.cancerDiagnoses.length > 0
-                          ? selectedPatientData.cancerDiagnoses
-                              .map((d) => d.cancerType)
-                              .join(', ')
-                          : selectedPatientData.cancerType || 'Em Rastreio',
+                        getPatientAllCancerTypes(selectedPatientData).join(
+                          ', '
+                        ) || 'Em Rastreio',
                       stage:
-                        selectedPatientData.cancerDiagnoses &&
-                        selectedPatientData.cancerDiagnoses.length > 0
-                          ? selectedPatientData.cancerDiagnoses[0].stage ||
-                            'N/A'
-                          : selectedPatientData.stage || 'N/A',
+                        selectedPatientData.cancerDiagnoses?.[0]?.stage ||
+                        selectedPatientData.stage ||
+                        'N/A',
                       age: selectedPatientData.birthDate
                         ? new Date().getFullYear() -
                           new Date(selectedPatientData.birthDate).getFullYear()
                         : 0,
                       priorityScore: selectedPatientData.priorityScore || 0,
-                      priorityCategory: (
+                      priorityCategory: mapPriorityToDisplay(
                         selectedPatientData.priorityCategory || 'MEDIUM'
-                      ).toLowerCase() as 'critico' | 'alto' | 'medio' | 'baixo',
+                      ),
                     }}
                     messages={(messages || []).map((msg) => ({
                       id: msg.id,
@@ -284,6 +282,20 @@ function ManagementDashboard() {
     'gerencial'
   );
 
+  // Estado do modal de drill-down
+  const [drillDownModal, setDrillDownModal] = useState<{
+    open: boolean;
+    filterType: 'priority' | 'cancerType' | 'journeyStage' | null;
+    filterValue: string | null;
+    title: string;
+    description?: string;
+  }>({
+    open: false,
+    filterType: null,
+    filterValue: null,
+    title: '',
+  });
+
   // Inicializar autenticação
   useEffect(() => {
     initialize();
@@ -311,25 +323,6 @@ function ManagementDashboard() {
 
   useDashboardSocket();
 
-  // Debug: Log dos dados
-  useEffect(() => {
-    if (metrics) {
-      // eslint-disable-next-line no-console
-      console.log('Dashboard Metrics:', metrics);
-    }
-    if (metricsError) {
-      // eslint-disable-next-line no-console
-      console.error('Dashboard Metrics Error:', metricsError);
-    }
-    if (statistics) {
-      // eslint-disable-next-line no-console
-      console.log('Dashboard Statistics:', statistics);
-    }
-    if (statisticsError) {
-      // eslint-disable-next-line no-console
-      console.error('Dashboard Statistics Error:', statisticsError);
-    }
-  }, [metrics, metricsError, statistics, statisticsError]);
 
   if (!isAuthenticated || !user) {
     return null;
@@ -345,22 +338,50 @@ function ManagementDashboard() {
     }
   };
 
-  const handlePriorityFilter = (_category: string | null) => {
-    // Filtro de prioridade pode ser usado para outras ações no futuro
+  const handlePriorityFilter = (category: string | null) => {
+    if (!category) {
+      router.push('/patients');
+      return;
+    }
+    router.push(`/patients?priority=${encodeURIComponent(category)}`);
   };
 
-  const handleCancerTypeFilter = (_cancerType: string | null) => {
-    // Filtro de tipo de câncer pode ser usado para outras ações no futuro
+  const handleCancerTypeFilter = (cancerType: string | null) => {
+    if (!cancerType) {
+      router.push('/patients');
+      return;
+    }
+    router.push(`/patients?cancerType=${encodeURIComponent(cancerType)}`);
   };
 
-  const handleJourneyStageFilter = (_journeyStage: string | null) => {
-    // Filtro de estágio da jornada pode ser usado para outras ações no futuro
+  const handleJourneyStageFilter = (journeyStage: string | null) => {
+    if (!journeyStage) {
+      router.push('/patients');
+      return;
+    }
+    router.push(`/patients?journeyStage=${encodeURIComponent(journeyStage)}`);
   };
 
-  const handleKPICardClick = (filterType: string, filterValue?: any) => {
-    // Cards clicáveis podem ser usados para navegação futura ou outras ações
-    // Por enquanto, apenas log para debug
-    console.log('KPI Card clicked:', filterType, filterValue);
+  const handleKPICardClick = (filterType: string, filterValue?: string) => {
+    if (!filterType || !filterValue) return;
+
+    const validFilterType = filterType as
+      | 'priority'
+      | 'cancerType'
+      | 'journeyStage';
+    const titleMap: Record<string, string> = {
+      priority: `Pacientes com prioridade ${filterValue}`,
+      cancerType: `Pacientes com ${filterValue}`,
+      journeyStage: `Pacientes em ${filterValue}`,
+    };
+
+    setDrillDownModal({
+      open: true,
+      filterType: validFilterType,
+      filterValue,
+      title: titleMap[filterType] || `Pacientes — ${filterValue}`,
+      description: 'Clique em um paciente para ver detalhes',
+    });
   };
 
   return (
@@ -573,6 +594,18 @@ function ManagementDashboard() {
           </Tabs>
         </div>
       </main>
+
+      {/* Modal de drill-down dos KPI cards */}
+      <ChartDrillDownModal
+        open={drillDownModal.open}
+        onOpenChange={(open) =>
+          setDrillDownModal((prev) => ({ ...prev, open }))
+        }
+        filterType={drillDownModal.filterType}
+        filterValue={drillDownModal.filterValue}
+        title={drillDownModal.title}
+        description={drillDownModal.description}
+      />
     </div>
   );
 }

@@ -117,8 +117,8 @@ export function NavigationBar() {
     return false;
   };
 
-  const handleLogout = () => {
-    logout();
+  const handleLogout = async () => {
+    await logout();
     router.push('/login');
   };
 
@@ -194,6 +194,15 @@ export function NavigationBar() {
                   {user?.tenant?.name || 'Hospital Teste'}
                 </span>
               </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => router.push('/profile')}
+                className={cn(isActive('/profile') && 'bg-indigo-50 text-indigo-700')}
+                aria-label="Meu perfil"
+              >
+                <Settings className="h-4 w-4" />
+              </Button>
               <Button variant="outline" size="sm" onClick={handleLogout}>
                 <LogOut className="h-4 w-4 mr-2" />
                 Sair

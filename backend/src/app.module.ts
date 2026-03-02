@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { RedisModule } from './redis/redis.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { PrismaModule } from './prisma/prisma.module';
@@ -35,6 +36,7 @@ import { ThrottleGuard } from './common/guards/throttle.guard';
       expandVariables: true,
     }),
     ScheduleModule.forRoot(), // Habilita agendamento de tarefas
+    RedisModule,
     PrismaModule,
     AuthModule,
     PatientsModule,

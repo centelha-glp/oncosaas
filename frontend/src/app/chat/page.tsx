@@ -32,6 +32,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
 import { User, MessageSquare } from 'lucide-react';
 import { NavigationBar } from '@/components/shared/navigation-bar';
+import { mapPriorityToDisplay } from '@/lib/utils/priority';
+import { getPatientAllCancerTypes } from '@/lib/utils/patient-cancer-type';
 import { toast } from 'sonner';
 
 export default function ChatPage() {
@@ -61,12 +63,7 @@ export default function ChatPage() {
   const uniqueCancerTypes = Array.from(
     new Set(
       patients
-        ?.flatMap((p) => {
-          if (p.cancerDiagnoses && p.cancerDiagnoses.length > 0) {
-            return p.cancerDiagnoses.map((d) => d.cancerType);
-          }
-          return p.cancerType ? [p.cancerType] : [];
-        })
+        ?.flatMap((p) => getPatientAllCancerTypes(p))
         .filter((type): type is string => !!type) || []
     )
   ).sort();
@@ -470,26 +467,21 @@ export default function ChatPage() {
                     patientName={selectedPatientData.name}
                     patientInfo={{
                       cancerType:
-                        selectedPatientData.cancerDiagnoses &&
-                        selectedPatientData.cancerDiagnoses.length > 0
-                          ? selectedPatientData.cancerDiagnoses
-                              .map((d) => d.cancerType)
-                              .join(', ')
-                          : selectedPatientData.cancerType || 'Em Rastreio',
+                        getPatientAllCancerTypes(selectedPatientData).join(
+                          ', '
+                        ) || 'Em Rastreio',
                       stage:
-                        selectedPatientData.cancerDiagnoses &&
-                        selectedPatientData.cancerDiagnoses.length > 0
-                          ? selectedPatientData.cancerDiagnoses[0].stage ||
-                            'N/A'
-                          : selectedPatientData.stage || 'N/A',
+                        selectedPatientData.cancerDiagnoses?.[0]?.stage ||
+                        selectedPatientData.stage ||
+                        'N/A',
                       age: selectedPatientData.birthDate
                         ? new Date().getFullYear() -
                           new Date(selectedPatientData.birthDate).getFullYear()
                         : 0,
                       priorityScore: selectedPatientData.priorityScore || 0,
-                      priorityCategory: (
+                      priorityCategory: mapPriorityToDisplay(
                         selectedPatientData.priorityCategory || 'MEDIUM'
-                      ).toLowerCase() as 'critico' | 'alto' | 'medio' | 'baixo',
+                      ),
                     }}
                     messages={(messages || []).map((msg) => ({
                       id: msg.id,

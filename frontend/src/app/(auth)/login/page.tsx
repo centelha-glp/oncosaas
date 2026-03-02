@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { useAuthStore } from '@/stores/auth-store';
 import { Button } from '@/components/ui/button';
 
@@ -106,12 +107,15 @@ export default function LoginPage() {
             </Button>
           </div>
 
-          <div className="text-sm text-gray-600 text-center">
-            <p>Credenciais de teste:</p>
-            <p className="font-mono text-xs mt-1">
-              admin@hospitalteste.com / senha123
-            </p>
+          <div className="text-center">
+            <Link
+              href="/forgot-password"
+              className="text-sm text-indigo-600 hover:text-indigo-500"
+            >
+              Esqueceu sua senha?
+            </Link>
           </div>
+
         </form>
       </div>
     </div>

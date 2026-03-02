@@ -6,11 +6,13 @@ import { resolve } from 'path';
 dotenv.config({ path: resolve(__dirname, '../.env') });
 
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
+import { ValidationPipe, Logger } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { join } from 'path';
 import { AppModule } from './app.module';
 import { existsSync, mkdirSync, readFileSync } from 'fs';
+
+const logger = new Logger('Bootstrap');
 
 async function bootstrap() {
   // Verificar se deve usar HTTPS
@@ -29,12 +31,9 @@ async function bootstrap() {
   if (useHttps) {
     // Verificar se os certificados existem
     if (!existsSync(keyPath) || !existsSync(certPath)) {
-      console.error('❌ Certificados SSL não encontrados!');
-      console.error(`   Esperado em: ${certDir}`);
-      console.error('\n📋 Execute primeiro:');
-      console.error('   npm run generate-certs');
-      console.error('\n   Ou desative HTTPS:');
-      console.error('   USE_HTTPS=false');
+      logger.error('Certificados SSL não encontrados!');
+      logger.error(`Esperado em: ${certDir}`);
+      logger.error('Execute: npm run generate-certs  ou  USE_HTTPS=false');
       process.exit(1);
     }
 
@@ -60,16 +59,20 @@ async function bootstrap() {
     prefix: '/uploads',
   });
 
-  // CORS - aceitar ambos HTTP e HTTPS em desenvolvimento
+  // CORS - origens permitidas configuradas por variável de ambiente
   const frontendUrl =
     process.env.FRONTEND_URL ||
     (useHttps ? 'https://localhost:3000' : 'http://localhost:3000');
 
-  // Em desenvolvimento, aceitar ambos os protocolos para flexibilidade
+  // ALLOWED_ORIGINS suporta múltiplas origens separadas por vírgula (ex: staging + prod)
+  const extraOrigins = process.env.ALLOWED_ORIGINS
+    ? process.env.ALLOWED_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean)
+    : [];
+
   const allowedOrigins =
     process.env.NODE_ENV === 'production'
-      ? [frontendUrl] // Em produção, apenas a URL configurada
-      : ['http://localhost:3000', 'https://localhost:3000', frontendUrl]; // Em desenvolvimento, ambos os protocolos
+      ? [frontendUrl, ...extraOrigins]
+      : ['http://localhost:3000', 'https://localhost:3000', frontendUrl, ...extraOrigins];
 
   app.enableCors({
     origin: (origin, callback) => {
@@ -100,11 +103,9 @@ async function bootstrap() {
   const port = process.env.PORT || 3002;
   const protocol = useHttps ? 'https' : 'http';
   await app.listen(port);
-  console.log(`🚀 Backend running on ${protocol}://localhost:${port}`);
+  logger.log(`Backend running on ${protocol}://localhost:${port}`);
   if (useHttps) {
-    console.log(
-      '⚠️  Certifique-se de que o certificado está instalado como confiável!'
-    );
+    logger.warn('Certifique-se de que o certificado está instalado como confiável!');
   }
 }
 

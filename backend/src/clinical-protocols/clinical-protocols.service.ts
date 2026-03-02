@@ -5,12 +5,18 @@ import { COLORECTAL_PROTOCOL } from './templates/colorectal.protocol';
 import { BLADDER_PROTOCOL } from './templates/bladder.protocol';
 import { RENAL_PROTOCOL } from './templates/renal.protocol';
 import { PROSTATE_PROTOCOL } from './templates/prostate.protocol';
+import { BREAST_PROTOCOL } from './templates/breast.protocol';
+import { LUNG_PROTOCOL } from './templates/lung.protocol';
+import { OTHER_PROTOCOL } from './templates/other.protocol';
 
 const PROTOCOL_TEMPLATES: Record<string, any> = {
   colorectal: COLORECTAL_PROTOCOL,
   bladder: BLADDER_PROTOCOL,
   renal: RENAL_PROTOCOL,
   prostate: PROSTATE_PROTOCOL,
+  breast: BREAST_PROTOCOL,
+  lung: LUNG_PROTOCOL,
+  other: OTHER_PROTOCOL,
 };
 
 @Injectable()

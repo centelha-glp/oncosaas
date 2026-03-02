@@ -163,20 +163,21 @@ Tratamento atual: {patient_context.get('treatment', 'Não especificado')}
 
     def _fallback_response(self, patient_context: Dict, message: str) -> str:
         """
-        Retorna resposta mockada quando LLM não está configurado.
+        Retorna resposta segura ao paciente quando o LLM não está disponível.
+        Não expõe detalhes técnicos internos.
         """
         name = patient_context.get("name", "paciente")
-        disclaimer = (
-            "O agente inteligente ainda não está configurado neste ambiente. "
-            "Sua mensagem foi registrada e um membro da equipe será notificado."
-        )
-        guidance = (
-            "Para habilitar o agente, configure as variáveis OPENAI_API_KEY ou "
-            "ANTHROPIC_API_KEY no arquivo .env."
+        self.logger.warning(
+            "LLM indisponível — respondendo com mensagem de fallback para %s. "
+            "Configure ANTHROPIC_API_KEY ou OPENAI_API_KEY para habilitar o agente.",
+            name,
         )
         return (
-            f"Olá {name}! {disclaimer}\n\n"
-            f"Mensagem recebida: \"{message}\"\n\n{guidance}"
+            f"Olá {name}! Sua mensagem foi recebida com sucesso e foi registrada "
+            f"em nosso sistema.\n\n"
+            f"Nossa equipe de enfermagem será notificada e entrará em contato em breve. "
+            f"Caso seja uma emergência, ligue imediatamente para o número de urgência "
+            f"do seu hospital."
         )
     
     def _detect_critical_symptoms(self, message: str) -> List[str]:

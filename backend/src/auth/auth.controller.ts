@@ -1,15 +1,60 @@
 import {
   Controller,
+  Get,
   Post,
+  Patch,
   Body,
   HttpCode,
   HttpStatus,
   Headers,
+  UnauthorizedException,
+  Request,
 } from '@nestjs/common';
+import { IsString, IsNotEmpty, IsEmail, MinLength, IsOptional } from 'class-validator';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { Public } from './decorators/public.decorator';
+
+class RefreshDto {
+  @IsString()
+  @IsNotEmpty()
+  refresh_token: string;
+}
+
+class ForgotPasswordDto {
+  @IsEmail()
+  email: string;
+}
+
+class ResetPasswordDto {
+  @IsString()
+  @IsNotEmpty()
+  token: string;
+
+  @IsString()
+  @MinLength(6)
+  password: string;
+}
+
+class UpdateProfileDto {
+  @IsOptional()
+  @IsString()
+  name?: string;
+
+  @IsOptional()
+  @IsEmail()
+  email?: string;
+
+  @IsOptional()
+  @IsString()
+  currentPassword?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(6)
+  newPassword?: string;
+}
 
 @Controller('auth')
 export class AuthController {
@@ -22,11 +67,50 @@ export class AuthController {
     @Body() loginDto: LoginDto,
     @Headers('x-tenant-id') headerTenantId?: string
   ) {
-    // Prioridade: tenantId do body > tenantId do header
-    // Isso permite seleção de tenant tanto via form quanto via header
     const tenantId = loginDto.tenantId || headerTenantId;
-
     return this.authService.login(loginDto, tenantId);
+  }
+
+  @Public()
+  @Post('refresh')
+  @HttpCode(HttpStatus.OK)
+  async refresh(@Body() body: RefreshDto) {
+    if (!body.refresh_token) {
+      throw new UnauthorizedException('refresh_token é obrigatório');
+    }
+    return this.authService.refresh(body.refresh_token);
+  }
+
+  @Post('logout')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async logout(@Body() body: Partial<RefreshDto>) {
+    await this.authService.logout(body.refresh_token || '');
+  }
+
+  @Public()
+  @Post('forgot-password')
+  @HttpCode(HttpStatus.OK)
+  async forgotPassword(@Body() body: ForgotPasswordDto) {
+    await this.authService.forgotPassword(body.email);
+    return { message: 'Se o email existir, você receberá um link de redefinição.' };
+  }
+
+  @Public()
+  @Post('reset-password')
+  @HttpCode(HttpStatus.OK)
+  async resetPassword(@Body() body: ResetPasswordDto) {
+    await this.authService.resetPassword(body.token, body.password);
+    return { message: 'Senha redefinida com sucesso.' };
+  }
+
+  @Get('profile')
+  async getProfile(@Request() req) {
+    return this.authService.getProfile(req.user.sub);
+  }
+
+  @Patch('profile')
+  async updateProfile(@Body() body: UpdateProfileDto, @Request() req) {
+    return this.authService.updateProfile(req.user.sub, body);
   }
 
   @Public()

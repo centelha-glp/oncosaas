@@ -237,6 +237,7 @@ model NavigationStep {
   @@index([cancerType, journeyStage])
   @@index([status])
   @@index([dueDate])
+  @@index([completedAt])
   @@map("navigation_steps")
 }
 

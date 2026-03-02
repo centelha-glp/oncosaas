@@ -10,7 +10,7 @@ interface AuthState {
   isAuthenticated: boolean;
   isInitializing: boolean;
   login: (email: string, password: string) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
   setUser: (user: User) => void;
   setToken: (token: string) => void;
   initialize: () => void;
@@ -28,7 +28,6 @@ export const useAuthStore = create<AuthState>((set) => ({
       return;
     }
 
-    // Marcar como inicializando
     set({ isInitializing: true });
 
     const token = localStorage.getItem('auth_token');
@@ -37,9 +36,54 @@ export const useAuthStore = create<AuthState>((set) => ({
 
     if (token && userStr && tenantId) {
       try {
-        const user = JSON.parse(userStr);
+        // Verificar se o token expirou
+        if (apiClient.isTokenExpired()) {
+          const refreshToken = apiClient.getRefreshToken();
+          if (refreshToken) {
+            // Tentar renovar silenciosamente em background
+            apiClient
+              .post<{ access_token: string; refresh_token: string }>(
+                '/auth/refresh',
+                { refresh_token: refreshToken }
+              )
+              .then((res) => {
+                apiClient.setToken(res.access_token);
+                if (res.refresh_token) {
+                  apiClient.setRefreshToken(res.refresh_token);
+                }
+                const user = JSON.parse(userStr);
+                apiClient.setTenantId(tenantId);
+                set({
+                  user,
+                  token: res.access_token,
+                  isAuthenticated: true,
+                  isInitializing: false,
+                });
+              })
+              .catch(() => {
+                apiClient.clearAuth();
+                set({
+                  user: null,
+                  token: null,
+                  isAuthenticated: false,
+                  isInitializing: false,
+                });
+              });
+            // Mantém inicializando enquanto o refresh ocorre em background
+            return;
+          }
 
-        // Configurar token no cliente API
+          apiClient.clearAuth();
+          set({
+            user: null,
+            token: null,
+            isAuthenticated: false,
+            isInitializing: false,
+          });
+          return;
+        }
+
+        const user = JSON.parse(userStr);
         apiClient.setToken(token);
         apiClient.setTenantId(tenantId);
 
@@ -49,12 +93,8 @@ export const useAuthStore = create<AuthState>((set) => ({
           isAuthenticated: true,
           isInitializing: false,
         });
-      } catch (error) {
-        console.error('Error initializing auth:', error);
-        // Limpar dados inválidos
-        localStorage.removeItem('auth_token');
-        localStorage.removeItem('user');
-        localStorage.removeItem('tenant_id');
+      } catch {
+        apiClient.clearAuth();
         set({
           user: null,
           token: null,
@@ -63,7 +103,6 @@ export const useAuthStore = create<AuthState>((set) => ({
         });
       }
     } else {
-      // Não há dados salvos, marcar como não autenticado
       set({
         user: null,
         token: null,
@@ -76,7 +115,6 @@ export const useAuthStore = create<AuthState>((set) => ({
   login: async (email: string, password: string) => {
     const response = await authApi.login({ email, password });
 
-    // Atualizar estado de forma síncrona
     set({
       user: response.user,
       token: response.access_token,
@@ -85,8 +123,8 @@ export const useAuthStore = create<AuthState>((set) => ({
     });
   },
 
-  logout: () => {
-    authApi.logout();
+  logout: async () => {
+    await authApi.logout();
     set({
       user: null,
       token: null,

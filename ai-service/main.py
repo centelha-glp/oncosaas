@@ -3,30 +3,37 @@ AI Service - Plataforma Oncológica
 Serviço de IA para priorização de casos e agente conversacional
 """
 
+import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic_settings import BaseSettings
 from contextlib import asynccontextmanager
 from src.api.routes import router
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+
 class Settings(BaseSettings):
     openai_api_key: str = ""
     anthropic_api_key: str = ""
     google_cloud_project_id: str = ""
     backend_url: str = "http://localhost:3002"
-    
+
     class Config:
         env_file = ".env"
 
+
 settings = Settings()
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
-    print("[AI Service] Starting...")
+    logger.info("[AI Service] Starting...")
     yield
     # Shutdown
-    print("[AI Service] Shutting down...")
+    logger.info("[AI Service] Shutting down...")
 
 app = FastAPI(
     title="ONCONAV AI Service",

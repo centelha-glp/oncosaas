@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
+import { useDebounce } from '@/lib/utils/use-debounce';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/auth-store';
 import { getApiUrl } from '@/lib/utils/api-config';
@@ -97,6 +98,7 @@ export default function OncologyNavigationPage() {
     null
   );
   const [searchTerm, setSearchTerm] = useState<string>('');
+  const debouncedSearchTerm = useDebounce(searchTerm, 300);
   const [expandedPatients, setExpandedPatients] = useState<Set<string>>(
     new Set()
   );
@@ -110,12 +112,12 @@ export default function OncologyNavigationPage() {
     }
   }, [isAuthenticated, isInitializing, router]);
 
-  // Filtrar pacientes por termo de busca
+  // Filtrar pacientes por termo de busca (debounced para evitar filtragem a cada tecla)
   const filteredPatients = useMemo(() => {
     if (!patients) return [];
-    if (!searchTerm.trim()) return patients;
+    if (!debouncedSearchTerm.trim()) return patients;
 
-    const term = searchTerm.toLowerCase().trim();
+    const term = debouncedSearchTerm.toLowerCase().trim();
     return patients.filter((patient) => {
       // Buscar por nome
       if (patient.name.toLowerCase().includes(term)) return true;
@@ -152,7 +154,7 @@ export default function OncologyNavigationPage() {
 
       return false;
     });
-  }, [patients, searchTerm]);
+  }, [patients, debouncedSearchTerm]);
 
   // Agrupar pacientes por tipo de câncer (após filtro de busca)
   // Pacientes em tratamento paliativo são agrupados separadamente
