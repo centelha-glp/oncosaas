@@ -158,6 +158,18 @@ Após executar o seed, use estas credenciais para acessar o sistema:
 
 ⚙️ **Husky**: após instalar as dependências, execute `npm run prepare` para reinstalar os Git hooks (pre-commit/pre-push).
 
+### 🧪 Interface interativa (paciente x agente)
+
+Para testar o agente manualmente como se você fosse o paciente (sem pytest), rode:
+
+```bash
+python ai-service/scripts/chat_patient_agent.py
+```
+
+Comandos disponíveis no chat: `/state`, `/history`, `/reset`, `/exit`.
+
+> O script lê `OPENAI_API_KEY` e `ANTHROPIC_API_KEY` a partir do arquivo `.env` na raiz do repositório.
+
 📘 Guia completo (pré-requisitos, troubleshooting e deploy):  
 `docs/desenvolvimento/setup-e-deploy.md`
 
