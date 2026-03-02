@@ -148,7 +148,7 @@ Após executar o seed, use estas credenciais para acessar o sistema:
 | Frontend    | http://localhost:3000        | Interface web (Next.js) |
 | Backend API | http://localhost:3002/api/v1 | API REST (NestJS)       |
 | AI Service  | http://localhost:8001        | Serviço de IA (FastAPI) |
-| PostgreSQL  | localhost:5433               | Banco de dados          |
+| PostgreSQL  | localhost:5432               | Banco de dados          |
 | Redis       | localhost:6379               | Cache                   |
 | RabbitMQ    | localhost:5672 / 15672       | Mensageria / Dashboard  |
 

@@ -120,7 +120,7 @@ Outros cenários:
 | Frontend    | 3000  | HTTP      |
 | Backend     | 3002  | HTTP      |
 | AI Service  | 8001  | HTTP      |
-| PostgreSQL  | 5433  | TCP       |
+| PostgreSQL  | 5432  | TCP       |
 | Redis       | 6379  | TCP       |
 | RabbitMQ    | 5672  | AMQP      |
 | RabbitMQ UI | 15672 | HTTP      |

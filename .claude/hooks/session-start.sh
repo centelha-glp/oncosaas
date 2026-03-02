@@ -37,7 +37,7 @@ su -c "psql -c \"ALTER USER \\\"ONCONAV\\\" CREATEDB;\"" postgres
 
 # Create backend .env if missing
 if [ ! -f "$CLAUDE_PROJECT_DIR/backend/.env" ]; then
-  sed 's/:5433/:5432/' "$CLAUDE_PROJECT_DIR/.env.example" > "$CLAUDE_PROJECT_DIR/backend/.env"
+  cp "$CLAUDE_PROJECT_DIR/.env.example" "$CLAUDE_PROJECT_DIR/backend/.env"
 fi
 
 # Generate Prisma client

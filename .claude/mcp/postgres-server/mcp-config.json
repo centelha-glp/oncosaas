@@ -5,7 +5,7 @@
       "args": [
         "-y",
         "@modelcontextprotocol/server-postgres",
-        "postgresql://ONCONAV:ONCONAV_dev@localhost:5433/ONCONAV_development"
+        "postgresql://ONCONAV:ONCONAV_dev@localhost:5432/ONCONAV_development"
       ],
       "description": "PostgreSQL READ-ONLY access to ONCONAV development database"
     }

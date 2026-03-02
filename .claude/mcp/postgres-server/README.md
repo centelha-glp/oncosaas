@@ -8,7 +8,7 @@ MCP Server que dá acesso READ-ONLY ao banco PostgreSQL do ONCONAV para debuggin
 ### Conexão
 ```
 Host: localhost
-Port: 5433 (Docker) ou 5432 (local)
+Port: 5432 (Docker) ou 5432 (local)
 Database: ONCONAV_development
 User: ONCONAV
 Password: ONCONAV_dev
@@ -17,7 +17,7 @@ Password: ONCONAV_dev
 ### Instalação
 ```bash
 # Usar o MCP server PostgreSQL oficial
-npx @modelcontextprotocol/server-postgres "postgresql://ONCONAV:ONCONAV_dev@localhost:5433/ONCONAV_development"
+npx @modelcontextprotocol/server-postgres "postgresql://ONCONAV:ONCONAV_dev@localhost:5432/ONCONAV_development"
 ```
 
 ### Configuração no Claude Code (`~/.claude.json` ou projeto `.claude/mcp.json`)
@@ -29,7 +29,7 @@ npx @modelcontextprotocol/server-postgres "postgresql://ONCONAV:ONCONAV_dev@loca
       "args": [
         "-y",
         "@modelcontextprotocol/server-postgres",
-        "postgresql://ONCONAV:ONCONAV_dev@localhost:5433/ONCONAV_development"
+        "postgresql://ONCONAV:ONCONAV_dev@localhost:5432/ONCONAV_development"
       ]
     }
   }

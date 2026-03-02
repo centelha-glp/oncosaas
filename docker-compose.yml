@@ -7,7 +7,7 @@ services:
       POSTGRES_PASSWORD: ONCONAV_dev
       POSTGRES_DB: ONCONAV_development
     ports:
-      - '5433:5432' # Porta externa 5433 para evitar conflito com medassist-postgres
+      - '5432:5432'
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:

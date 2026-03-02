@@ -106,7 +106,7 @@ Plataforma SaaS multi-tenant que centraliza a navegação oncológica com:
 | Frontend (Next.js) | 3000 | HTTP/HTTPS |
 | Backend (NestJS) | 3002 | HTTP/WebSocket |
 | AI Service (FastAPI) | 8001 | HTTP |
-| PostgreSQL | 5433 | TCP |
+| PostgreSQL | 5432 | TCP |
 | Redis | 6379 | TCP |
 | RabbitMQ (AMQP) | 5672 | TCP |
 | RabbitMQ (Management UI) | 15672 | HTTP |

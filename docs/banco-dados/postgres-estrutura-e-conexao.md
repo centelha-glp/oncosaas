@@ -114,7 +114,7 @@ O banco utiliza uma abordagem **híbrida** de multi-tenancy:
 A conexão é configurada através da variável `DATABASE_URL` no arquivo `.env`:
 
 ```env
-DATABASE_URL=postgresql://ONCONAV:ONCONAV_dev@localhost:5433/ONCONAV_development
+DATABASE_URL=postgresql://ONCONAV:ONCONAV_dev@localhost:5432/ONCONAV_development
 ```
 
 **Formato da URL:**
@@ -136,13 +136,13 @@ postgres:
     POSTGRES_PASSWORD: ONCONAV_dev
     POSTGRES_DB: ONCONAV_development
   ports:
-    - '5433:5432' # Porta externa 5433
+    - '5432:5432'
 ```
 
 **Credenciais Padrão:**
 
 - **Host**: `localhost`
-- **Porta**: `5433` (externa) / `5432` (interna do container)
+- **Porta**: `5432`
 - **Usuário**: `ONCONAV`
 - **Senha**: `ONCONAV_dev`
 - **Database**: `ONCONAV_development`
@@ -219,13 +219,13 @@ npx prisma migrate reset
 **Conectar via psql:**
 
 ```bash
-psql -h localhost -p 5433 -U ONCONAV -d ONCONAV_development
+psql -h localhost -p 5432 -U ONCONAV -d ONCONAV_development
 ```
 
 **Ou usando URL completa:**
 
 ```bash
-psql postgresql://ONCONAV:ONCONAV_dev@localhost:5433/ONCONAV_development
+psql postgresql://ONCONAV:ONCONAV_dev@localhost:5432/ONCONAV_development
 ```
 
 **Comandos úteis no psql:**
@@ -275,7 +275,7 @@ export class PatientsService {
 **Configuração:**
 
 - **Host**: `localhost`
-- **Port**: `5433`
+- **Port**: `5432`
 - **Database**: `ONCONAV_development`
 - **Username**: `ONCONAV`
 - **Password**: `ONCONAV_dev`
@@ -491,7 +491,7 @@ WHERE m."processedBy" = 'AGENT'
 ### Erro: "Connection refused"
 
 - Verificar se o container está rodando: `docker-compose ps`
-- Verificar porta: deve ser `5433` (não `5432`)
+- Verificar porta: deve ser `5432`
 - Verificar variável `DATABASE_URL` no `.env`
 
 ### Erro: "Database does not exist"

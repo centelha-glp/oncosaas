@@ -79,7 +79,7 @@ cd frontend && npm test
 | Backend API | http://localhost:3002/api/v1 |
 | AI Service  | http://localhost:8001        |
 | Swagger     | http://localhost:8001/docs   |
-| PostgreSQL  | localhost:5433               |
+| PostgreSQL  | localhost:5432               |
 | Redis       | localhost:6379               |
 | RabbitMQ    | localhost:5672 / 15672       |
 

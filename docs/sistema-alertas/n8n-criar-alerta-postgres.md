@@ -305,7 +305,7 @@ Body: {
 **Credenciais PostgreSQL**:
 
 - Host: `localhost` (ou IP do servidor)
-- Port: `5433` (conforme docker-compose.yml)
+- Port: `5432`
 - Database: `ONCONAV_development`
 - User: `n8n_agent` (criar usuário específico)
 - Password: `senha_segura`
