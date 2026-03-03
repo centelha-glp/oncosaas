@@ -52,8 +52,9 @@ export class MessagesController {
     UserRole.NURSE,
     UserRole.COORDINATOR
   )
-  getUnassumedCount(@CurrentUser() user: any) {
-    return this.messagesService.getUnassumedCount(user.tenantId);
+  async getUnassumedCount(@CurrentUser() user: any) {
+    const count = await this.messagesService.getUnassumedCount(user.tenantId);
+    return { count };
   }
 
   @Get('conversation/:patientId')

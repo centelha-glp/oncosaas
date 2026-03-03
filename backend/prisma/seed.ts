@@ -111,53 +111,87 @@ async function main() {
   });
   console.log('✅ Pacientes anteriores removidos');
 
-  // Criar pacientes de teste - 4 pacientes em cada tipo de câncer (1 em cada estágio)
+  // Criar pacientes de teste - 1 paciente por tipo de câncer (estágios variados)
   // Tipos de câncer: breast, lung, colorectal, prostate, kidney, bladder, testicular
-  // Estágios: SCREENING, DIAGNOSIS, TREATMENT, FOLLOW_UP
-  // Total: 7 tipos × 4 estágios = 28 pacientes
+  // Total: 7 pacientes + 1 paliativo = 8 pacientes
 
-  const cancerTypes = [
-    { type: 'breast', name: 'Mama', gender: 'female' as const },
-    { type: 'lung', name: 'Pulmão', gender: 'male' as const },
-    { type: 'colorectal', name: 'Colorretal', gender: 'male' as const },
-    { type: 'prostate', name: 'Próstata', gender: 'male' as const },
-    { type: 'kidney', name: 'Rim', gender: 'male' as const },
-    { type: 'bladder', name: 'Bexiga', gender: 'male' as const },
-    { type: 'testicular', name: 'Testículo', gender: 'male' as const },
-  ];
-
-  const journeyStages = [
+  const patientDefs = [
     {
-      stage: 'SCREENING' as const,
-      name: 'Rastreio',
-      priorityScore: 20,
-      priorityCategory: 'LOW' as const,
-      status: 'ACTIVE' as const,
-      stageValue: null,
-    },
-    {
-      stage: 'DIAGNOSIS' as const,
-      name: 'Diagnóstico',
-      priorityScore: 65,
-      priorityCategory: 'HIGH' as const,
-      status: 'ACTIVE' as const,
-      stageValue: null,
-    },
-    {
+      type: 'breast',
+      name: 'Ana Oliveira',
+      gender: 'female' as const,
       stage: 'TREATMENT' as const,
-      name: 'Tratamento',
+      stageValue: 'IIA',
       priorityScore: 75,
       priorityCategory: 'HIGH' as const,
       status: 'IN_TREATMENT' as const,
-      stageValue: 'IIIA',
+      birthDate: new Date(1978, 3, 12),
     },
     {
+      type: 'lung',
+      name: 'Roberto Ferreira',
+      gender: 'male' as const,
+      stage: 'DIAGNOSIS' as const,
+      stageValue: null,
+      priorityScore: 65,
+      priorityCategory: 'HIGH' as const,
+      status: 'ACTIVE' as const,
+      birthDate: new Date(1965, 8, 22),
+    },
+    {
+      type: 'colorectal',
+      name: 'Marcos Pereira',
+      gender: 'male' as const,
+      stage: 'TREATMENT' as const,
+      stageValue: 'IIIA',
+      priorityScore: 80,
+      priorityCategory: 'CRITICAL' as const,
+      status: 'IN_TREATMENT' as const,
+      birthDate: new Date(1958, 1, 5),
+    },
+    {
+      type: 'prostate',
+      name: 'José Santos',
+      gender: 'male' as const,
       stage: 'FOLLOW_UP' as const,
-      name: 'Seguimento',
+      stageValue: 'II',
       priorityScore: 30,
       priorityCategory: 'LOW' as const,
       status: 'FOLLOW_UP' as const,
-      stageValue: 'II',
+      birthDate: new Date(1952, 11, 18),
+    },
+    {
+      type: 'kidney',
+      name: 'Paulo Mendes',
+      gender: 'male' as const,
+      stage: 'SCREENING' as const,
+      stageValue: null,
+      priorityScore: 20,
+      priorityCategory: 'LOW' as const,
+      status: 'ACTIVE' as const,
+      birthDate: new Date(1970, 6, 30),
+    },
+    {
+      type: 'bladder',
+      name: 'Fernando Lima',
+      gender: 'male' as const,
+      stage: 'TREATMENT' as const,
+      stageValue: 'III',
+      priorityScore: 70,
+      priorityCategory: 'HIGH' as const,
+      status: 'IN_TREATMENT' as const,
+      birthDate: new Date(1962, 4, 8),
+    },
+    {
+      type: 'testicular',
+      name: 'Lucas Almeida',
+      gender: 'male' as const,
+      stage: 'TREATMENT' as const,
+      stageValue: 'I',
+      priorityScore: 55,
+      priorityCategory: 'MEDIUM' as const,
+      status: 'IN_TREATMENT' as const,
+      birthDate: new Date(1990, 9, 14),
     },
   ];
 
@@ -168,61 +202,51 @@ async function main() {
     name: string;
   }> = [];
 
-  let patientCounter = 1;
   let phoneCounter = 9999999999;
-  let emailCounter = 1;
 
-  for (const cancer of cancerTypes) {
-    for (const journeyStage of journeyStages) {
-      const name = `${cancer.name} - ${journeyStage.name}`;
-      const phone = `+5511${phoneCounter}`;
-      const email = `paciente${emailCounter}@email.com`;
+  for (let i = 0; i < patientDefs.length; i++) {
+    const def = patientDefs[i];
+    const phone = `+5511${phoneCounter}`;
+    const email = `paciente${i + 1}@email.com`;
 
-      const patient = await prisma.patient.create({
-        data: {
-          tenantId: tenant.id,
-          name,
-          birthDate: new Date(
-            1970 + patientCounter,
-            patientCounter % 12,
-            (patientCounter % 28) + 1
-          ),
-          gender: cancer.gender,
-          phone,
-          email,
-          cancerType: cancer.type,
-          stage: journeyStage.stageValue,
-          currentStage: journeyStage.stage,
-          priorityScore: journeyStage.priorityScore,
-          priorityCategory: journeyStage.priorityCategory,
-          priorityReason: `Paciente em ${journeyStage.name.toLowerCase()} - ${cancer.name}`,
-          status: journeyStage.status,
-        },
-      });
+    const patient = await prisma.patient.create({
+      data: {
+        tenantId: tenant.id,
+        name: def.name,
+        birthDate: def.birthDate,
+        gender: def.gender,
+        phone,
+        email,
+        cancerType: def.type,
+        stage: def.stageValue,
+        currentStage: def.stage,
+        priorityScore: def.priorityScore,
+        priorityCategory: def.priorityCategory,
+        priorityReason: `Paciente em ${def.stage.toLowerCase()} - ${def.type}`,
+        status: def.status,
+      },
+    });
 
-      patients.push({
-        id: patient.id,
-        cancerType: cancer.type,
-        currentStage: journeyStage.stage,
-        name: patient.name,
-      });
+    patients.push({
+      id: patient.id,
+      cancerType: def.type,
+      currentStage: def.stage,
+      name: patient.name,
+    });
 
-      patientCounter++;
-      phoneCounter--;
-      emailCounter++;
-    }
+    phoneCounter--;
   }
 
   // Criar paciente em tratamento paliativo
   const palliativePatient = await prisma.patient.create({
     data: {
       tenantId: tenant.id,
-      name: 'Paciente Paliativo - Cuidados Paliativos',
+      name: 'Antônio Ribeiro',
       birthDate: new Date(1955, 5, 15),
       gender: 'male',
-      phone: `+5511999999999`,
+      phone: `+5511${phoneCounter}`,
       email: `paciente.paliativo@email.com`,
-      cancerType: 'lung', // Tipo de câncer original
+      cancerType: 'lung',
       stage: 'IV',
       currentStage: 'FOLLOW_UP',
       priorityScore: 85,
@@ -244,16 +268,11 @@ async function main() {
   });
 
   console.log(
-    `✅ Pacientes criados: ${patients.length} (${cancerTypes.length} tipos × ${journeyStages.length} estágios + 1 paciente paliativo)`
+    `✅ Pacientes criados: ${patients.length} (7 tipos de câncer + 1 paliativo)`,
   );
-  console.log('📊 Distribuição por tipo de câncer:');
-  for (const cancer of cancerTypes) {
-    const cancerPatients = patients.filter((p) => p.cancerType === cancer.type);
-    console.log(
-      `  ${cancer.name}: ${cancerPatients.length} pacientes (${cancerPatients.map((p) => p.currentStage).join(', ')})`
-    );
+  for (const p of patients) {
+    console.log(`  ${p.name} (${p.cancerType} - ${p.currentStage})`);
   }
-  console.log(`  💜 Tratamento Paliativo: 1 paciente`);
 
   // Criar PatientJourney para cada paciente conforme seu estágio
   for (const patient of patients) {
@@ -262,11 +281,9 @@ async function main() {
       patientId: patient.id,
     };
 
-    // Verificar se é paciente paliativo
     const isPalliative = patient.id === palliativePatient.id;
 
     if (isPalliative) {
-      // PatientJourney para paciente paliativo
       journeyData.screeningDate = new Date('2023-06-01');
       journeyData.screeningResult = `Rastreio positivo - ${patient.cancerType}`;
       journeyData.diagnosisDate = new Date('2023-07-15');
@@ -275,7 +292,7 @@ async function main() {
       journeyData.treatmentStartDate = new Date('2023-09-01');
       journeyData.treatmentType = 'CHEMOTHERAPY';
       journeyData.treatmentProtocol = `Protocolo inicial - ${patient.cancerType}`;
-      journeyData.currentCycle = null; // Tratamento paliativo
+      journeyData.currentCycle = null;
       journeyData.totalCycles = null;
       journeyData.lastFollowUpDate = new Date('2024-11-01');
       journeyData.nextFollowUpDate = new Date('2024-12-15');
@@ -285,27 +302,11 @@ async function main() {
     } else if (patient.currentStage === 'SCREENING') {
       journeyData.screeningDate = new Date('2024-12-01');
       journeyData.screeningResult = `Rastreio agendado - ${patient.cancerType}`;
-      journeyData.diagnosisDate = null;
-      journeyData.diagnosisConfirmed = false;
-      journeyData.stagingDate = null;
-      journeyData.treatmentStartDate = null;
-      journeyData.treatmentType = null;
-      journeyData.treatmentProtocol = null;
-      journeyData.currentCycle = null;
-      journeyData.totalCycles = null;
-      journeyData.nextFollowUpDate = null;
     } else if (patient.currentStage === 'DIAGNOSIS') {
       journeyData.screeningDate = new Date('2024-11-15');
-      journeyData.screeningResult = `Achado suspeito detectado - ${patient.cancerType}`;
+      journeyData.screeningResult = `Achado suspeito - ${patient.cancerType}`;
       journeyData.diagnosisDate = new Date('2024-11-25');
       journeyData.diagnosisConfirmed = true;
-      journeyData.stagingDate = null; // Estadiamento em andamento
-      journeyData.treatmentStartDate = null;
-      journeyData.treatmentType = null;
-      journeyData.treatmentProtocol = null;
-      journeyData.currentCycle = null;
-      journeyData.totalCycles = null;
-      journeyData.nextFollowUpDate = null;
     } else if (patient.currentStage === 'TREATMENT') {
       journeyData.screeningDate = new Date('2024-01-15');
       journeyData.screeningResult = `Rastreio positivo - ${patient.cancerType}`;
@@ -327,8 +328,6 @@ async function main() {
       journeyData.treatmentStartDate = new Date('2023-08-01');
       journeyData.treatmentType = 'SURGERY';
       journeyData.treatmentProtocol = `Tratamento cirúrgico - ${patient.cancerType}`;
-      journeyData.currentCycle = null;
-      journeyData.totalCycles = null;
       journeyData.lastFollowUpDate = new Date('2023-09-15');
       journeyData.nextFollowUpDate = new Date('2024-12-20');
     }
@@ -342,79 +341,346 @@ async function main() {
 
   console.log(`✅ PatientJourney criado para ${patients.length} pacientes`);
 
-  // Criar algumas mensagens de exemplo (usar upsert para evitar duplicatas)
-  // Pegar um paciente em tratamento para criar mensagens de exemplo
-  const treatmentPatient = patients.find((p) => p.currentStage === 'TREATMENT');
-  if (treatmentPatient) {
-    const message1 = await prisma.message.upsert({
-      where: { whatsappMessageId: 'wamid.test001' },
-      update: {},
-      create: {
+  // ─── Conversations e Mensagens ──────────────────────────────────────────────
+  // Criar conversas realistas para vários pacientes
+
+  let msgCounter = 1;
+  const mkMsgId = () => `wamid.seed${String(msgCounter++).padStart(4, '0')}`;
+
+  // Helper para criar conversa + mensagens
+  async function createConversation(
+    patientId: string,
+    status: 'ACTIVE' | 'WAITING' | 'ESCALATED' | 'CLOSED',
+    handledBy: 'AGENT' | 'NURSING' | 'HYBRID',
+    msgs: Array<{
+      direction: 'INBOUND' | 'OUTBOUND';
+      content: string;
+      processedBy: 'AGENT' | 'NURSING';
+      minutesOffset: number;
+      structuredData?: any;
+      criticalSymptomsDetected?: string[];
+      alertTriggered?: boolean;
+    }>,
+  ) {
+    const baseTime = new Date('2024-12-10T09:00:00Z');
+    const lastMsg = msgs[msgs.length - 1];
+    const lastMsgTime = new Date(
+      baseTime.getTime() + lastMsg.minutesOffset * 60000,
+    );
+
+    const conversation = await prisma.conversation.create({
+      data: {
         tenantId: tenant.id,
-        patientId: treatmentPatient.id,
-        whatsappMessageId: 'wamid.test001',
-        whatsappTimestamp: new Date('2024-12-10T10:00:00Z'),
-        type: 'TEXT',
+        patientId,
+        channel: 'WHATSAPP',
+        status,
+        handledBy,
+        messageCount: msgs.length,
+        lastMessageAt: lastMsgTime,
+      },
+    });
+
+    for (const msg of msgs) {
+      const timestamp = new Date(
+        baseTime.getTime() + msg.minutesOffset * 60000,
+      );
+      await prisma.message.create({
+        data: {
+          tenantId: tenant.id,
+          patientId,
+          conversationId: conversation.id,
+          whatsappMessageId: mkMsgId(),
+          whatsappTimestamp: timestamp,
+          type: 'TEXT',
+          direction: msg.direction,
+          content: msg.content,
+          processedBy: msg.processedBy,
+          structuredData: msg.structuredData || undefined,
+          criticalSymptomsDetected: msg.criticalSymptomsDetected || [],
+          alertTriggered: msg.alertTriggered || false,
+        },
+      });
+    }
+
+    return conversation;
+  }
+
+  // --- Conversa 1: Ana Oliveira (mama/treatment) - Náusea pós-quimio ---
+  const anaPatient = patients.find((p) => p.name === 'Ana Oliveira');
+  if (anaPatient) {
+    await createConversation(anaPatient.id, 'ACTIVE', 'AGENT', [
+      {
         direction: 'INBOUND',
         content: 'Olá, estou sentindo muita náusea hoje após a quimioterapia',
         processedBy: 'AGENT',
-        criticalSymptomsDetected: [],
-        alertTriggered: false,
+        minutesOffset: 0,
       },
-    });
-
-    const message2 = await prisma.message.upsert({
-      where: { whatsappMessageId: 'wamid.test002' },
-      update: {},
-      create: {
-        tenantId: tenant.id,
-        patientId: treatmentPatient.id,
-        conversationId: message1.id,
-        whatsappMessageId: 'wamid.test002',
-        whatsappTimestamp: new Date('2024-12-10T10:05:00Z'),
-        type: 'TEXT',
+      {
         direction: 'OUTBOUND',
         content:
-          'Entendo que você está sentindo náusea. Em uma escala de 0 a 10, como você classificaria a intensidade?',
+          'Olá Ana! Entendo que você está sentindo náusea. Em uma escala de 0 a 10, como você classificaria a intensidade?',
         processedBy: 'AGENT',
+        minutesOffset: 1,
       },
-    });
-
-    console.log('✅ Mensagens de exemplo criadas:', 2);
+      {
+        direction: 'INBOUND',
+        content: 'Acho que uns 7, está bem forte',
+        processedBy: 'AGENT',
+        minutesOffset: 3,
+      },
+      {
+        direction: 'OUTBOUND',
+        content:
+          'Entendo, uma intensidade 7 é significativa. Você está conseguindo se manter hidratada? E está tomando o antiemético que foi prescrito (ondansetrona)?',
+        processedBy: 'AGENT',
+        minutesOffset: 4,
+        structuredData: {
+          symptoms: { nausea: 7 },
+          scales: { nausea: 7 },
+        },
+      },
+      {
+        direction: 'INBOUND',
+        content:
+          'Estou tentando tomar água mas é difícil. O remédio eu tomei de manhã sim',
+        processedBy: 'AGENT',
+        minutesOffset: 6,
+      },
+      {
+        direction: 'OUTBOUND',
+        content:
+          'É importante manter a hidratação. Tente pequenos goles de água gelada ou chupe gelo. Se a náusea persistir acima de 7 nas próximas horas ou se você não conseguir manter líquidos, procure atendimento. Vou notificar a equipe de enfermagem sobre seu quadro.',
+        processedBy: 'AGENT',
+        minutesOffset: 7,
+      },
+    ]);
   }
 
-  // Criar alerta de exemplo (verificar se já existe)
-  // Pegar um paciente em diagnóstico para criar alerta
-  const diagnosisPatient = patients.find((p) => p.currentStage === 'DIAGNOSIS');
-  if (diagnosisPatient) {
-    const existingAlert = await prisma.alert.findFirst({
-      where: {
+  // --- Conversa 2: Marcos Pereira (colorectal/treatment) - Sintomas críticos ---
+  const marcosPatient = patients.find((p) => p.name === 'Marcos Pereira');
+  if (marcosPatient) {
+    await createConversation(marcosPatient.id, 'ESCALATED', 'NURSING', [
+      {
+        direction: 'INBOUND',
+        content: 'Boa tarde, estou com febre e muita dor abdominal',
+        processedBy: 'AGENT',
+        minutesOffset: 60,
+      },
+      {
+        direction: 'OUTBOUND',
+        content:
+          'Boa tarde Marcos. Febre e dor abdominal durante tratamento de quimioterapia são sintomas que precisam de atenção. Qual sua temperatura? E a dor, de 0 a 10?',
+        processedBy: 'AGENT',
+        minutesOffset: 61,
+      },
+      {
+        direction: 'INBOUND',
+        content: 'Temperatura 38.5 e a dor tá uns 8',
+        processedBy: 'AGENT',
+        minutesOffset: 63,
+      },
+      {
+        direction: 'OUTBOUND',
+        content:
+          'Marcos, febre de 38.5°C durante quimioterapia é um sinal de alerta importante que pode indicar neutropenia febril. Vou encaminhar seu caso imediatamente para a equipe de enfermagem. Por favor, NÃO tome medicamentos por conta própria e fique atento a qualquer piora.',
+        processedBy: 'AGENT',
+        minutesOffset: 64,
+        structuredData: {
+          symptoms: { febre: 8, dor_abdominal: 8 },
+          scales: { pain: 8, fever: 38.5 },
+        },
+        criticalSymptomsDetected: ['febre neutropênica', 'dor abdominal'],
+        alertTriggered: true,
+      },
+    ]);
+  }
+
+  // --- Conversa 3: Roberto Ferreira (lung/diagnosis) - Dúvidas sobre exames ---
+  const robertoPatient = patients.find((p) => p.name === 'Roberto Ferreira');
+  if (robertoPatient) {
+    await createConversation(robertoPatient.id, 'ACTIVE', 'AGENT', [
+      {
+        direction: 'INBOUND',
+        content:
+          'Bom dia, tenho exame de tomografia marcado para semana que vem. Preciso de algum preparo?',
+        processedBy: 'AGENT',
+        minutesOffset: 120,
+      },
+      {
+        direction: 'OUTBOUND',
+        content:
+          'Bom dia Roberto! Sim, para a tomografia com contraste você precisa: 1) Jejum de 4 horas antes do exame; 2) Trazer exames de creatinina recentes; 3) Informar se tem alergia a contraste iodado. Você tem alguma dessas condições?',
+        processedBy: 'AGENT',
+        minutesOffset: 121,
+      },
+      {
+        direction: 'INBOUND',
+        content:
+          'Não tenho alergia não. Mas estou ansioso com o resultado, pode demorar muito?',
+        processedBy: 'AGENT',
+        minutesOffset: 124,
+      },
+      {
+        direction: 'OUTBOUND',
+        content:
+          'Entendo sua ansiedade, é completamente normal nessa fase. O resultado geralmente fica pronto em 3 a 5 dias úteis. O Dr. João irá analisar as imagens e agendar uma consulta para discutir os resultados com você. Qualquer dúvida, estou aqui.',
+        processedBy: 'AGENT',
+        minutesOffset: 125,
+      },
+    ]);
+  }
+
+  // --- Conversa 4: José Santos (prostate/follow_up) - Acompanhamento ---
+  const josePatient = patients.find((p) => p.name === 'José Santos');
+  if (josePatient) {
+    await createConversation(josePatient.id, 'ACTIVE', 'AGENT', [
+      {
+        direction: 'INBOUND',
+        content: 'Olá, fiz o PSA semana passada e queria saber o resultado',
+        processedBy: 'AGENT',
+        minutesOffset: 180,
+      },
+      {
+        direction: 'OUTBOUND',
+        content:
+          'Olá José! Verifiquei nos seus registros e o resultado do PSA ainda não foi inserido no sistema. Vou solicitar à equipe que verifique. Enquanto isso, como você está se sentindo? Algum sintoma novo?',
+        processedBy: 'AGENT',
+        minutesOffset: 181,
+      },
+      {
+        direction: 'INBOUND',
+        content:
+          'Estou bem, sem sintomas novos. Só um pouco de cansaço mas acho que é da idade mesmo rs',
+        processedBy: 'AGENT',
+        minutesOffset: 184,
+      },
+    ]);
+  }
+
+  // --- Conversa 5: Fernando Lima (bladder/treatment) - Efeitos colaterais ---
+  const fernandoPatient = patients.find((p) => p.name === 'Fernando Lima');
+  if (fernandoPatient) {
+    await createConversation(fernandoPatient.id, 'ACTIVE', 'AGENT', [
+      {
+        direction: 'INBOUND',
+        content:
+          'Estou com ardência para urinar e um pouco de sangue na urina. É normal?',
+        processedBy: 'AGENT',
+        minutesOffset: 240,
+      },
+      {
+        direction: 'OUTBOUND',
+        content:
+          'Fernando, ardência ao urinar e hematúria (sangue na urina) podem ocorrer durante o tratamento de câncer de bexiga, mas precisamos avaliar. Desde quando começou? E a quantidade de sangue - é muito visível ou apenas um tom rosado?',
+        processedBy: 'AGENT',
+        minutesOffset: 241,
+      },
+      {
+        direction: 'INBOUND',
+        content:
+          'Começou ontem. A urina tá meio rosada, não chega a ser vermelho forte',
+        processedBy: 'AGENT',
+        minutesOffset: 244,
+      },
+      {
+        direction: 'OUTBOUND',
+        content:
+          'Entendi. Urina rosada pode ser um efeito esperado pós-tratamento, mas vamos monitorar. Mantenha boa hidratação (pelo menos 2 litros de água por dia). Se a cor ficar mais intensa, aparecer coágulos, ou surgir febre, entre em contato imediatamente. Vou registrar isso no seu prontuário.',
+        processedBy: 'AGENT',
+        minutesOffset: 245,
+        structuredData: {
+          symptoms: { disuria: 5, hematuria: 4 },
+        },
+      },
+    ]);
+  }
+
+  // --- Conversa 6: Antônio Ribeiro (paliativo) - Controle de dor ---
+  await createConversation(palliativePatient.id, 'WAITING', 'NURSING', [
+    {
+      direction: 'INBOUND',
+      content:
+        'Boa noite, a dor está muito forte hoje, o medicamento não está fazendo efeito',
+      processedBy: 'AGENT',
+      minutesOffset: 300,
+    },
+    {
+      direction: 'OUTBOUND',
+      content:
+        'Boa noite Antônio. Sinto muito que a dor esteja forte. Em uma escala de 0 a 10, como está a dor agora? E onde é a dor principal?',
+      processedBy: 'AGENT',
+      minutesOffset: 301,
+    },
+    {
+      direction: 'INBOUND',
+      content: 'Dor 9, nas costas e no peito. Não consigo dormir',
+      processedBy: 'AGENT',
+      minutesOffset: 303,
+    },
+    {
+      direction: 'OUTBOUND',
+      content:
+        'Antônio, dor 9/10 é muito intensa e precisa de ajuste na medicação. Vou encaminhar imediatamente para a equipe de enfermagem para ajuste do esquema analgésico. Enquanto isso, tente encontrar a posição mais confortável possível.',
+      processedBy: 'AGENT',
+      minutesOffset: 304,
+      structuredData: {
+        symptoms: { dor: 9, insonia: 8 },
+        scales: { pain: 9, sleep: 8 },
+      },
+      criticalSymptomsDetected: ['dor intensa não controlada'],
+      alertTriggered: true,
+    },
+    {
+      direction: 'OUTBOUND',
+      content:
+        'Antônio, aqui é a enfermeira Maria. Já vi seu caso. Vou ligar para o Dr. João para ajustar sua medicação. Você tem alguém aí com você?',
+      processedBy: 'NURSING',
+      minutesOffset: 310,
+    },
+  ]);
+
+  const totalMessages = msgCounter - 1;
+  console.log(
+    `✅ Conversas e mensagens criadas: 6 conversas, ${totalMessages} mensagens`,
+  );
+
+  // Criar alertas de exemplo
+  if (marcosPatient) {
+    await prisma.alert.create({
+      data: {
         tenantId: tenant.id,
-        patientId: diagnosisPatient.id,
+        patientId: marcosPatient.id,
         type: 'CRITICAL_SYMPTOM',
+        severity: 'CRITICAL',
+        message:
+          'Paciente reportou febre de 38.5°C e dor abdominal intensa durante quimioterapia',
+        context: {
+          symptoms: ['febre neutropênica', 'dor abdominal'],
+          temperature: 38.5,
+        },
+        status: 'PENDING',
       },
     });
+    console.log('✅ Alerta crítico criado para Marcos Pereira');
+  }
 
-    if (!existingAlert) {
-      await prisma.alert.create({
-        data: {
-          tenantId: tenant.id,
-          patientId: diagnosisPatient.id,
-          type: 'CRITICAL_SYMPTOM',
-          severity: 'CRITICAL',
-          message: 'Paciente reportou febre acima de 38°C e falta de ar',
-          context: {
-            conversationId: 'conv_001',
-            symptoms: ['febre', 'dispneia'],
-            temperature: 38.5,
-          },
-          status: 'PENDING',
+  if (palliativePatient) {
+    await prisma.alert.create({
+      data: {
+        tenantId: tenant.id,
+        patientId: palliativePatient.id,
+        type: 'CRITICAL_SYMPTOM',
+        severity: 'HIGH',
+        message:
+          'Dor não controlada (9/10) em paciente paliativo - necessita ajuste analgésico',
+        context: {
+          symptoms: ['dor intensa não controlada'],
+          painLevel: 9,
         },
-      });
-      console.log('✅ Alerta crítico criado');
-    } else {
-      console.log('✅ Alerta crítico já existe');
-    }
+        status: 'PENDING',
+      },
+    });
+    console.log('✅ Alerta de dor criado para Antônio Ribeiro');
   }
 
   // ─── AgentConfig ────────────────────────────────────────────────────────────

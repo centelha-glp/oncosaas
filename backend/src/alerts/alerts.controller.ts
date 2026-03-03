@@ -57,8 +57,9 @@ export class AlertsController {
     UserRole.NURSE,
     UserRole.COORDINATOR
   )
-  getOpenAlertsCount(@CurrentUser() user: any) {
-    return this.alertsService.getOpenAlertsCount(user.tenantId);
+  async getOpenAlertsCount(@CurrentUser() user: any) {
+    const count = await this.alertsService.getOpenAlertsCount(user.tenantId);
+    return { count };
   }
 
   @Get('critical/count')
@@ -68,8 +69,11 @@ export class AlertsController {
     UserRole.NURSE,
     UserRole.COORDINATOR
   )
-  getCriticalAlertsCount(@CurrentUser() user: any) {
-    return this.alertsService.getCriticalAlertsCount(user.tenantId);
+  async getCriticalAlertsCount(@CurrentUser() user: any) {
+    const count = await this.alertsService.getCriticalAlertsCount(
+      user.tenantId,
+    );
+    return { count };
   }
 
   @Get(':id')
