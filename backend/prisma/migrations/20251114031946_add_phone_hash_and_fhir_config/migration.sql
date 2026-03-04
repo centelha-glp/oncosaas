@@ -1,31 +1,17 @@
--- AlterTable
-ALTER TABLE "patients" ADD COLUMN     "phoneHash" TEXT;
+-- Align patients phone hash migration to be idempotent with previous migration
+ALTER TABLE "patients" ADD COLUMN IF NOT EXISTS "phoneHash" TEXT;
 
--- CreateTable
-CREATE TABLE "fhir_integration_configs" (
-    "id" TEXT NOT NULL,
-    "tenantId" TEXT NOT NULL,
-    "enabled" BOOLEAN NOT NULL DEFAULT false,
-    "baseUrl" TEXT NOT NULL,
-    "authType" TEXT NOT NULL,
-    "authConfig" JSONB NOT NULL,
-    "syncDirection" TEXT NOT NULL DEFAULT 'pull',
-    "syncFrequency" TEXT NOT NULL DEFAULT 'daily',
-    "maxRetries" INTEGER NOT NULL DEFAULT 3,
-    "initialDelay" INTEGER NOT NULL DEFAULT 1000,
-    "maxDelay" INTEGER NOT NULL DEFAULT 30000,
-    "backoffMultiplier" DECIMAL(65,30) NOT NULL DEFAULT 2.0,
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL,
+-- Ensure index used for phone hash lookups exists
+CREATE INDEX IF NOT EXISTS "patients_phoneHash_idx" ON "patients"("phoneHash");
 
-    CONSTRAINT "fhir_integration_configs_pkey" PRIMARY KEY ("id")
-);
+-- Align FHIR integration config defaults/types with current schema
+ALTER TABLE "fhir_integration_configs"
+  ALTER COLUMN "syncDirection" SET DEFAULT 'pull',
+  ALTER COLUMN "syncFrequency" SET DEFAULT 'daily',
+  ALTER COLUMN "maxDelay" TYPE INTEGER USING "maxDelay"::INTEGER;
 
--- CreateIndex
-CREATE UNIQUE INDEX "fhir_integration_configs_tenantId_key" ON "fhir_integration_configs"("tenantId");
-
--- CreateIndex
-CREATE INDEX "patients_phoneHash_idx" ON "patients"("phoneHash");
-
--- AddForeignKey
-ALTER TABLE "fhir_integration_configs" ADD CONSTRAINT "fhir_integration_configs_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "tenants"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+-- Remove legacy columns no longer present in schema
+ALTER TABLE "fhir_integration_configs"
+  DROP COLUMN IF EXISTS "lastSyncAt",
+  DROP COLUMN IF EXISTS "lastError",
+  DROP COLUMN IF EXISTS "metadata";
