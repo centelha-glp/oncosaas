@@ -148,6 +148,42 @@ export class ClinicalProtocolsService {
   }
 
   /**
+   * Get check-in rules for a cancer type (for proactive questionnaire scheduling).
+   * Tries DB first, then falls back to template. Returns null if no protocol/template.
+   */
+  async getCheckInRules(
+    tenantId: string,
+    cancerType: string,
+  ): Promise<Record<string, { frequency: string; questionnaire: string | null }> | null> {
+    const protocol = await this.prisma.clinicalProtocol.findFirst({
+      where: {
+        tenantId,
+        cancerType: cancerType.toLowerCase(),
+        isActive: true,
+      },
+      orderBy: { version: 'desc' },
+      select: { checkInRules: true },
+    });
+
+    if (protocol?.checkInRules && typeof protocol.checkInRules === 'object') {
+      return protocol.checkInRules as Record<
+        string,
+        { frequency: string; questionnaire: string | null }
+      >;
+    }
+
+    const template = PROTOCOL_TEMPLATES[cancerType.toLowerCase()];
+    if (template?.checkInRules) {
+      return template.checkInRules as Record<
+        string,
+        { frequency: string; questionnaire: string | null }
+      >;
+    }
+
+    return null;
+  }
+
+  /**
    * Get available protocol templates
    */
   getAvailableTemplates() {

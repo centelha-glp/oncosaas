@@ -144,7 +144,7 @@ export class PatientsController {
   }
 
   @Post(':id/cancer-diagnoses')
-  @Roles(UserRole.ADMIN, UserRole.ONCOLOGIST, UserRole.COORDINATOR)
+  @Roles(UserRole.ADMIN, UserRole.ONCOLOGIST, UserRole.NURSE, UserRole.COORDINATOR)
   async createCancerDiagnosis(
     @Param('id', ParseUUIDPipe) patientId: string,
     @Body() createDto: CreateCancerDiagnosisDto,
@@ -159,7 +159,7 @@ export class PatientsController {
   }
 
   @Patch(':id/cancer-diagnoses/:diagnosisId')
-  @Roles(UserRole.ADMIN, UserRole.ONCOLOGIST, UserRole.COORDINATOR)
+  @Roles(UserRole.ADMIN, UserRole.ONCOLOGIST, UserRole.NURSE, UserRole.COORDINATOR)
   async updateCancerDiagnosis(
     @Param('id', ParseUUIDPipe) patientId: string,
     @Param('diagnosisId', ParseUUIDPipe) diagnosisId: string,
@@ -176,7 +176,7 @@ export class PatientsController {
   }
 
   @Delete(':id/cancer-diagnoses/:diagnosisId')
-  @Roles(UserRole.ADMIN, UserRole.ONCOLOGIST, UserRole.COORDINATOR)
+  @Roles(UserRole.ADMIN, UserRole.ONCOLOGIST, UserRole.NURSE, UserRole.COORDINATOR)
   async deleteCancerDiagnosis(
     @Param('id', ParseUUIDPipe) patientId: string,
     @Param('diagnosisId', ParseUUIDPipe) diagnosisId: string,

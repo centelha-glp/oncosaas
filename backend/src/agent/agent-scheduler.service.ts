@@ -3,7 +3,19 @@ import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { ChannelGatewayService } from '../channel-gateway/channel-gateway.service';
+import { ClinicalProtocolsService } from '../clinical-protocols/clinical-protocols.service';
 import { ScheduledActionStatus } from '@prisma/client';
+import { ChannelType, JourneyStage } from '@prisma/client';
+
+const FREQUENCY_DAYS: Record<string, number> = {
+  daily: 1,
+  twice_weekly: 3,
+  weekly: 7,
+  biweekly: 14,
+  monthly: 30,
+};
+
+const STAGES_WITH_QUESTIONNAIRES: JourneyStage[] = ['TREATMENT', 'FOLLOW_UP'];
 
 @Injectable()
 export class AgentSchedulerService {
@@ -13,7 +25,119 @@ export class AgentSchedulerService {
     private readonly prisma: PrismaService,
     private readonly channelGateway: ChannelGatewayService,
     private readonly configService: ConfigService,
+    private readonly clinicalProtocols: ClinicalProtocolsService,
   ) {}
+
+  /**
+   * Every 6 hours: create QUESTIONNAIRE scheduled actions for patients who are due
+   * (proactive questionnaire based on protocol checkInRules and last response date).
+   */
+  @Cron(CronExpression.EVERY_6_HOURS)
+  async scheduleProactiveQuestionnaires() {
+    try {
+      const now = new Date();
+      const patients = await this.prisma.patient.findMany({
+        where: {
+          status: { in: ['ACTIVE', 'IN_TREATMENT'] },
+          cancerType: { not: null },
+          currentStage: { in: STAGES_WITH_QUESTIONNAIRES },
+          conversations: { some: {} },
+        },
+        select: {
+          id: true,
+          tenantId: true,
+          cancerType: true,
+          currentStage: true,
+          conversations: {
+            where: { status: 'ACTIVE' },
+            orderBy: { lastMessageAt: 'desc' },
+            take: 1,
+            select: { id: true, channel: true },
+          },
+        },
+      });
+
+      let created = 0;
+      for (const patient of patients) {
+        const cancerType = patient.cancerType as string;
+        const stage = patient.currentStage as string;
+        const conversation = patient.conversations[0];
+        if (!conversation || !cancerType) continue;
+
+        const checkInRules = await this.clinicalProtocols.getCheckInRules(
+          patient.tenantId,
+          cancerType,
+        );
+        if (!checkInRules) continue;
+
+        const rule = checkInRules[stage] as
+          | { frequency: string; questionnaire: string | null }
+          | undefined;
+        if (!rule?.questionnaire) continue;
+
+        const questionnaireType = rule.questionnaire;
+        const frequencyDays = FREQUENCY_DAYS[rule.frequency] ?? 7;
+
+        const lastResponse = await this.prisma.questionnaireResponse.findFirst({
+          where: {
+            patientId: patient.id,
+            questionnaire: {
+              type: questionnaireType as 'ESAS' | 'PRO_CTCAE',
+            },
+          },
+          orderBy: { completedAt: 'desc' },
+          select: { completedAt: true },
+        });
+
+        const lastAt = lastResponse?.completedAt;
+        if (lastAt) {
+          const daysSince = Math.floor(
+            (now.getTime() - lastAt.getTime()) / (24 * 60 * 60 * 1000),
+          );
+          if (daysSince < frequencyDays) continue;
+        }
+
+        const existing = await this.prisma.scheduledAction.findFirst({
+          where: {
+            patientId: patient.id,
+            actionType: 'QUESTIONNAIRE',
+            status: ScheduledActionStatus.PENDING,
+          },
+        });
+        if (existing) continue;
+
+        await this.prisma.scheduledAction.create({
+          data: {
+            tenantId: patient.tenantId,
+            patientId: patient.id,
+            conversationId: conversation.id,
+            actionType: 'QUESTIONNAIRE',
+            channel: (conversation.channel as ChannelType) ?? ChannelType.WHATSAPP,
+            scheduledAt: now,
+            payload: {
+              questionnaireType,
+              frequency: rule.frequency,
+              source: 'proactive_job',
+            },
+          },
+        });
+        created++;
+      }
+
+      if (created > 0) {
+        this.logger.log(
+          `Proactive questionnaires: created ${created} QUESTIONNAIRE actions`,
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        `scheduleProactiveQuestionnaires failed: ${
+          error instanceof Error ? error.message : 'unknown'
+        }`,
+        error,
+      );
+    }
+  }
 
   /**
    * Every minute: check for due scheduled actions and execute them

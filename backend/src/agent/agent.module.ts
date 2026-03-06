@@ -3,6 +3,7 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { GatewaysModule } from '../gateways/gateways.module';
 import { ChannelGatewayModule } from '../channel-gateway/channel-gateway.module';
 import { OncologyNavigationModule } from '../oncology-navigation/oncology-navigation.module';
+import { ClinicalProtocolsModule } from '../clinical-protocols/clinical-protocols.module';
 import { AgentController } from './agent.controller';
 import { AgentService } from './agent.service';
 import { ConversationService } from './conversation.service';
@@ -15,6 +16,7 @@ import { AgentSchedulerService } from './agent-scheduler.service';
     GatewaysModule,
     forwardRef(() => ChannelGatewayModule),
     OncologyNavigationModule,
+    ClinicalProtocolsModule,
   ],
   controllers: [AgentController],
   providers: [
