@@ -1,11 +1,13 @@
 # MCP Server: PostgreSQL/Prisma (READ-ONLY)
 
 ## Descrição
+
 MCP Server que dá acesso READ-ONLY ao banco PostgreSQL do ONCONAV para debugging e consulta de dados durante o desenvolvimento.
 
 ## Configuração
 
 ### Conexão
+
 ```
 Host: localhost
 Port: 5432 (Docker) ou 5432 (local)
@@ -15,12 +17,14 @@ Password: ONCONAV_dev
 ```
 
 ### Instalação
+
 ```bash
 # Usar o MCP server PostgreSQL oficial
 npx @modelcontextprotocol/server-postgres "postgresql://ONCONAV:ONCONAV_dev@localhost:5432/ONCONAV_development"
 ```
 
 ### Configuração no Claude Code (`~/.claude.json` ou projeto `.claude/mcp.json`)
+
 ```json
 {
   "mcpServers": {
@@ -38,8 +42,8 @@ npx @modelcontextprotocol/server-postgres "postgresql://ONCONAV:ONCONAV_dev@loca
 
 ## Tools Disponíveis
 
-| Tool | Descrição |
-|------|-----------|
+| Tool    | Descrição                   |
+| ------- | --------------------------- |
 | `query` | Executa query SQL READ-ONLY |
 
 ## Restrições de Segurança
@@ -77,20 +81,20 @@ WHERE "tenantId" = '<tenant-id>' AND status = 'PENDING';
 
 ## Tabelas Principais
 
-| Tabela | Descrição |
-|--------|-----------|
-| `tenants` | Hospitais/clínicas |
-| `users` | Usuários do sistema |
-| `patients` | Pacientes oncológicos |
-| `cancer_diagnoses` | Diagnósticos de câncer |
-| `treatments` | Tratamentos |
-| `navigation_steps` | Etapas de navegação |
-| `conversations` | Conversas do agente |
-| `messages` | Mensagens WhatsApp |
-| `alerts` | Alertas do sistema |
-| `observations` | Observações clínicas |
-| `scheduled_actions` | Ações agendadas |
-| `questionnaire_responses` | Respostas de questionários |
-| `agent_configs` | Configuração do agente por tenant |
-| `clinical_protocols` | Protocolos clínicos |
-| `audit_logs` | Logs de auditoria LGPD |
+| Tabela                    | Descrição                         |
+| ------------------------- | --------------------------------- |
+| `tenants`                 | Hospitais/clínicas                |
+| `users`                   | Usuários do sistema               |
+| `patients`                | Pacientes oncológicos             |
+| `cancer_diagnoses`        | Diagnósticos de câncer            |
+| `treatments`              | Tratamentos                       |
+| `navigation_steps`        | Etapas de navegação               |
+| `conversations`           | Conversas do agente               |
+| `messages`                | Mensagens WhatsApp                |
+| `alerts`                  | Alertas do sistema                |
+| `observations`            | Observações clínicas              |
+| `scheduled_actions`       | Ações agendadas                   |
+| `questionnaire_responses` | Respostas de questionários        |
+| `agent_configs`           | Configuração do agente por tenant |
+| `clinical_protocols`      | Protocolos clínicos               |
+| `audit_logs`              | Logs de auditoria LGPD            |

@@ -16,16 +16,21 @@ import { InternalNotes } from './internal-notes';
 import { InterventionHistory } from './intervention-history';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { AlertsPanel } from '@/components/dashboard/alerts-panel';
+import { CriticalAlertsPanel } from '@/components/dashboard/oncologist/critical-alerts-panel';
+import { Alert } from '@/lib/api/alerts';
 import {
   ChevronUp,
   ChevronDown,
   User,
   Minimize2,
   Maximize2,
+  AlertTriangle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 type RightPanelTab = 'details' | 'notes' | 'interventions';
+type LeftPanelTab = 'patients' | 'alerts';
 
 interface NurseSpecificDashboardProps {
   hideNavigationBar?: boolean;
@@ -38,6 +43,7 @@ export function NurseSpecificDashboard({
   const { isAuthenticated } = useAuthStore();
   const [selectedPatient, setSelectedPatient] = useState<string | null>(null);
   const [rightPanelTab, setRightPanelTab] = useState<RightPanelTab>('details');
+  const [leftPanelTab, setLeftPanelTab] = useState<LeftPanelTab>('patients');
   const [isLeftPanelMinimized, setIsLeftPanelMinimized] = useState(true);
   const [isRightPanelMinimized, setIsRightPanelMinimized] = useState(true);
   const [isPanelMaximized, setIsPanelMaximized] = useState(false);
@@ -100,6 +106,10 @@ export function NurseSpecificDashboard({
     if (value === 'details' || value === 'notes' || value === 'interventions') {
       setRightPanelTab(value);
     }
+  };
+
+  const handleAlertSelect = (alert: Alert) => {
+    setSelectedPatient(alert.patientId);
   };
 
   const toggleLeftPanelMinimize = () => {
@@ -173,6 +183,9 @@ export function NurseSpecificDashboard({
                 </div>
               </div>
 
+              {/* Alertas Críticos */}
+              <CriticalAlertsPanel onAlertSelect={handleAlertSelect} />
+
               {/* Métricas operacionais */}
               <div className="mb-4">
                 <NurseMetricsPanel />
@@ -197,6 +210,9 @@ export function NurseSpecificDashboard({
                   <ShiftChecklist type="end" />
                 </div>
               </div>
+
+              {/* Alertas Críticos */}
+              <CriticalAlertsPanel onAlertSelect={handleAlertSelect} />
 
               {/* Métricas operacionais */}
               <div className="mb-4">
@@ -239,18 +255,49 @@ export function NurseSpecificDashboard({
 
                 {/* Painel unificado: Lista de pacientes + Detalhes */}
                 <div className="flex h-full w-full">
-                  {/* Seção esquerda: Lista de pacientes */}
+                  {/* Seção esquerda: Lista de pacientes ou Alertas */}
                   <div className="w-[600px] flex-shrink-0 border-r bg-white flex flex-col">
-                    <div className="flex-1 overflow-hidden">
-                      <PatientsCriticalStepsList
-                        onPatientSelect={setSelectedPatient}
-                        selectedPatientId={selectedPatient}
-                        onMinimize={toggleLeftPanelMinimize}
-                        onMaximize={togglePanelMaximize}
-                        isMaximized={isPanelMaximized}
-                        hideButtons={true}
-                      />
-                    </div>
+                    <Tabs
+                      value={leftPanelTab}
+                      onValueChange={(v) =>
+                        setLeftPanelTab(v as LeftPanelTab)
+                      }
+                      className="flex-1 flex flex-col overflow-hidden"
+                    >
+                      <div className="flex-shrink-0 border-b px-4 pt-3 pb-2">
+                        <TabsList className="grid w-full grid-cols-2">
+                          <TabsTrigger value="patients">
+                            <User className="h-4 w-4 mr-2" />
+                            Pacientes
+                          </TabsTrigger>
+                          <TabsTrigger value="alerts">
+                            <AlertTriangle className="h-4 w-4 mr-2" />
+                            Alertas
+                          </TabsTrigger>
+                        </TabsList>
+                      </div>
+                      <div className="flex-1 overflow-hidden min-h-0">
+                        <TabsContent
+                          value="patients"
+                          className="h-full m-0 overflow-hidden"
+                        >
+                          <PatientsCriticalStepsList
+                            onPatientSelect={setSelectedPatient}
+                            selectedPatientId={selectedPatient}
+                            onMinimize={toggleLeftPanelMinimize}
+                            onMaximize={togglePanelMaximize}
+                            isMaximized={isPanelMaximized}
+                            hideButtons={true}
+                          />
+                        </TabsContent>
+                        <TabsContent
+                          value="alerts"
+                          className="h-full m-0 overflow-y-auto p-4"
+                        >
+                          <AlertsPanel onAlertSelect={handleAlertSelect} />
+                        </TabsContent>
+                      </div>
+                    </Tabs>
                   </div>
 
                   {/* Seção direita: Detalhes do paciente */}
@@ -360,16 +407,47 @@ export function NurseSpecificDashboard({
                     side="left"
                   >
                     <div className="h-full bg-white border-r w-full relative flex flex-col">
-                      <div className="flex-1 overflow-hidden">
-                        <PatientsCriticalStepsList
-                          onPatientSelect={setSelectedPatient}
-                          selectedPatientId={selectedPatient}
-                          onMinimize={toggleLeftPanelMinimize}
-                          onMaximize={togglePanelMaximize}
-                          isMaximized={isPanelMaximized}
-                          hideButtons={true}
-                        />
-                      </div>
+                      <Tabs
+                        value={leftPanelTab}
+                        onValueChange={(v) =>
+                          setLeftPanelTab(v as LeftPanelTab)
+                        }
+                        className="flex-1 flex flex-col overflow-hidden min-h-0"
+                      >
+                        <div className="flex-shrink-0 border-b px-4 pt-3 pb-2">
+                          <TabsList className="grid w-full grid-cols-2">
+                            <TabsTrigger value="patients">
+                              <User className="h-4 w-4 mr-2" />
+                              Pacientes
+                            </TabsTrigger>
+                            <TabsTrigger value="alerts">
+                              <AlertTriangle className="h-4 w-4 mr-2" />
+                              Alertas
+                            </TabsTrigger>
+                          </TabsList>
+                        </div>
+                        <div className="flex-1 overflow-hidden min-h-0">
+                          <TabsContent
+                            value="patients"
+                            className="h-full m-0 overflow-hidden"
+                          >
+                            <PatientsCriticalStepsList
+                              onPatientSelect={setSelectedPatient}
+                              selectedPatientId={selectedPatient}
+                              onMinimize={toggleLeftPanelMinimize}
+                              onMaximize={togglePanelMaximize}
+                              isMaximized={isPanelMaximized}
+                              hideButtons={true}
+                            />
+                          </TabsContent>
+                          <TabsContent
+                            value="alerts"
+                            className="h-full m-0 overflow-y-auto p-4"
+                          >
+                            <AlertsPanel onAlertSelect={handleAlertSelect} />
+                          </TabsContent>
+                        </div>
+                      </Tabs>
                     </div>
                   </ResizablePanel>
 
@@ -455,9 +533,15 @@ export function NurseSpecificDashboard({
             {/* Informação dos painéis minimizados */}
             <div className="flex items-center gap-2 flex-1 min-w-0">
               <div className="flex items-center gap-2 px-4 py-2 bg-gray-50 rounded-lg border border-gray-200 flex-1 min-w-0">
-                <User className="h-4 w-4 text-gray-500 flex-shrink-0" />
+                {leftPanelTab === 'alerts' ? (
+                  <AlertTriangle className="h-4 w-4 text-gray-500 flex-shrink-0" />
+                ) : (
+                  <User className="h-4 w-4 text-gray-500 flex-shrink-0" />
+                )}
                 <span className="text-sm font-medium text-gray-700 truncate">
-                  Lista de Pacientes
+                  {leftPanelTab === 'alerts'
+                    ? 'Alertas'
+                    : 'Lista de Pacientes'}
                 </span>
                 {selectedPatient && (
                   <span className="text-xs text-gray-500 truncate">

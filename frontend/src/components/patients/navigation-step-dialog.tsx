@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Dialog,
@@ -26,7 +26,7 @@ export function NavigationStepDialog({
   onOpenChange,
   step,
   patientId,
-}: NavigationStepDialogProps): JSX.Element {
+}: NavigationStepDialogProps): React.ReactElement {
   const queryClient = useQueryClient();
   const [isSubmitting, setIsSubmitting] = useState(false);
 

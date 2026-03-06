@@ -1,0 +1,142 @@
+[
+  {
+    "id": "faq-alimentacao-quimio-01",
+    "category": "nutricao",
+    "cancer_types": ["ALL"],
+    "title": "Alimentação segura durante quimioterapia",
+    "content": "Durante a quimioterapia, o sistema imunológico fica enfraquecido (imunossupressão). Evite alimentos crus como sushi, sashimi, ovos crus, leite não pasteurizado e queijos moles. Prefira alimentos bem cozidos e lavados. Frutas com casca grossa (banana, laranja) são mais seguras. Lave bem verduras com água corrente e deixe de molho em solução de hipoclorito. Evite buffets e comida de rua. Beba água filtrada ou fervida."
+  },
+  {
+    "id": "faq-alimentacao-quimio-02",
+    "category": "nutricao",
+    "cancer_types": ["ALL"],
+    "title": "O que comer quando está com náusea da quimioterapia",
+    "content": "Para náuseas: faça refeições pequenas e frequentes (6-8 vezes ao dia). Prefira alimentos secos como biscoito de água e sal, torradas. Evite alimentos gordurosos, frituras e com cheiro forte. Gengibre pode ajudar (chá de gengibre, balas de gengibre). Coma devagar e mastigue bem. Não deite logo após comer (espere 30 minutos). Líquidos gelados como água, suco de limão e picolé de frutas são bem tolerados. Se vomitar, aguarde 1 hora e tente líquidos em pequenos goles."
+  },
+  {
+    "id": "faq-alimentacao-quimio-03",
+    "category": "nutricao",
+    "cancer_types": ["ALL"],
+    "title": "Alimentos para fortalecer a imunidade durante o tratamento",
+    "content": "Não existe alimento que cure o câncer ou substitua o tratamento. Porém, uma alimentação equilibrada ajuda na recuperação. Inclua proteínas (frango, peixe cozido, ovos cozidos, feijão). Frutas e vegetais coloridos fornecem vitaminas e antioxidantes. Mantenha-se hidratado (mínimo 2 litros de líquidos por dia). Suplementos vitamínicos só com orientação médica, pois alguns podem interferir no tratamento. Evite dietas restritivas sem orientação profissional."
+  },
+  {
+    "id": "faq-efeitos-colaterais-01",
+    "category": "efeitos_colaterais",
+    "cancer_types": ["ALL"],
+    "title": "Queda de cabelo durante quimioterapia",
+    "content": "A queda de cabelo (alopecia) ocorre com alguns tipos de quimioterapia, geralmente 2-3 semanas após o início. Não acontece com todos os protocolos. O cabelo volta a crescer após o fim do tratamento (pode demorar 3-6 meses). Algumas dicas: corte o cabelo curto antes de começar a cair; use lenços, bonés ou perucas se desejar; proteja o couro cabeludo do sol; use shampoo suave. A perda é temporária e o cabelo pode voltar com textura diferente."
+  },
+  {
+    "id": "faq-efeitos-colaterais-02",
+    "category": "efeitos_colaterais",
+    "cancer_types": ["ALL"],
+    "title": "Mucosite oral durante quimioterapia",
+    "content": "Mucosite é a inflamação da mucosa da boca, causando feridas, dor e dificuldade para comer. Prevenção: escove os dentes com escova macia após cada refeição; use creme dental suave; faça bochechos com bicarbonato de sódio (1 colher de chá em 1 copo de água) 4-6 vezes ao dia; mantenha a boca hidratada. Evite alimentos ácidos, picantes, muito quentes ou crocantes. Prefira alimentos pastosos e frios. Se dor intensa, informe a equipe médica para prescrever analgésicos ou enxaguantes com anestésico."
+  },
+  {
+    "id": "faq-efeitos-colaterais-03",
+    "category": "efeitos_colaterais",
+    "cancer_types": ["ALL"],
+    "title": "Fadiga e cansaço durante tratamento oncológico",
+    "content": "A fadiga é o efeito colateral mais comum do tratamento oncológico. Dicas para lidar: mantenha atividade física leve (caminhadas de 15-30 minutos); respeite seus limites e descanse quando precisar; priorize atividades importantes; peça ajuda para tarefas pesadas; mantenha horários regulares de sono; hidrate-se bem; alimentação balanceada ajuda. Se a fadiga for incapacitante ou piorar subitamente, informe a equipe médica, pois pode indicar anemia ou outra complicação tratável."
+  },
+  {
+    "id": "faq-efeitos-colaterais-04",
+    "category": "efeitos_colaterais",
+    "cancer_types": ["ALL"],
+    "title": "Neuropatia periférica induzida por quimioterapia",
+    "content": "Neuropatia periférica causa formigamento, dormência ou dor nas mãos e pés. É comum com taxanos (paclitaxel, docetaxel) e platinas (oxaliplatina, cisplatina). Pode piorar com o frio (especialmente oxaliplatina). Dicas: use luvas ao pegar coisas geladas; evite bebidas geladas nos primeiros dias pós-quimio; cuidado com objetos cortantes (sensibilidade reduzida); informe a equipe se piorar. Pode ser necessário ajuste de dose. Alguns casos melhoram após o fim do tratamento, outros podem ser permanentes."
+  },
+  {
+    "id": "faq-exercicio-01",
+    "category": "exercicio",
+    "cancer_types": ["ALL"],
+    "title": "Exercício físico durante tratamento oncológico",
+    "content": "Exercício físico durante o tratamento é seguro e recomendado na maioria dos casos. Benefícios: reduz fadiga, melhora humor, mantém massa muscular, melhora qualidade de vida. Comece devagar: caminhadas de 10-15 minutos e aumente gradualmente. Evite exercício intenso nos dias de quimioterapia e nos 2-3 dias seguintes se sentir mal. Evite exercício se tiver febre, plaquetas baixas ou anemia severa. Natação pode ser contraindicada se estiver com cateter. Sempre consulte sua equipe médica antes de iniciar."
+  },
+  {
+    "id": "faq-emocional-01",
+    "category": "emocional",
+    "cancer_types": ["ALL"],
+    "title": "Apoio emocional durante o tratamento do câncer",
+    "content": "É completamente normal sentir medo, ansiedade, tristeza e raiva durante o tratamento do câncer. Você não precisa enfrentar isso sozinho(a). Busque apoio: converse com familiares e amigos de confiança; participe de grupos de apoio; procure acompanhamento psicológico. Sinais de alerta para buscar ajuda profissional: tristeza persistente por mais de 2 semanas; perda de interesse nas atividades; dificuldade para dormir ou dormir demais; pensamentos de que não vale a pena viver. A equipe de navegação pode ajudar a encontrar recursos de apoio emocional."
+  },
+  {
+    "id": "faq-emergencia-01",
+    "category": "emergencia",
+    "cancer_types": ["ALL"],
+    "title": "Quando procurar emergência durante o tratamento",
+    "content": "Procure o pronto-socorro IMEDIATAMENTE se: febre acima de 38°C (neutropenia febril pode ser fatal); sangramento que não para; falta de ar intensa ou súbita; dor no peito; confusão mental ou desorientação; vômitos que não param por mais de 24 horas e não consegue tomar líquidos; diarreia intensa com sangue; reação alérgica grave (inchaço de rosto, dificuldade para respirar). Leve sempre um cartão indicando que está em quimioterapia. Ligue para o SAMU (192) em emergências."
+  },
+  {
+    "id": "faq-emergencia-02",
+    "category": "emergencia",
+    "cancer_types": ["ALL"],
+    "title": "Neutropenia febril - o que é e o que fazer",
+    "content": "Neutropenia febril é febre (≥38°C) quando as defesas do corpo (neutrófilos) estão baixas por causa da quimioterapia. É uma emergência médica. Sintomas: febre, calafrios, mal-estar. NÃO tome antitérmico por conta própria antes de medir a temperatura. Meça a temperatura com termômetro (não confie na sensação). Se ≥38°C, vá IMEDIATAMENTE ao pronto-socorro e informe que está em quimioterapia. O tratamento com antibióticos intravenosos deve começar em até 1 hora. Prevenção: lave as mãos frequentemente; evite contato com pessoas doentes; evite aglomerações."
+  },
+  {
+    "id": "faq-mama-01",
+    "category": "tratamento",
+    "cancer_types": ["BREAST"],
+    "title": "Hormonioterapia no câncer de mama",
+    "content": "A hormonioterapia é usada em cânceres de mama com receptores hormonais positivos (RH+). Medicamentos comuns: tamoxifeno (pré e pós-menopausa, 5-10 anos) e inibidores de aromatase (anastrozol, letrozol, exemestano - apenas pós-menopausa, 5-10 anos). Efeitos colaterais comuns: ondas de calor, secura vaginal, dor articular, alterações de humor. Tome o medicamento todos os dias no mesmo horário. Não interrompa sem orientação médica. Efeitos colaterais podem ser manejados - converse com sua equipe."
+  },
+  {
+    "id": "faq-colorretal-01",
+    "category": "tratamento",
+    "cancer_types": ["COLORECTAL"],
+    "title": "Cuidados com colostomia e ileostomia",
+    "content": "Se você tem uma colostomia ou ileostomia: troque a bolsa regularmente conforme orientação da equipe de estomaterapia; mantenha a pele ao redor limpa e seca; observe a coloração do estoma (deve ser rosado/vermelho); atenção para sinais de irritação na pele; qualquer sangramento excessivo ou mudança de cor, informe a equipe. Alimentação: mastigue bem os alimentos; beba bastante líquido; introduza novos alimentos um de cada vez; evite alimentos que causam muito gás se incomodar. Você pode manter uma vida ativa e normal."
+  },
+  {
+    "id": "faq-pulmao-01",
+    "category": "tratamento",
+    "cancer_types": ["LUNG"],
+    "title": "Cuidados respiratórios durante tratamento de câncer de pulmão",
+    "content": "Se você está em tratamento para câncer de pulmão: pare de fumar completamente (peça ajuda para cessação); faça exercícios respiratórios conforme orientação da fisioterapia; mantenha vacinação em dia (influenza, pneumococo); evite ambientes com poeira, mofo e poluição; use umidificador se o ar estiver seco; se tiver falta de ar, descanse e use oxigênio se prescrito; informe a equipe se a falta de ar piorar ou surgir nova tosse. Alguns tratamentos (imunoterapia) podem causar pneumonite - informe febre + tosse + falta de ar."
+  },
+  {
+    "id": "faq-prostata-01",
+    "category": "tratamento",
+    "cancer_types": ["PROSTATE"],
+    "title": "Efeitos da terapia hormonal no câncer de próstata",
+    "content": "A terapia de privação androgênica (hormonal) é comum no câncer de próstata. Efeitos colaterais: ondas de calor, diminuição da libido, disfunção erétil, ganho de peso, perda de massa muscular e óssea, alterações de humor. Para manejar: exercício físico regular (especialmente musculação); dieta equilibrada rica em cálcio e vitamina D; monitorar densidade óssea (densitometria); conversar sobre questões sexuais com a equipe. Não pare o tratamento por conta própria. Muitos efeitos podem ser tratados."
+  },
+  {
+    "id": "faq-dor-01",
+    "category": "dor",
+    "cancer_types": ["ALL"],
+    "title": "Manejo da dor oncológica",
+    "content": "A dor no câncer pode e deve ser tratada. Não sofra em silêncio. Use a escala de 0 a 10 para descrever a dor (0=sem dor, 10=pior dor imaginável). Tome os medicamentos nos horários prescritos, não espere a dor ficar forte. Medicamentos: analgésicos simples (paracetamol, dipirona), anti-inflamatórios (quando permitidos), opioides (tramadol, codeína, morfina - não vicia quando usado corretamente para dor). Efeitos colaterais dos opioides (constipação, sonolência) podem ser manejados. Informe a equipe se a dor não estiver controlada."
+  },
+  {
+    "id": "faq-dor-02",
+    "category": "dor",
+    "cancer_types": ["ALL"],
+    "title": "Uso de opioide para dor oncológica - dúvidas frequentes",
+    "content": "Opioides (morfina, oxicodona, fentanil) são medicamentos seguros e eficazes para dor oncológica quando usados corretamente. Mitos: opioide não significa que o câncer está pior; opioide usado para dor não causa vício/dependência como em uso recreativo; opioide não apressa a morte. Tomando corretamente: siga exatamente a prescrição; tome nos horários corretos (relógio); se dor entre as doses, use a dose de resgate prescrita; nunca aumente a dose por conta própria; constipação é esperada - use laxante junto; sonolência inicial é normal e melhora em poucos dias."
+  },
+  {
+    "id": "faq-cuidados-cateter-01",
+    "category": "cuidados",
+    "cancer_types": ["ALL"],
+    "title": "Cuidados com o cateter portocath (port-a-cath)",
+    "content": "O portocath é um cateter implantado sob a pele do tórax para facilitar a quimioterapia. Cuidados: mantenha o local limpo e seco; observe sinais de infecção (vermelhidão, inchaço, dor, secreção, febre); não carregar peso excessivo no braço do lado do cateter nos primeiros dias; após cicatrização, pode fazer atividades normais; banho normal é permitido após cicatrização; se o local ficar vermelho, inchado, dolorido ou com secreção, procure atendimento. O cateter precisa ser heparinizado a cada 30-40 dias quando não estiver em uso."
+  },
+  {
+    "id": "faq-direitos-01",
+    "category": "direitos",
+    "cancer_types": ["ALL"],
+    "title": "Direitos do paciente oncológico no Brasil",
+    "content": "Pacientes com câncer têm direitos garantidos por lei no Brasil: saque do FGTS e PIS/PASEP; isenção de Imposto de Renda sobre aposentadoria; auxílio-doença pelo INSS; cirurgia e tratamento pelo SUS em até 60 dias após diagnóstico (Lei dos 60 dias); medicamentos de alto custo pelo SUS; transporte gratuito em algumas cidades. Para acessar: procure o serviço social do hospital; INSS para benefícios previdenciários; secretaria de saúde para medicamentos. A equipe de navegação pode ajudar com orientações sobre como acessar cada direito."
+  },
+  {
+    "id": "faq-prevencao-recidiva-01",
+    "category": "seguimento",
+    "cancer_types": ["ALL"],
+    "title": "Seguimento após tratamento - prevenção de recidiva",
+    "content": "Após completar o tratamento, o seguimento é essencial. Consultas regulares com o oncologista: geralmente a cada 3 meses no 1º-2º ano, a cada 6 meses no 3º-5º ano, depois anualmente. Exames de imagem e marcadores conforme protocolo do seu tipo de câncer. Hábitos que ajudam: não fumar; manter peso saudável; exercício regular; alimentação equilibrada; limitar álcool; controlar estresse. Sinais de alerta para recidiva: nódulos novos; dor persistente que não melhora; perda de peso sem explicação; cansaço extremo; sangramento. Informe a equipe se notar qualquer mudança."
+  }
+]

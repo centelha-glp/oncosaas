@@ -1,11 +1,15 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { PriorityRecalculationService } from '../oncology-navigation/priority-recalculation.service';
 import { CreateQuestionnaireResponseDto } from './dto/create-questionnaire-response.dto';
 import { QuestionnaireResponse } from '@prisma/client';
 
 @Injectable()
 export class QuestionnaireResponsesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly priorityRecalculationService: PriorityRecalculationService
+  ) {}
 
   async create(
     createDto: CreateQuestionnaireResponseDto,
@@ -40,7 +44,7 @@ export class QuestionnaireResponsesService {
     }
 
     // Criar resposta
-    return this.prisma.questionnaireResponse.create({
+    const response = await this.prisma.questionnaireResponse.create({
       data: {
         tenantId,
         patientId: createDto.patientId,
@@ -50,6 +54,13 @@ export class QuestionnaireResponsesService {
         appliedBy: createDto.appliedBy || 'AGENT',
       },
     });
+
+    this.priorityRecalculationService.triggerRecalculation(
+      createDto.patientId,
+      tenantId
+    );
+
+    return response;
   }
 
   async findAll(

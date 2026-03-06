@@ -21,12 +21,20 @@ const DISPLAY_TO_API: Record<string, ApiPriority> = {
 
 export function mapPriorityToDisplay(priority: string): DisplayPriority {
   const normalized = priority?.toUpperCase();
-  return API_TO_DISPLAY[normalized] ?? (priority?.toLowerCase() as DisplayPriority) ?? 'baixo';
+  return (
+    API_TO_DISPLAY[normalized] ??
+    (priority?.toLowerCase() as DisplayPriority) ??
+    'baixo'
+  );
 }
 
 export function mapPriorityToApi(display: string): ApiPriority {
   const normalized = display?.toLowerCase();
-  return DISPLAY_TO_API[normalized] ?? (display?.toUpperCase() as ApiPriority) ?? 'LOW';
+  return (
+    DISPLAY_TO_API[normalized] ??
+    (display?.toUpperCase() as ApiPriority) ??
+    'LOW'
+  );
 }
 
 export const PRIORITY_LABELS: Record<DisplayPriority, string> = {

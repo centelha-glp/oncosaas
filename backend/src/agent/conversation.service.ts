@@ -172,19 +172,30 @@ export class ConversationService {
   }
 
   /**
-   * Return conversation to agent handling
+   * Return conversation to agent handling.
+   * Clears assumed state on conversation and all messages so UI shows "Assumir" again.
    */
   async returnToAgent(conversationId: string, tenantId: string) {
     const conversation = await this.findOne(conversationId, tenantId);
 
-    return this.prisma.conversation.update({
+    await this.prisma.$transaction([
+      this.prisma.conversation.update({
+        where: { id: conversation.id },
+        data: {
+          handledBy: HandledBy.AGENT,
+          status: ConversationStatus.ACTIVE,
+          assumedByUserId: null,
+          assumedAt: null,
+        },
+      }),
+      this.prisma.message.updateMany({
+        where: { conversationId: conversation.id, tenantId },
+        data: { assumedBy: null, assumedAt: null },
+      }),
+    ]);
+
+    return this.prisma.conversation.findUniqueOrThrow({
       where: { id: conversation.id },
-      data: {
-        handledBy: HandledBy.AGENT,
-        status: ConversationStatus.ACTIVE,
-        assumedByUserId: null,
-        assumedAt: null,
-      },
     });
   }
 

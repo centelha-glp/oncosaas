@@ -24,6 +24,8 @@ export const useCreateAlert = () => {
     mutationFn: (data: CreateAlertDto) => alertsApi.create(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['alerts'] });
+      queryClient.invalidateQueries({ queryKey: ['alerts', 'open', 'count'] });
+      queryClient.invalidateQueries({ queryKey: ['patients'] });
     },
   });
 };
@@ -35,7 +37,9 @@ export const useAcknowledgeAlert = () => {
     mutationFn: (id: string) => alertsApi.acknowledge(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['alerts'] });
+      queryClient.invalidateQueries({ queryKey: ['alerts', 'open', 'count'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard', 'metrics'] });
+      queryClient.invalidateQueries({ queryKey: ['patients'] });
     },
   });
 };
@@ -47,8 +51,10 @@ export const useResolveAlert = () => {
     mutationFn: (id: string) => alertsApi.resolve(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['alerts'] });
+      queryClient.invalidateQueries({ queryKey: ['alerts', 'open', 'count'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard', 'metrics'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard', 'statistics'] });
+      queryClient.invalidateQueries({ queryKey: ['patients'] });
     },
   });
 };
@@ -60,6 +66,7 @@ export const useDismissAlert = () => {
     mutationFn: (id: string) => alertsApi.dismiss(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['alerts'] });
+      queryClient.invalidateQueries({ queryKey: ['patients'] });
     },
   });
 };
@@ -70,5 +77,14 @@ export const useCriticalAlertsCount = () => {
     queryFn: () => alertsApi.getCriticalCount(),
     staleTime: 30 * 1000, // 30 segundos (atualizar mais frequentemente)
     refetchInterval: 30 * 1000, // Atualizar a cada 30 segundos
+  });
+};
+
+export const useOpenAlertsCount = () => {
+  return useQuery({
+    queryKey: ['alerts', 'open', 'count'],
+    queryFn: () => alertsApi.getOpenCount(),
+    staleTime: 30 * 1000,
+    refetchInterval: 30 * 1000,
   });
 };

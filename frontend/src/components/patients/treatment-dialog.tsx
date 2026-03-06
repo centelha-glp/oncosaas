@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Dialog,
@@ -32,7 +32,7 @@ export function TreatmentDialog({
   diagnosisId,
   treatment,
   patientId,
-}: TreatmentDialogProps): JSX.Element {
+}: TreatmentDialogProps): React.ReactElement {
   const queryClient = useQueryClient();
   const [isSubmitting, setIsSubmitting] = useState(false);
 

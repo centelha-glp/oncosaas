@@ -57,6 +57,19 @@ export class MessagesController {
     return { count };
   }
 
+  @Get('unassumed/patient-ids')
+  @Roles(
+    UserRole.ADMIN,
+    UserRole.ONCOLOGIST,
+    UserRole.NURSE,
+    UserRole.COORDINATOR
+  )
+  async getUnassumedPatientIds(@CurrentUser() user: any) {
+    const patientIds =
+      await this.messagesService.getUnassumedPatientIds(user.tenantId);
+    return { patientIds };
+  }
+
   @Get('conversation/:patientId')
   @Roles(
     UserRole.ADMIN,
@@ -118,6 +131,24 @@ export class MessagesController {
     @CurrentUser() user: any
   ) {
     return this.messagesService.update(id, updateMessageDto, user.tenantId);
+  }
+
+  @Patch('patient/:patientId/assume')
+  @Roles(
+    UserRole.ADMIN,
+    UserRole.ONCOLOGIST,
+    UserRole.NURSE,
+    UserRole.COORDINATOR
+  )
+  assumePatientConversation(
+    @Param('patientId', ParseUUIDPipe) patientId: string,
+    @CurrentUser() user: any
+  ) {
+    return this.messagesService.assumeAllForPatient(
+      patientId,
+      user.tenantId,
+      user.id
+    );
   }
 
   @Patch(':id/assume')

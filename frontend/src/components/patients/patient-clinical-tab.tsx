@@ -1,9 +1,25 @@
 'use client';
 
-import { PatientDetail, Comorbidity, FamilyHistory } from '@/lib/api/patients';
+import React, { useState } from 'react';
+import {
+  PatientDetail,
+  Comorbidity,
+  FamilyHistory,
+  CurrentMedication,
+  ComplementaryExam,
+  ComplementaryExamType,
+} from '@/lib/api/patients';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
+import { Button } from '@/components/ui/button';
+import { format } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
+import { LineChart as LineChartIcon, Plus } from 'lucide-react';
+import { ComplementaryExamChartDialog } from './complementary-exam-chart-dialog';
+import { ComplementaryExamCreateDialog } from './complementary-exam-create-dialog';
+import { ComplementaryExamResultCreateDialog } from './complementary-exam-result-create-dialog';
+import { PatientSymptomTimeline } from './patient-symptom-timeline';
 
 interface PatientClinicalTabProps {
   patient: PatientDetail;
@@ -21,6 +37,20 @@ const SEVERITY_COLORS: Record<string, string> = {
   grave: 'bg-red-100 text-red-800 border-red-300',
 };
 
+const EXAM_TYPE_LABELS: Record<ComplementaryExamType, string> = {
+  LABORATORY: 'Laboratoriais',
+  ANATOMOPATHOLOGICAL: 'Anatomopatológicos',
+  IMMUNOHISTOCHEMICAL: 'Imuno-histoquímicos',
+  IMAGING: 'Imagem',
+};
+
+const EXAM_TYPE_ORDER: ComplementaryExamType[] = [
+  'LABORATORY',
+  'ANATOMOPATHOLOGICAL',
+  'IMMUNOHISTOCHEMICAL',
+  'IMAGING',
+];
+
 function getECOGDescription(score: number): string {
   if (score === 0) return 'Assintomático';
   if (score === 1) return 'Sintomático, mas ambulatorial';
@@ -32,13 +62,29 @@ function getECOGDescription(score: number): string {
 
 export function PatientClinicalTab({
   patient,
-}: PatientClinicalTabProps): JSX.Element {
+}: PatientClinicalTabProps): React.ReactElement {
+  const [chartExam, setChartExam] = useState<ComplementaryExam | null>(null);
+  const [openAddExam, setOpenAddExam] = useState(false);
+  const [examForResult, setExamForResult] = useState<ComplementaryExam | null>(null);
+
+  const complementaryExams: ComplementaryExam[] = Array.isArray(
+    patient.complementaryExams
+  )
+    ? patient.complementaryExams
+    : [];
+
   const comorbidities: Comorbidity[] = Array.isArray(patient.comorbidities)
     ? patient.comorbidities
     : [];
 
   const familyHistory: FamilyHistory[] = Array.isArray(patient.familyHistory)
     ? patient.familyHistory
+    : [];
+
+  const currentMedications: CurrentMedication[] = Array.isArray(
+    patient.currentMedications
+  )
+    ? patient.currentMedications
     : [];
 
   return (
@@ -69,6 +115,198 @@ export function PatientClinicalTab({
             </CardContent>
           </Card>
         )}
+
+      {/* Medicamentos em uso */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Medicamentos em uso</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {currentMedications.length > 0 ? (
+            <div className="space-y-3">
+              {currentMedications.map((medication, index) => (
+                <div
+                  key={index}
+                  className="flex flex-col gap-1 p-3 border rounded-lg"
+                >
+                  <div className="font-medium">{medication.name}</div>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
+                    {medication.dosage && (
+                      <span>
+                        <span className="font-medium">Dose:</span>{' '}
+                        {medication.dosage}
+                      </span>
+                    )}
+                    {medication.frequency && (
+                      <span>
+                        <span className="font-medium">Frequência:</span>{' '}
+                        {medication.frequency}
+                      </span>
+                    )}
+                    {medication.indication && (
+                      <span>
+                        <span className="font-medium">Indicação:</span>{' '}
+                        {medication.indication}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Nenhum medicamento em uso registrado.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Exames complementares */}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0">
+          <CardTitle>Exames complementares</CardTitle>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setOpenAddExam(true)}
+          >
+            <Plus className="h-4 w-4 mr-1" />
+            Adicionar exame
+          </Button>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {complementaryExams.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              Nenhum exame complementar registrado.
+            </p>
+          ) : (
+            EXAM_TYPE_ORDER.map((type) => {
+              const examsOfType = complementaryExams.filter((e) => e.type === type);
+              if (examsOfType.length === 0) return null;
+              return (
+                <div key={type}>
+                  <h4 className="text-sm font-semibold text-muted-foreground mb-3">
+                    {EXAM_TYPE_LABELS[type]}
+                  </h4>
+                  <div className="space-y-4">
+                    {examsOfType.map((exam) => (
+                      <div
+                        key={exam.id}
+                        className="border rounded-lg p-3 space-y-2"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div>
+                            <span className="font-medium">{exam.name}</span>
+                            {exam.code && (
+                              <span className="text-muted-foreground text-sm ml-2">
+                                ({exam.code})
+                              </span>
+                            )}
+                            {exam.referenceRange && (
+                              <span className="text-muted-foreground text-xs block mt-0.5">
+                                Ref.: {exam.referenceRange}
+                                {exam.unit ? ` ${exam.unit}` : ''}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="shrink-0"
+                              onClick={() => setExamForResult(exam)}
+                              title="Adicionar resultado"
+                              aria-label="Adicionar resultado"
+                            >
+                              <Plus className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="shrink-0"
+                              onClick={() => setChartExam(exam)}
+                              title="Ver gráfico de evolução"
+                              aria-label="Ver gráfico de evolução"
+                            >
+                              <LineChartIcon className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </div>
+                        {/* Timeline de resultados */}
+                        <ul className="space-y-1.5 text-sm">
+                          {exam.results.length === 0 ? (
+                            <li className="text-muted-foreground">
+                              Nenhum resultado registrado.
+                            </li>
+                          ) : (
+                            [...exam.results]
+                              .sort(
+                                (a, b) =>
+                                  new Date(b.performedAt).getTime() -
+                                  new Date(a.performedAt).getTime()
+                              )
+                              .map((r) => (
+                                <li
+                                  key={r.id}
+                                  className="flex items-baseline justify-between gap-2 py-1 border-b border-border/50 last:border-0"
+                                >
+                                  <span className="text-muted-foreground shrink-0">
+                                    {format(
+                                      new Date(r.performedAt),
+                                      'dd/MM/yyyy',
+                                      { locale: ptBR }
+                                    )}
+                                  </span>
+                                  <span className="text-right truncate min-w-0">
+                                    {r.valueNumeric != null
+                                      ? `${r.valueNumeric}${r.unit ? ` ${r.unit}` : ''}`
+                                      : r.valueText ?? r.report ?? '-'}
+                                    {r.isAbnormal && (
+                                      <span className="text-amber-600 ml-1">
+                                        (fora ref.)
+                                      </span>
+                                    )}
+                                  </span>
+                                </li>
+                              ))
+                          )}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Linha do tempo de sintomas e questionários */}
+      <PatientSymptomTimeline patientId={patient.id} />
+
+      <ComplementaryExamCreateDialog
+        open={openAddExam}
+        onOpenChange={setOpenAddExam}
+        patientId={patient.id}
+      />
+
+      {chartExam && (
+        <ComplementaryExamChartDialog
+          open={!!chartExam}
+          onOpenChange={(open) => !open && setChartExam(null)}
+          exam={chartExam}
+        />
+      )}
+
+      {examForResult && (
+        <ComplementaryExamResultCreateDialog
+          open={!!examForResult}
+          onOpenChange={(open) => !open && setExamForResult(null)}
+          patientId={patient.id}
+          exam={examForResult}
+        />
+      )}
 
       {/* Comorbidades */}
       <Card>

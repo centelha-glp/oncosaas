@@ -107,7 +107,8 @@ export function PatientListConnected({
   const activeFiltersCount =
     (activeFilters.searchTerm ? 1 : 0) +
     (activeFilters.priorityCategory ? 1 : 0) +
-    (activeFilters.cancerType ? 1 : 0);
+    (activeFilters.cancerType ? 1 : 0) +
+    (activeFilters.unreadOnly ? 1 : 0);
 
   // Se após filtrar não houver resultados, mostrar mensagem
   if (filteredPatients.length === 0) {
@@ -154,14 +155,16 @@ export function PatientListConnected({
     cancerType: getPatientCancerType(patient),
     stage: patient.stage,
     priorityScore: patient.priorityScore,
-    priorityCategory: mapPriorityToDisplay(patient.priorityCategory || 'MEDIUM'),
+    priorityCategory: mapPriorityToDisplay(
+      patient.priorityCategory || 'MEDIUM'
+    ),
     lastInteraction: patient.lastInteraction
       ? formatDistanceToNow(new Date(patient.lastInteraction), {
           addSuffix: true,
           locale: ptBR,
         })
       : undefined,
-    alertCount: patient._count?.alerts || 0,
+    alertCount: patient.pendingAlertsCount ?? patient._count?.alerts ?? 0,
   }));
 
   const handlePatientClick = (patientId: string) => {

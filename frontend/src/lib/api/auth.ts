@@ -20,6 +20,13 @@ export interface RegisterDto {
   tenantId: string;
 }
 
+export interface RegisterInstitutionDto {
+  institutionName: string;
+  name: string;
+  email: string;
+  password: string;
+}
+
 export interface User {
   id: string;
   email: string;
@@ -72,6 +79,23 @@ export const authApi = {
     if (response.refresh_token) {
       apiClient.setRefreshToken(response.refresh_token);
     }
+    apiClient.setTenantId(response.user.tenantId);
+
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('user', JSON.stringify(response.user));
+    }
+
+    return response;
+  },
+
+  async registerInstitution(data: RegisterInstitutionDto): Promise<LoginResponse> {
+    const response = await apiClient.post<LoginResponse>(
+      '/auth/register-institution',
+      data
+    );
+
+    apiClient.setToken(response.access_token);
+    apiClient.setRefreshToken(response.refresh_token);
     apiClient.setTenantId(response.user.tenantId);
 
     if (typeof window !== 'undefined') {

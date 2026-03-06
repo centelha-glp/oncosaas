@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import {
@@ -48,10 +49,21 @@ import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
 import { CancerDiagnosis } from '@/lib/api/patients';
+import {
+  CANCER_TYPE_LABELS,
+  getCancerTypeKey,
+} from '@/lib/utils/patient-cancer-type';
+import {
+  ICD10_OPTIONS,
+  ICD10_OTHER_VALUE,
+  HISTOLOGICAL_TYPE_OPTIONS,
+} from '@/lib/utils/diagnosis-options';
 
 interface CancerDiagnosisFormProps {
   patientId: string;
   diagnosis?: CancerDiagnosis;
+  /** Ao preencher, o formulário cria um diagnóstico metastático vinculado a este primário */
+  primaryDiagnosisId?: string;
   onSubmit: (data: CancerDiagnosisFormData) => Promise<void>;
   onCancel?: () => void;
 }
@@ -59,14 +71,17 @@ interface CancerDiagnosisFormProps {
 export function CancerDiagnosisForm({
   patientId,
   diagnosis,
+  primaryDiagnosisId,
   onSubmit,
   onCancel,
 }: CancerDiagnosisFormProps) {
+  const isMetastaticForm = !!primaryDiagnosisId && !diagnosis;
+
   const form = useForm<CancerDiagnosisFormData>({
     resolver: zodResolver(cancerDiagnosisSchema),
     defaultValues: diagnosis
       ? {
-          cancerType: diagnosis.cancerType,
+          cancerType: getCancerTypeKey(diagnosis.cancerType) ?? diagnosis.cancerType,
           icd10Code: diagnosis.icd10Code || undefined,
           tStage: (diagnosis.tStage as any) || undefined,
           nStage: (diagnosis.nStage as any) || undefined,
@@ -114,10 +129,18 @@ export function CancerDiagnosisForm({
           cancerType: '',
           diagnosisDate: new Date().toISOString(),
           diagnosisConfirmed: true,
-          isPrimary: true,
+          isPrimary: isMetastaticForm ? false : true,
           isActive: true,
+          primaryDiagnosisId: primaryDiagnosisId || undefined,
         },
   });
+
+  useEffect(() => {
+    if (primaryDiagnosisId && !diagnosis) {
+      form.setValue('primaryDiagnosisId', primaryDiagnosisId);
+      form.setValue('isPrimary', false);
+    }
+  }, [primaryDiagnosisId, diagnosis, form]);
 
   const cancerType = form.watch('cancerType');
   const isBreastCancer =
@@ -164,9 +187,23 @@ export function CancerDiagnosisForm({
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Tipo de Câncer *</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Ex: Câncer de Mama" {...field} />
-                      </FormControl>
+                      <Select
+                        value={field.value || ''}
+                        onValueChange={(v) => field.onChange(v || undefined)}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Selecione o tipo de câncer" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {Object.entries(CANCER_TYPE_LABELS).map(([key, label]) => (
+                            <SelectItem key={key} value={key}>
+                              {label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -174,15 +211,52 @@ export function CancerDiagnosisForm({
                 <FormField
                   control={form.control}
                   name="icd10Code"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Código CID-10</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Ex: C50.9" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
+                  render={({ field }) => {
+                    const isPreset = field.value && ICD10_OPTIONS.some((o) => o.value === field.value);
+                    const selectValue = isPreset ? field.value! : (field.value ? ICD10_OTHER_VALUE : '');
+                    return (
+                      <FormItem>
+                        <FormLabel>Código CID-10</FormLabel>
+                        <Select
+                          value={selectValue}
+                          onValueChange={(v) => {
+                            if (v === ICD10_OTHER_VALUE || v === '') {
+                              field.onChange('');
+                            } else {
+                              field.onChange(v);
+                            }
+                          }}
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Selecione ou digite depois" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {ICD10_OPTIONS.map((opt) => (
+                              <SelectItem key={opt.value} value={opt.value}>
+                                {opt.label}
+                              </SelectItem>
+                            ))}
+                            <SelectItem value={ICD10_OTHER_VALUE}>
+                              Outro (digite abaixo)
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                        {selectValue === ICD10_OTHER_VALUE && (
+                          <FormControl>
+                            <Input
+                              placeholder="Ex: C50.9"
+                              value={field.value || ''}
+                              onChange={(e) => field.onChange(e.target.value || undefined)}
+                              className="mt-2"
+                            />
+                          </FormControl>
+                        )}
+                        <FormMessage />
+                      </FormItem>
+                    );
+                  }}
                 />
                 <FormField
                   control={form.control}
@@ -211,7 +285,10 @@ export function CancerDiagnosisForm({
                             </Button>
                           </FormControl>
                         </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0" align="start">
+                        <PopoverContent
+                          className="w-auto p-0 z-[200] bg-background border border-border shadow-lg overflow-visible"
+                          align="start"
+                        >
                           <Calendar
                             mode="single"
                             selected={
@@ -231,6 +308,7 @@ export function CancerDiagnosisForm({
                     </FormItem>
                   )}
                 />
+                <div className="space-y-4 pt-2">
                 <FormField
                   control={form.control}
                   name="diagnosisConfirmed"
@@ -250,25 +328,28 @@ export function CancerDiagnosisForm({
                     </FormItem>
                   )}
                 />
-                <FormField
-                  control={form.control}
-                  name="isPrimary"
-                  render={({ field }) => (
-                    <FormItem className="flex flex-row items-start space-x-3 space-y-0">
-                      <FormControl>
-                        <input
-                          type="checkbox"
-                          checked={field.value}
-                          onChange={field.onChange}
-                          className="mt-1"
-                        />
-                      </FormControl>
-                      <div className="space-y-1 leading-none">
-                        <FormLabel>Diagnóstico Primário</FormLabel>
-                      </div>
-                    </FormItem>
-                  )}
-                />
+                {!primaryDiagnosisId && (
+                  <FormField
+                    control={form.control}
+                    name="isPrimary"
+                    render={({ field }) => (
+                      <FormItem className="flex flex-row items-start space-x-3 space-y-0">
+                        <FormControl>
+                          <input
+                            type="checkbox"
+                            checked={field.value}
+                            onChange={field.onChange}
+                            className="mt-1"
+                          />
+                        </FormControl>
+                        <div className="space-y-1 leading-none">
+                          <FormLabel>Diagnóstico Primário</FormLabel>
+                        </div>
+                      </FormItem>
+                    )}
+                  />
+                )}
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
@@ -288,8 +369,8 @@ export function CancerDiagnosisForm({
                       <FormItem>
                         <FormLabel>T</FormLabel>
                         <Select
-                          onValueChange={field.onChange}
-                          defaultValue={field.value}
+                          value={field.value ?? ''}
+                          onValueChange={(v) => field.onChange(v || undefined)}
                         >
                           <FormControl>
                             <SelectTrigger>
@@ -315,8 +396,8 @@ export function CancerDiagnosisForm({
                       <FormItem>
                         <FormLabel>N</FormLabel>
                         <Select
-                          onValueChange={field.onChange}
-                          defaultValue={field.value}
+                          value={field.value ?? ''}
+                          onValueChange={(v) => field.onChange(v || undefined)}
                         >
                           <FormControl>
                             <SelectTrigger>
@@ -342,8 +423,8 @@ export function CancerDiagnosisForm({
                       <FormItem>
                         <FormLabel>M</FormLabel>
                         <Select
-                          onValueChange={field.onChange}
-                          defaultValue={field.value}
+                          value={field.value ?? ''}
+                          onValueChange={(v) => field.onChange(v || undefined)}
                         >
                           <FormControl>
                             <SelectTrigger>
@@ -369,8 +450,8 @@ export function CancerDiagnosisForm({
                       <FormItem>
                         <FormLabel>Grau</FormLabel>
                         <Select
-                          onValueChange={field.onChange}
-                          defaultValue={field.value}
+                          value={field.value ?? ''}
+                          onValueChange={(v) => field.onChange(v || undefined)}
                         >
                           <FormControl>
                             <SelectTrigger>
@@ -417,7 +498,10 @@ export function CancerDiagnosisForm({
                             </Button>
                           </FormControl>
                         </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0" align="start">
+                        <PopoverContent
+                          className="w-auto p-0 z-[200] bg-background border border-border shadow-lg overflow-visible"
+                          align="start"
+                        >
                           <Calendar
                             mode="single"
                             selected={
@@ -451,18 +535,51 @@ export function CancerDiagnosisForm({
                 <FormField
                   control={form.control}
                   name="histologicalType"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Tipo Histológico</FormLabel>
-                      <FormControl>
-                        <Input
-                          placeholder="Ex: adenocarcinoma, carcinoma escamoso"
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
+                  render={({ field }) => {
+                    const optionValues = HISTOLOGICAL_TYPE_OPTIONS.map((o) => o.value);
+                    const isPreset = field.value && optionValues.includes(field.value);
+                    const selectValue = isPreset ? field.value! : (field.value ? 'outro' : '');
+                    return (
+                      <FormItem>
+                        <FormLabel>Tipo Histológico</FormLabel>
+                        <Select
+                          value={selectValue}
+                          onValueChange={(v) => {
+                            if (v === 'outro' || v === '') {
+                              field.onChange(field.value && !optionValues.includes(field.value) ? field.value : '');
+                            } else {
+                              field.onChange(v);
+                            }
+                          }}
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Selecione o tipo histológico" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {HISTOLOGICAL_TYPE_OPTIONS.filter((o) => o.value !== 'outro').map((opt) => (
+                              <SelectItem key={opt.value} value={opt.value}>
+                                {opt.label}
+                              </SelectItem>
+                            ))}
+                            <SelectItem value="outro">Outro (especificar)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        {(selectValue === 'outro' || (field.value && !optionValues.includes(field.value))) && (
+                          <FormControl>
+                            <Input
+                              placeholder="Ex: carcinoma adenoescamoso"
+                              value={field.value || ''}
+                              onChange={(e) => field.onChange(e.target.value || undefined)}
+                              className="mt-2"
+                            />
+                          </FormControl>
+                        )}
+                        <FormMessage />
+                      </FormItem>
+                    );
+                  }}
                 />
                 <FormField
                   control={form.control}
@@ -520,8 +637,8 @@ export function CancerDiagnosisForm({
                           <FormItem>
                             <FormLabel>HER2</FormLabel>
                             <Select
-                              onValueChange={field.onChange}
-                              defaultValue={field.value}
+                              value={field.value ?? ''}
+                              onValueChange={(v) => field.onChange(v || undefined)}
                             >
                               <FormControl>
                                 <SelectTrigger>
@@ -547,8 +664,8 @@ export function CancerDiagnosisForm({
                           <FormItem>
                             <FormLabel>ER (Receptor de Estrogênio)</FormLabel>
                             <Select
-                              onValueChange={field.onChange}
-                              defaultValue={field.value}
+                              value={field.value ?? ''}
+                              onValueChange={(v) => field.onChange(v || undefined)}
                             >
                               <FormControl>
                                 <SelectTrigger>
@@ -574,8 +691,8 @@ export function CancerDiagnosisForm({
                           <FormItem>
                             <FormLabel>PR (Receptor de Progesterona)</FormLabel>
                             <Select
-                              onValueChange={field.onChange}
-                              defaultValue={field.value}
+                              value={field.value ?? ''}
+                              onValueChange={(v) => field.onChange(v || undefined)}
                             >
                               <FormControl>
                                 <SelectTrigger>
@@ -638,8 +755,8 @@ export function CancerDiagnosisForm({
                           <FormItem>
                             <FormLabel>EGFR</FormLabel>
                             <Select
-                              onValueChange={field.onChange}
-                              defaultValue={field.value}
+                              value={field.value ?? ''}
+                              onValueChange={(v) => field.onChange(v || undefined)}
                             >
                               <FormControl>
                                 <SelectTrigger>
@@ -665,8 +782,8 @@ export function CancerDiagnosisForm({
                           <FormItem>
                             <FormLabel>ALK</FormLabel>
                             <Select
-                              onValueChange={field.onChange}
-                              defaultValue={field.value}
+                              value={field.value ?? ''}
+                              onValueChange={(v) => field.onChange(v || undefined)}
                             >
                               <FormControl>
                                 <SelectTrigger>
@@ -692,8 +809,8 @@ export function CancerDiagnosisForm({
                           <FormItem>
                             <FormLabel>ROS1</FormLabel>
                             <Select
-                              onValueChange={field.onChange}
-                              defaultValue={field.value}
+                              value={field.value ?? ''}
+                              onValueChange={(v) => field.onChange(v || undefined)}
                             >
                               <FormControl>
                                 <SelectTrigger>
@@ -719,8 +836,8 @@ export function CancerDiagnosisForm({
                           <FormItem>
                             <FormLabel>BRAF</FormLabel>
                             <Select
-                              onValueChange={field.onChange}
-                              defaultValue={field.value}
+                              value={field.value ?? ''}
+                              onValueChange={(v) => field.onChange(v || undefined)}
                             >
                               <FormControl>
                                 <SelectTrigger>
@@ -746,8 +863,8 @@ export function CancerDiagnosisForm({
                           <FormItem>
                             <FormLabel>KRAS</FormLabel>
                             <Select
-                              onValueChange={field.onChange}
-                              defaultValue={field.value}
+                              value={field.value ?? ''}
+                              onValueChange={(v) => field.onChange(v || undefined)}
                             >
                               <FormControl>
                                 <SelectTrigger>
@@ -773,8 +890,8 @@ export function CancerDiagnosisForm({
                           <FormItem>
                             <FormLabel>NRAS</FormLabel>
                             <Select
-                              onValueChange={field.onChange}
-                              defaultValue={field.value}
+                              value={field.value ?? ''}
+                              onValueChange={(v) => field.onChange(v || undefined)}
                             >
                               <FormControl>
                                 <SelectTrigger>
@@ -826,8 +943,8 @@ export function CancerDiagnosisForm({
                           <FormItem>
                             <FormLabel>MSI</FormLabel>
                             <Select
-                              onValueChange={field.onChange}
-                              defaultValue={field.value}
+                              value={field.value ?? ''}
+                              onValueChange={(v) => field.onChange(v || undefined)}
                             >
                               <FormControl>
                                 <SelectTrigger>

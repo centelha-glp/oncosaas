@@ -134,6 +134,83 @@
     stroke: rgba(148, 163, 184, 0.2);
     stroke-dasharray: 4 4;
   }
+
+  /* Gradiente de texto para títulos da landing page */
+  .text-gradient-blue {
+    background: linear-gradient(135deg, #0ea5e9 0%, #3b82f6 50%, #0284c7 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .text-gradient-green {
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* Scroll reveal para seções da landing */
+  .reveal {
+    opacity: 0;
+    transform: translateY(30px);
+    transition: opacity 0.7s ease-out, transform 0.7s ease-out;
+  }
+
+  .reveal.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  /* Prose-like para páginas legais */
+  .prose-legal {
+    line-height: 1.8;
+    color: hsl(var(--foreground));
+  }
+
+  .prose-legal h2 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin-top: 2.5rem;
+    margin-bottom: 1rem;
+    color: hsl(var(--foreground));
+  }
+
+  .prose-legal h3 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin-top: 2rem;
+    margin-bottom: 0.75rem;
+    color: hsl(var(--foreground));
+  }
+
+  .prose-legal p {
+    margin-bottom: 1rem;
+    color: hsl(var(--muted-foreground));
+  }
+
+  .prose-legal ul, .prose-legal ol {
+    margin-bottom: 1rem;
+    padding-left: 1.5rem;
+  }
+
+  .prose-legal li {
+    margin-bottom: 0.5rem;
+    color: hsl(var(--muted-foreground));
+  }
+
+  .prose-legal ul li {
+    list-style-type: disc;
+  }
+
+  .prose-legal ol li {
+    list-style-type: decimal;
+  }
+
+  .prose-legal strong {
+    font-weight: 600;
+    color: hsl(var(--foreground));
+  }
 }
 
 

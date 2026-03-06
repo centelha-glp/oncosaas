@@ -222,6 +222,57 @@ export class MessagesService {
     return updatedMessage;
   }
 
+  /**
+   * Assumir todas as mensagens INBOUND não assumidas de um paciente.
+   * Marca a conversa como lida quando o usuário abre a conversa.
+   */
+  async assumeAllForPatient(
+    patientId: string,
+    tenantId: string,
+    userId: string
+  ): Promise<{ count: number }> {
+    const unassumedMessages = await this.prisma.message.findMany({
+      where: {
+        patientId,
+        tenantId,
+        direction: 'INBOUND',
+        assumedBy: null,
+      },
+      select: { id: true },
+    });
+
+    if (unassumedMessages.length === 0) {
+      return { count: 0 };
+    }
+
+    const now = new Date();
+    await this.prisma.message.updateMany({
+      where: {
+        id: { in: unassumedMessages.map((m) => m.id) },
+      },
+      data: {
+        assumedBy: userId,
+        assumedAt: now,
+        processedBy: 'NURSING',
+      },
+    });
+
+    // Buscar mensagens atualizadas e emitir via WebSocket para atualizar caches
+    const updatedMessages = await this.prisma.message.findMany({
+      where: { id: { in: unassumedMessages.map((m) => m.id) } },
+      include: {
+        patient: {
+          select: { id: true, name: true, phone: true },
+        },
+      },
+    });
+    for (const msg of updatedMessages) {
+      this.messagesGateway.emitMessageUpdate(tenantId, msg);
+    }
+
+    return { count: unassumedMessages.length };
+  }
+
   async getConversation(
     patientId: string,
     tenantId: string,
@@ -247,14 +298,28 @@ export class MessagesService {
   }
 
   async getUnassumedCount(tenantId: string): Promise<number> {
-    // Contar mensagens INBOUND não assumidas pela enfermagem
-    return this.prisma.message.count({
+    // Contar conversas (pacientes distintos) com mensagens INBOUND não assumidas
+    const groups = await this.prisma.message.groupBy({
+      by: ['patientId'],
       where: {
         tenantId,
         direction: 'INBOUND',
-        assumedBy: null, // Não assumidas
+        assumedBy: null,
       },
     });
+    return groups.length;
+  }
+
+  async getUnassumedPatientIds(tenantId: string): Promise<string[]> {
+    const groups = await this.prisma.message.groupBy({
+      by: ['patientId'],
+      where: {
+        tenantId,
+        direction: 'INBOUND',
+        assumedBy: null,
+      },
+    });
+    return groups.map((g) => g.patientId);
   }
 
   private async resolveConversationId(

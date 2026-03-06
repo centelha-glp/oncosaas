@@ -96,7 +96,7 @@ Ao clicar, navega para `/oncology-navigation`.
 ## Tipos de Câncer Suportados
 
 - Câncer de Mama (breast)
-- Câncer de Pulmão (lung)
+- Câncer de Pulmão (Pulmão)
 - Câncer Colorretal (colorectal)
 - Câncer de Próstata (prostate)
 - Câncer de Rim (kidney)

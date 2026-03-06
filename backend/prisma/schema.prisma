@@ -68,6 +68,7 @@ model Patient {
 
   // Comorbidades e Fatores de Risco
   comorbidities        Json? // Array de objetos: { name: string, severity: string, controlled: boolean }
+  currentMedications   Json? // Array de objetos: { name: string, dosage?: string, frequency?: string, indication?: string }
   smokingHistory       String? // nunca fumou, ex-fumante, fumante atual (anos-maço)
   alcoholHistory       String? // nunca, ocasional, moderado, pesado (g/dia)
   occupationalExposure String? // Exposições ocupacionais conhecidas
@@ -105,6 +106,7 @@ model Patient {
   internalNotes          InternalNote[]
   interventions          Intervention[]
   conversations          Conversation[] // Conversas do agente IA
+  complementaryExams    ComplementaryExam[] // Exames complementares (lab, anatomo, imuno, imagem)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -193,6 +195,7 @@ model NavigationStep {
   tenantId  String
   patientId String
   journeyId String? // Opcional: referência ao PatientJourney
+  diagnosisId String? // Vinculado a um diagnóstico específico; ao excluir o diagnóstico, as etapas são excluídas em cascata
 
   // Contexto
   cancerType      String // Tipo de câncer (ex: "colorectal", "breast")
@@ -224,9 +227,10 @@ model NavigationStep {
   notes    String? // Observações
 
   // Relacionamentos
-  tenant  Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  patient Patient         @relation(fields: [patientId], references: [id], onDelete: Cascade)
-  journey PatientJourney? @relation(fields: [journeyId], references: [id], onDelete: Cascade)
+  tenant     Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  patient    Patient          @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  journey    PatientJourney?  @relation(fields: [journeyId], references: [id], onDelete: Cascade)
+  diagnosis  CancerDiagnosis? @relation(fields: [diagnosisId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -234,6 +238,7 @@ model NavigationStep {
   @@index([tenantId])
   @@index([patientId])
   @@index([journeyId])
+  @@index([diagnosisId])
   @@index([cancerType, journeyStage])
   @@index([status])
   @@index([dueDate])
@@ -320,10 +325,16 @@ model CancerDiagnosis {
   resolvedDate     DateTime? // Data de resolução (se curado/removido)
   resolutionReason String? // Motivo da resolução
 
+  // Câncer metastático associado ao primário
+  primaryDiagnosisId String? // Se preenchido, este diagnóstico é metastático do primário
+  primaryDiagnosis   CancerDiagnosis?  @relation("PrimaryToMetastatic", fields: [primaryDiagnosisId], references: [id], onDelete: SetNull)
+  metastaticDiagnoses CancerDiagnosis[] @relation("PrimaryToMetastatic")
+
   // Relacionamentos
-  tenant     Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  patient    Patient     @relation(fields: [patientId], references: [id], onDelete: Cascade)
-  treatments Treatment[] // Tratamentos vinculados a este diagnóstico
+  tenant           Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  patient          Patient           @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  treatments       Treatment[]       // Tratamentos vinculados a este diagnóstico
+  navigationSteps  NavigationStep[] // Etapas de navegação vinculadas a este diagnóstico (excluídas em cascata)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -332,6 +343,7 @@ model CancerDiagnosis {
   @@index([patientId])
   @@index([isActive])
   @@index([isPrimary])
+  @@index([primaryDiagnosisId])
   @@map("cancer_diagnoses")
 }
 
@@ -1081,6 +1093,61 @@ model InternalNote {
   @@map("internal_notes")
 }
 
+// Exames complementares (laboratoriais, anatomopatológicos, imuno-histoquímicos, imagem)
+enum ComplementaryExamType {
+  LABORATORY           // Laboratoriais
+  ANATOMOPATHOLOGICAL  // Anatomopatológicos
+  IMMUNOHISTOCHEMICAL  // Imuno-histoquímicos
+  IMAGING              // Imagem
+}
+
+model ComplementaryExam {
+  id        String   @id @default(uuid())
+  tenantId  String
+  patientId String
+  type      ComplementaryExamType
+  name      String   // Ex: "Hemograma", "Biópsia de mama"
+  code      String?  // Ex: "HEMO", "CK20"
+  unit      String?  // Ex: "g/dL", "mm"
+  referenceRange String? // Ex: "4.5-5.5"
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  patient  Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  results  ComplementaryExamResult[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([patientId])
+  @@index([type])
+  @@map("complementary_exams")
+}
+
+model ComplementaryExamResult {
+  id             String   @id @default(uuid())
+  tenantId       String
+  examId         String
+  performedAt    DateTime // Data da realização
+  valueNumeric   Float?   // Valor numérico (para laboratorial/séries)
+  valueText      String?  // Valor textual ou laudo (anatomo, imuno, imagem)
+  unit           String?
+  referenceRange String?
+  isAbnormal     Boolean? // Fora da referência
+  report         String?  // Laudo completo (anatomo, imagem)
+
+  tenant Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  exam   ComplementaryExam @relation(fields: [examId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([examId])
+  @@index([performedAt])
+  @@map("complementary_exam_results")
+}
+
 // Histórico de Intervenções (rastreabilidade de ações do enfermeiro)
 model Intervention {
   id        String  @id @default(uuid())
@@ -1141,7 +1208,9 @@ model Tenant {
   whatsappConnections    WhatsAppConnection[]
   internalNotes          InternalNote[]
   interventions          Intervention[]
-  fhirIntegrationConfig  FHIRIntegrationConfig?
+  complementaryExams      ComplementaryExam[]
+  complementaryExamResults ComplementaryExamResult[]
+  fhirIntegrationConfig   FHIRIntegrationConfig?
   // Agente IA
   agentConfig            AgentConfig?
   conversations          Conversation[]

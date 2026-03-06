@@ -212,12 +212,16 @@ export class DashboardService {
       _count: true,
     });
 
+    const totalPatients = statusDistribution.reduce(
+      (sum, i) => sum + i._count,
+      0
+    );
     const statusDist = statusDistribution.map((item) => ({
       status: item.status,
       count: item._count,
       percentage:
-        totalActivePatients > 0
-          ? Math.round((item._count / totalActivePatients) * 100 * 10) / 10
+        totalPatients > 0
+          ? Math.round((item._count / totalPatients) * 100 * 10) / 10
           : 0,
     }));
 
@@ -378,7 +382,9 @@ export class DashboardService {
 
     const pendingBiomarkersCount = pendingBiomarkerSteps.length;
 
-    // 5. Taxa de Adesão ao Tratamento: % de pacientes que completam ciclos conforme planejado
+    // 5. Taxa de Adesão ao Tratamento: % de pacientes que completam ciclos conforme planejado.
+    // Considera apenas pacientes que já atingiram 80% dos ciclos (avaliamos aderência);
+    // pacientes no início (ex: ciclo 1/12) não entram no denominador.
     const patientsInTreatment = await this.prisma.patientJourney.findMany({
       where: {
         tenantId,
@@ -392,16 +398,25 @@ export class DashboardService {
       },
     });
 
-    const patientsOnTrack = patientsInTreatment.filter(
+    const eligibleForAdherence = patientsInTreatment.filter(
       (journey) =>
         journey.currentCycle &&
         journey.totalCycles &&
-        journey.currentCycle >= Math.floor(journey.totalCycles * 0.8) // Considera aderente se completou ≥80% dos ciclos planejados
+        journey.currentCycle >= Math.floor(journey.totalCycles * 0.8)
+    );
+
+    const patientsOnTrack = eligibleForAdherence.filter(
+      (journey) =>
+        journey.currentCycle &&
+        journey.totalCycles &&
+        journey.currentCycle >= journey.totalCycles
     ).length;
 
     const treatmentAdherencePercentage =
-      patientsInTreatment.length > 0
-        ? Math.round((patientsOnTrack / patientsInTreatment.length) * 100)
+      eligibleForAdherence.length > 0
+        ? Math.round(
+            (patientsOnTrack / eligibleForAdherence.length) * 100
+          )
         : 0;
 
     return {
@@ -1414,7 +1429,10 @@ export class DashboardService {
                   },
                 };
                 if (cancerType) {
-                  whereClause.cancerType = cancerType;
+                  whereClause.cancerType = {
+                    equals: cancerType,
+                    mode: 'insensitive',
+                  };
                 }
                 const patients = await this.prisma.patient.findMany({
                   where: whereClause,
@@ -1474,7 +1492,10 @@ export class DashboardService {
                   },
                 };
                 if (cancerType) {
-                  whereClause.cancerType = cancerType;
+                  whereClause.cancerType = {
+                    equals: cancerType,
+                    mode: 'insensitive',
+                  };
                 }
                 const patients = await this.prisma.patient.findMany({
                   where: whereClause,
@@ -1530,7 +1551,10 @@ export class DashboardService {
                   completedAt: { not: null },
                 };
                 if (cancerType) {
-                  whereClause.cancerType = cancerType;
+                  whereClause.cancerType = {
+                    equals: cancerType,
+                    mode: 'insensitive',
+                  };
                 }
                 const biopsySteps = await this.prisma.navigationStep.findMany({
                   where: whereClause,
@@ -1592,7 +1616,10 @@ export class DashboardService {
                   },
                 };
                 if (cancerType) {
-                  whereClause.cancerType = cancerType;
+                  whereClause.cancerType = {
+                    equals: cancerType,
+                    mode: 'insensitive',
+                  };
                 }
                 const patients = await this.prisma.patient.findMany({
                   where: whereClause,
@@ -1656,7 +1683,10 @@ export class DashboardService {
                   tenantId,
                 };
                 if (cancerType) {
-                  whereClause.cancerType = cancerType;
+                  whereClause.cancerType = {
+                    equals: cancerType,
+                    mode: 'insensitive',
+                  };
                 }
                 const patients = await this.prisma.patient.findMany({
                   where: whereClause,

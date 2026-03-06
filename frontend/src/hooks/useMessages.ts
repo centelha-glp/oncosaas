@@ -30,6 +30,38 @@ export const useUnassumedMessagesCount = () => {
   });
 };
 
+export const useUnassumedPatientIds = () => {
+  return useQuery({
+    queryKey: ['messages', 'unassumed', 'patientIds'],
+    queryFn: () => messagesApi.getUnassumedPatientIds(),
+    staleTime: 30 * 1000,
+    refetchInterval: 30 * 1000,
+  });
+};
+
+export const useAssumePatientConversation = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (patientId: string) =>
+      messagesApi.assumePatientConversation(patientId),
+    onSuccess: (_data, patientId) => {
+      queryClient.invalidateQueries({ queryKey: ['messages'] });
+      queryClient.invalidateQueries({
+        queryKey: ['messages', patientId],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ['messages', 'unassumed', 'count'],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ['messages', 'unassumed', 'patientIds'],
+      });
+      queryClient.invalidateQueries({ queryKey: ['patients'] });
+      queryClient.invalidateQueries({ queryKey: ['interventions'] });
+    },
+  });
+};
+
 export const useAssumeMessage = () => {
   const queryClient = useQueryClient();
 
@@ -40,6 +72,9 @@ export const useAssumeMessage = () => {
       queryClient.invalidateQueries({ queryKey: ['messages'] });
       queryClient.invalidateQueries({
         queryKey: ['messages', 'unassumed', 'count'],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ['messages', 'unassumed', 'patientIds'],
       });
       queryClient.invalidateQueries({ queryKey: ['patients'] });
       queryClient.invalidateQueries({ queryKey: ['interventions'] }); // Invalidar intervenções também

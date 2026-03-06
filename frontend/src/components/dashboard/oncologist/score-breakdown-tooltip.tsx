@@ -42,7 +42,7 @@ export function ScoreBreakdownTooltip({ patient }: ScoreBreakdownTooltipProps) {
     }
 
     // Fator: Alertas pendentes
-    const alertsCount = patient._count?.alerts || 0;
+    const alertsCount = patient.pendingAlertsCount ?? patient._count?.alerts ?? 0;
     if (alertsCount > 0) {
       const alertsScore = Math.min(alertsCount * 5, 30);
       breakdown.factors.push({

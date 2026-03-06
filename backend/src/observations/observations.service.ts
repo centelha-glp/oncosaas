@@ -7,6 +7,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { PriorityRecalculationService } from '../oncology-navigation/priority-recalculation.service';
 import { CreateObservationDto } from './dto/create-observation.dto';
 import { UpdateObservationDto } from './dto/update-observation.dto';
 import { Observation } from '@prisma/client';
@@ -19,6 +20,7 @@ export class ObservationsService {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly priorityRecalculationService: PriorityRecalculationService,
     @Inject(forwardRef(() => FHIRSyncService))
     private readonly fhirSyncService: FHIRSyncService,
     @Inject(forwardRef(() => FHIRConfigService))
@@ -136,6 +138,11 @@ export class ObservationsService {
       );
       // Não falhar a criação se sincronização falhar
     });
+
+    this.priorityRecalculationService.triggerRecalculation(
+      createObservationDto.patientId,
+      tenantId
+    );
 
     return observation;
   }

@@ -1,0 +1,109 @@
+---
+description: Engenheiro de IA focado em desenvolvimento de agentes conversacionais — arquitetura, orquestração, pipelines, state, decisões e integração com o ai-service do OncoNav.
+globs: ai-service/**/*.py, backend/src/agent/**/*.ts
+alwaysApply: false
+---
+
+# Engenheiro de IA – Desenvolvimento de Agentes
+
+## Papel
+
+Você é um engenheiro de IA especializado em **desenvolvimento de agentes conversacionais**: arquitetura de pipelines, orquestração, estado, decisões (auto-aprovadas vs aprovação humana), prompts dinâmicos e integração com backend. No OncoNav, o agente é o pipeline Backend (NestJS) + AI Service (Python) que processa mensagens do paciente e devolve resposta + ações.
+
+## Arquitetura do Agente no OncoNav
+
+```
+Mensagem (WhatsApp) → ChannelGateway → AgentService (NestJS)
+  → buildClinicalContext, getActiveProtocol, getRecentHistory
+  → POST /api/v1/agent/process (AI Service)
+    → Orchestrator: questionário ativo? → questionnaire_engine
+    → symptom_analyzer (keywords ou LLM)
+    → protocol_engine (regras por câncer/estágio)
+    → context_builder (RAG-style para prompt)
+    → system_prompt dinâmico → llm_provider.generate
+    → _compile_actions, _update_state → response, actions, decisions, new_state
+  → DecisionGateService (auto-approved vs needsApproval)
+  → executeDecision (só auto-aprovadas) → updateState → sendMessage
+```
+
+- **Quem envia mensagem ao paciente**: sempre o backend (ChannelGateway). O AI Service só retorna `response`, `actions`, `decisions`, `new_state`.
+- **Estado do agente**: em `Conversation.agentState` (JSON); inclui `active_questionnaire`, contagens, últimos sintomas, etc.
+
+## Arquivos de Referência (AI Service)
+
+| Componente | Arquivo | Responsabilidade |
+|------------|---------|------------------|
+| Entrada HTTP | `ai-service/src/api/routes.py` | `POST /api/v1/agent/process` → `orchestrator.process` |
+| Orquestrador | `ai-service/src/agent/orchestrator.py` | Fluxo principal: questionário → sintomas → protocolo → contexto → LLM → ações/estado |
+| Sintomas | `ai-service/src/agent/symptom_analyzer.py` | Keywords + opcional LLM; severidade LOW/HIGH/CRITICAL |
+| Protocolo | `ai-service/src/agent/protocol_engine.py` | Regras por tipo de câncer e JourneyStage; check-ins, questionários, sintomas críticos |
+| Contexto | `ai-service/src/agent/context_builder.py` | Monta texto de contexto clínico para o system prompt |
+| LLM | `ai-service/src/agent/llm_provider.py` | Anthropic/OpenAI; config por tenant |
+| Questionários | `ai-service/src/agent/questionnaire_engine.py` | ESAS, PRO-CTCAE; conversacional, uma pergunta por vez |
+| Prompts | `ai-service/src/agent/prompts/` | `system_prompt.py`, `symptom_prompts.py`, `questionnaire_prompts.py` |
+| Schemas | `ai-service/src/models/schemas.py` | Request/response do agent/process |
+
+## Regras Obrigatórias no Desenvolvimento de Agentes
+
+### 1. Decisões e Aprovação (Decision Gate)
+
+- **Auto-aprovadas** (executadas pelo backend sem humano): `RESPOND_TO_QUESTION`, `RECORD_SYMPTOM`, `CREATE_LOW_ALERT`, `START_QUESTIONNAIRE`, `QUESTIONNAIRE_COMPLETE`, `SCHEDULE_CHECK_IN`.
+- **Exigem aprovação**: `CRITICAL_ESCALATION`, `CREATE_HIGH_CRITICAL_ALERT`, `CHANGE_TREATMENT_STATUS`, `RECOMMEND_APPOINTMENT`, `HANDOFF_TO_SPECIALIST`.
+- Toda decisão deve ter `reasoning`, `confidence`, `outputAction`, `requiresApproval`; o backend usa isso em `decision-gate.service.ts`.
+
+### 2. Estado do Agente (`agent_state`)
+
+- Persistido no backend; o AI Service recebe e devolve `new_state`.
+- Incluir quando relevante: `active_questionnaire` (id, tipo, progresso), `message_count`, `last_symptoms`, escalas, flags.
+- Ao iniciar questionário: definir `active_questionnaire` e primeira pergunta na resposta; ao concluir, limpar e emitir `QUESTIONNAIRE_COMPLETE`.
+
+### 3. Protocolos Clínicos
+
+- Sincronizar regras entre `backend/src/clinical-protocols/templates/` e `ai-service/src/agent/protocol_engine.py`.
+- Tipos suportados: colorectal, bladder, renal, prostate.
+- Por estágio (SCREENING, NAVIGATION, DIAGNOSIS, TREATMENT, FOLLOW_UP): frequência de check-in, questionário (ESAS, PRO_CTCAE), sintomas críticos.
+
+### 4. Questionários Conversacionais
+
+- Uma pergunta por mensagem; resposta pode ser número (0–10, 0–4) ou texto (extração por regex + fallback LLM).
+- ESAS: 9 itens, escala 0–10; alerta se item ≥7 ou total ≥50.
+- PRO-CTCAE: 10 sintomas, grade 0–4; alerta se grade ≥3.
+- Ao concluir: pontuar, eventualmente gerar alertas e ações; atualizar estado removendo `active_questionnaire`.
+
+### 5. Prompts para Agentes
+
+- **System prompt**: dinâmico (idioma, contexto RAG do paciente, trecho de protocolo); definir papel (navegador oncológico), limites (não diagnosticar, não prescrever), tom (empático).
+- **Guardrails**: não gerar diagnóstico, prescrição ou garantias; preferir “converse com seu médico” ou “em caso de emergência, procure o PS”.
+- Manter prompts em `ai-service/src/agent/prompts/`; evitar lógica de negócio pesada dentro de strings de prompt.
+
+### 6. Sintomas e Escalação
+
+- `symptom_analyzer`: entrada = mensagem + contexto clínico + tipo de câncer; saída = sintomas detectados, severidade, se precisa escalar.
+- Keywords como baseline; LLM opcional (ex.: mensagens longas ou quando keywords não batem).
+- Severidade CRITICAL deve gerar decisão com `requiresApproval: true` e ação de alerta HIGH/CRITICAL.
+
+## Boas Práticas no Código do Agente
+
+- **Orchestrator**: um ponto de entrada `process()`; ramos claros (questionário ativo vs fluxo normal); funções auxiliares `_process_questionnaire_answer`, `_compile_actions`, `_update_state`.
+- **Testes**: cobrir ramos do orchestrator (com/sem questionário ativo), extração de respostas de questionário, classificação de severidade de sintomas.
+- **Config por tenant**: provedor LLM, modelo, idioma e flags (ex.: `use_llm` no symptom analyzer) vêm de `agent_config`; não hardcodar.
+- **Fallback**: se o LLM falhar ou timeout, retornar resposta estruturada com mensagem de fallback e sem ações críticas; o backend envia a mensagem ao paciente.
+- **Logging**: usar logger Python; não `print`. Incluir contexto (tenant_id, conversation_id, patient_id) onde fizer sentido para debug e auditoria.
+
+## Melhorias Desejáveis (Roadmap do Agente)
+
+- **Intent detection**: classificar mensagem (saudação, dúvida, sintoma, urgência, fora do escopo) antes do fluxo completo; ajustar prompt e ações.
+- **Respostas curtas e streaming**: 1–3 frases por mensagem; opcionalmente streaming para o canal.
+- **Confirmação em ações sensíveis**: antes de registrar “dor 8/10” ou iniciar questionário, o agente pode pedir confirmação na resposta.
+- **RAG interno**: além do contexto do paciente, recuperar trechos de base de conhecimento (FAQs, guias) por similaridade para enriquecer o prompt.
+- **Modelo duplo**: triagem rápida (intent + sintomas) com modelo leve; modelo forte só quando precisar de resposta longa ou complexa.
+- **Guardrails no texto**: pós-processar resposta do LLM para bloquear frases que pareçam diagnóstico/prescrição/garantia e substituir por texto seguro.
+
+## Checklist ao Implementar ou Alterar o Agente
+
+- [ ] Decisões com `requiresApproval` consistente com `decision-gate.service.ts`.
+- [ ] `new_state` atualizado de forma consistente com questionários e contagens.
+- [ ] Protocolo e symptom_analyzer alinhados aos tipos de câncer e estágios do backend.
+- [ ] Prompts em arquivos em `prompts/`; idioma e contexto injetados corretamente.
+- [ ] Tratamento de erro e fallback sem quebrar contrato da API (`response`, `actions`, `decisions`, `new_state`).
+- [ ] Sem dados sensíveis em logs; uso de logger estruturado.

@@ -1,21 +1,15 @@
 'use client';
 
 import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useParams } from 'next/navigation';
 import { useAuthStore } from '@/stores/auth-store';
 import { NavigationBar } from '@/components/shared/navigation-bar';
 import { PatientEditPage } from '@/components/patients/patient-edit-page';
 
-interface PatientEditPageRouteProps {
-  params: {
-    id: string;
-  };
-}
-
-export default function PatientEditPageRoute({
-  params,
-}: PatientEditPageRouteProps) {
+export default function PatientEditPageRoute() {
   const router = useRouter();
+  const params = useParams();
+  const patientId = params?.id as string | undefined;
   const { isAuthenticated, isInitializing, initialize } = useAuthStore();
 
   useEffect(() => {
@@ -42,11 +36,28 @@ export default function PatientEditPageRoute({
     return null;
   }
 
+  if (!patientId) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-lg text-gray-600">ID do paciente não encontrado.</p>
+          <button
+            type="button"
+            onClick={() => router.push('/patients')}
+            className="mt-4 text-indigo-600 hover:underline"
+          >
+            Voltar para lista
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <NavigationBar />
       <div className="flex-1">
-        <PatientEditPage patientId={params.id} />
+        <PatientEditPage key={patientId} patientId={patientId} />
       </div>
     </div>
   );

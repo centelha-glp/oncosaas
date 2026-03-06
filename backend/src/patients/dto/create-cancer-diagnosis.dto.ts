@@ -226,4 +226,9 @@ export class CreateCancerDiagnosisDto {
   @IsBoolean()
   @IsOptional()
   isActive?: boolean;
+
+  // Câncer metastático: vinculado ao diagnóstico primário
+  @IsString()
+  @IsOptional()
+  primaryDiagnosisId?: string;
 }

@@ -1,10 +1,13 @@
 """
 Clinical Context Builder (RAG).
 Builds formatted clinical context from patient data for the LLM system prompt.
+Integrates with the oncology knowledge RAG for evidence-based responses.
 """
 
 from typing import Dict, List, Optional, Any
 import logging
+
+from .rag import knowledge_rag
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +24,7 @@ class ClinicalContextBuilder:
         protocol: Optional[Dict[str, Any]] = None,
         symptom_analysis: Optional[Dict[str, Any]] = None,
         conversation_history: Optional[List[Dict[str, str]]] = None,
+        agent_state: Optional[Dict[str, Any]] = None,
     ) -> str:
         """
         Build formatted clinical context string for the system prompt.
@@ -30,11 +34,23 @@ class ClinicalContextBuilder:
             protocol: Active clinical protocol for cancer type
             symptom_analysis: Current symptom analysis results
             conversation_history: Recent conversation messages
+            agent_state: Agent state with last_symptoms, last_symptom_severity
 
         Returns:
             Formatted string for inclusion in the system prompt
         """
         sections = []
+
+        symptom_topic_active = False
+        if agent_state and agent_state.get("last_symptoms"):
+            severity = agent_state.get("last_symptom_severity", "LOW")
+            symptoms = ", ".join(s.get("name", "?") for s in agent_state["last_symptoms"])
+            sections.append(
+                f"### TÓPICO EM DISCUSSÃO (prioridade sobre etapas de navegação)\n"
+                f"O paciente está discutindo sintoma(s): **{symptoms}** "
+                f"[{severity}]. Conclua esse tópico antes de falar de exames ou agendamentos."
+            )
+            symptom_topic_active = severity in ("HIGH", "CRITICAL")
 
         patient = clinical_context.get("patient", {})
         if patient:
@@ -50,7 +66,13 @@ class ClinicalContextBuilder:
 
         nav_steps = clinical_context.get("navigationSteps", [])
         if nav_steps:
-            sections.append(self._format_navigation_steps(nav_steps))
+            if symptom_topic_active:
+                sections.append(
+                    "### Etapas de Navegação\n"
+                    "(Omitidas neste turno — concluir discussão do sintoma antes de mencionar exames ou agendamentos.)"
+                )
+            else:
+                sections.append(self._format_navigation_steps(nav_steps))
 
         alerts = clinical_context.get("recentAlerts", [])
         if alerts:
@@ -71,6 +93,77 @@ class ClinicalContextBuilder:
             sections.append(self._format_symptom_analysis(symptom_analysis))
 
         return "\n\n".join(sections) if sections else "Contexto clínico não disponível."
+
+    _GENERIC_REPLIES = frozenset({"sim", "não", "nao", "ok", "é", "eh", "isso", "exato", "correto", "verdade", "isso mesmo"})
+
+    def build_with_rag(
+        self,
+        patient_message: str,
+        clinical_context: Dict[str, Any],
+        protocol: Optional[Dict[str, Any]] = None,
+        symptom_analysis: Optional[Dict[str, Any]] = None,
+        conversation_history: Optional[List[Dict[str, str]]] = None,
+        agent_state: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """
+        Build clinical context enriched with RAG knowledge retrieval.
+        Searches the oncology knowledge base for passages relevant to the
+        patient's message, then appends them to the standard clinical context.
+        For generic replies (sim, não, ok), uses the last assistant message as query
+        to maintain context coherence.
+        """
+        base_context = self.build(
+            clinical_context=clinical_context,
+            protocol=protocol,
+            symptom_analysis=symptom_analysis,
+            conversation_history=conversation_history,
+            agent_state=agent_state,
+        )
+
+        cancer_type = self._extract_cancer_type(clinical_context)
+        rag_query = self._rag_query_for_message(
+            patient_message, conversation_history or []
+        )
+        passages = knowledge_rag.retrieve(query=rag_query, cancer_type=cancer_type)
+
+        if passages:
+            rag_block = knowledge_rag.format_context(passages)
+            logger.info(
+                f"RAG retrieved {len(passages)} passages "
+                f"(top score: {passages[0]['score']:.3f})"
+            )
+            return f"{base_context}\n\n{rag_block}"
+
+        return base_context
+
+    def _rag_query_for_message(
+        self, patient_message: str, conversation_history: List[Dict[str, str]]
+    ) -> str:
+        """
+        Build RAG query. For generic confirmations (sim, não, ok), use the last
+        assistant message to avoid retrieving irrelevant passages.
+        """
+        msg_lower = patient_message.strip().lower()
+        if len(msg_lower) < 15 or msg_lower in self._GENERIC_REPLIES:
+            for m in reversed(conversation_history):
+                if m.get("role") == "assistant" and m.get("content"):
+                    last_question = m["content"][:200].strip()
+                    if last_question:
+                        return f"{last_question} {patient_message}"
+        return patient_message
+
+    def _extract_cancer_type(self, clinical_context: Dict[str, Any]) -> Optional[str]:
+        """Extract primary cancer type from clinical context for RAG filtering."""
+        patient = clinical_context.get("patient", {})
+        ct = patient.get("cancerType")
+        if ct:
+            return ct.upper()
+
+        diagnoses = clinical_context.get("diagnoses", [])
+        if diagnoses:
+            return (diagnoses[0].get("cancerType") or "").upper()
+
+        return None
 
     def _format_patient_data(self, patient: Dict) -> str:
         """Format basic patient data."""
@@ -168,17 +261,24 @@ class ClinicalContextBuilder:
 
     def _format_navigation_steps(self, steps: List[Dict]) -> str:
         """Format pending navigation steps."""
-        lines = ["### Etapas de Navegação Pendentes"]
+        lines = [
+            "### Etapas de Navegação Pendentes",
+            "Importante: as datas abaixo são PRAZOS (data-meta para a etapa), NÃO significam agendamento confirmado.",
+            "Use o nome exato de cada etapa. Ao falar com o paciente: diga que é um PRAZO e pergunte se já existe agendamento.",
+            "",
+        ]
 
         for step in steps[:10]:
             name = step.get("stepName", "Etapa")
+            key = step.get("stepKey", "")
             status = step.get("status", "PENDING")
             due = step.get("dueDate")
 
             icon = "⏳" if status == "PENDING" else "🔄" if status == "IN_PROGRESS" else "⚠️"
-            detail = f"- {icon} {name} ({status})"
+            key_part = f" [chave: {key}]" if key else ""
+            detail = f"- {icon} {name} ({status}){key_part}"
             if due:
-                detail += f" - Prazo: {due}"
+                detail += f" - Prazo (não é agendamento): {due}"
             lines.append(detail)
 
         return "\n".join(lines)

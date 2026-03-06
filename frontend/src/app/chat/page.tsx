@@ -12,6 +12,7 @@ import {
 } from '@/lib/utils/filter-storage';
 import { PatientListConnected } from '@/components/dashboard/patient-list-connected';
 import { AlertsPanel } from '@/components/dashboard/alerts-panel';
+import { DecisionLogPanel } from '@/components/chat';
 import { ConversationView } from '@/components/dashboard/conversation-view';
 import { PatientDetails } from '@/components/dashboard/patient-details';
 import { AlertDetails } from '@/components/dashboard/alert-details';
@@ -19,10 +20,13 @@ import { ResizablePanel } from '@/components/dashboard/resizable-panel';
 import { usePatient, usePatients } from '@/hooks/usePatients';
 import {
   useMessages,
-  useUnassumedMessagesCount,
+  useUnassumedPatientIds,
   useSendMessage,
   useAssumeMessage,
 } from '@/hooks/useMessages';
+import { usePendingDecisions } from '@/hooks/useConversations';
+import { useReadPatients } from '@/hooks/useReadPatients';
+import { conversationsApi } from '@/lib/api/conversations';
 import { useMessagesSocket } from '@/hooks/useMessagesSocket';
 import { useAlert, useCriticalAlertsCount } from '@/hooks/useAlerts';
 import { Button } from '@/components/ui/button';
@@ -35,14 +39,19 @@ import { NavigationBar } from '@/components/shared/navigation-bar';
 import { mapPriorityToDisplay } from '@/lib/utils/priority';
 import { getPatientAllCancerTypes } from '@/lib/utils/patient-cancer-type';
 import { toast } from 'sonner';
+import { useQueryClient } from '@tanstack/react-query';
 
 export default function ChatPage() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { user, isAuthenticated, isInitializing, initialize } = useAuthStore();
   const [selectedPatient, setSelectedPatient] = useState<string | null>(null);
   const [selectedAlert, setSelectedAlert] = useState<Alert | null>(null);
   const [isNursingActive, setIsNursingActive] = useState(false);
-  const [activeTab, setActiveTab] = useState<'patients' | 'alerts'>('patients');
+  const [isReturningToAgent, setIsReturningToAgent] = useState(false);
+  const [activeTab, setActiveTab] = useState<
+    'patients' | 'alerts' | 'decisions'
+  >('patients');
   const [searchTerm, setSearchTerm] = useState('');
   const debouncedSearchTerm = useDebounce(searchTerm, 300);
 
@@ -51,12 +60,41 @@ export default function ChatPage() {
     'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | null
   >(null);
   const [cancerTypeFilter, setCancerTypeFilter] = useState<string>('');
+  const [unreadOnlyFilter, setUnreadOnlyFilter] = useState(false);
   const [alertsSeverityFilter, setAlertsSeverityFilter] = useState<
     'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | null
   >(null);
 
-  const { data: unassumedCount } = useUnassumedMessagesCount();
+  const { data: unassumedPatientIds } = useUnassumedPatientIds();
   const { data: criticalAlertsCount } = useCriticalAlertsCount();
+  const { data: pendingDecisionsRaw } = usePendingDecisions();
+  const pendingDecisions = Array.isArray(pendingDecisionsRaw)
+    ? pendingDecisionsRaw
+    : [];
+  const displayablePendingCount = pendingDecisions.filter(
+    (d) =>
+      d &&
+      d.requiresApproval &&
+      !d.approvedAt &&
+      !d.rejected
+  ).length;
+  const { readPatientIds, markAsRead } = useReadPatients();
+
+  // Unread = não assumidas E ainda não abertas (não lidas)
+  // Ler = abrir a conversa. Assumir = clicar no botão.
+  const unreadPatientIdsSet =
+    unassumedPatientIds?.patientIds && readPatientIds
+      ? new Set(
+          unassumedPatientIds.patientIds.filter((id) => !readPatientIds.has(id))
+        )
+      : undefined;
+
+  // Marcar como lida ao abrir a conversa (apenas visualizar - NÃO assumir)
+  useEffect(() => {
+    if (selectedPatient) {
+      markAsRead(selectedPatient);
+    }
+  }, [selectedPatient, markAsRead]);
   const { data: patients } = usePatients();
 
   // Obter tipos de câncer únicos para o dropdown
@@ -163,6 +201,7 @@ export default function ChatPage() {
     setSearchTerm('');
     setPriorityFilter(null);
     setCancerTypeFilter('');
+    setUnreadOnlyFilter(false);
     clearFiltersFromStorage();
   };
 
@@ -246,6 +285,28 @@ export default function ChatPage() {
     }
   };
 
+  const handleReturnToAgent = async () => {
+    if (!conversationId || isReturningToAgent) return;
+
+    setIsReturningToAgent(true);
+    try {
+      await conversationsApi.returnToAgent(conversationId);
+      setIsNursingActive(false);
+      queryClient.invalidateQueries({ queryKey: ['messages', selectedPatient ?? ''] });
+      queryClient.invalidateQueries({ queryKey: ['messages', 'unassumed', 'count'] });
+      toast.success('Conversa devolvida para a IA');
+    } catch (error) {
+      toast.error('Erro ao devolver conversa para a IA', {
+        description:
+          error instanceof Error
+            ? error.message
+            : 'Tente novamente em alguns instantes.',
+      });
+    } finally {
+      setIsReturningToAgent(false);
+    }
+  };
+
   if (isInitializing) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -289,11 +350,11 @@ export default function ChatPage() {
                     }`}
                   >
                     Pacientes
-                    {unassumedCount && unassumedCount.count > 0 ? (
+                    {unreadPatientIdsSet && unreadPatientIdsSet.size > 0 ? (
                       <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white leading-none">
-                        {unassumedCount.count > 99
+                        {unreadPatientIdsSet.size > 99
                           ? '99+'
-                          : unassumedCount.count}
+                          : unreadPatientIdsSet.size}
                       </span>
                     ) : null}
                   </button>
@@ -311,6 +372,23 @@ export default function ChatPage() {
                         {criticalAlertsCount.count > 99
                           ? '99+'
                           : criticalAlertsCount.count}
+                      </span>
+                    ) : null}
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('decisions')}
+                    className={`relative px-4 py-2 rounded-md font-semibold transition-colors ${
+                      activeTab === 'decisions'
+                        ? 'bg-indigo-600 text-white'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    Decisões pendentes
+                    {displayablePendingCount > 0 ? (
+                      <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-bold text-white leading-none">
+                        {displayablePendingCount > 99
+                          ? '99+'
+                          : displayablePendingCount}
                       </span>
                     ) : null}
                   </button>
@@ -383,6 +461,31 @@ export default function ChatPage() {
                         </div>
                       </div>
 
+                      {/* Filtro Não lidas */}
+                      <div>
+                        <label className="text-xs font-semibold text-gray-600 mb-1 block">
+                          Conversas
+                        </label>
+                        <button
+                          onClick={() => setUnreadOnlyFilter(!unreadOnlyFilter)}
+                          className={`flex items-center gap-2 px-3 py-2 w-full text-left rounded-md transition-colors ${
+                            unreadOnlyFilter
+                              ? 'bg-indigo-600 text-white'
+                              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                          }`}
+                        >
+                          <MessageSquare className="h-4 w-4" />
+                          <span className="text-sm">
+                            Não lidas
+                            {unreadPatientIdsSet && unreadPatientIdsSet.size > 0 && (
+                              <span className="ml-1 opacity-80">
+                                ({unreadPatientIdsSet.size})
+                              </span>
+                            )}
+                          </span>
+                        </button>
+                      </div>
+
                       {/* Filtro por Tipo de Câncer */}
                       {uniqueCancerTypes.length > 0 && (
                         <div>
@@ -407,7 +510,7 @@ export default function ChatPage() {
                       )}
 
                       {/* Indicador de filtros ativos */}
-                      {(priorityFilter || cancerTypeFilter) && (
+                      {(priorityFilter || cancerTypeFilter || unreadOnlyFilter) && (
                         <div className="pt-2 border-t">
                           <button
                             onClick={handleClearFilters}
@@ -432,11 +535,13 @@ export default function ChatPage() {
                       searchTerm: debouncedSearchTerm,
                       priorityCategory: priorityFilter || undefined,
                       cancerType: cancerTypeFilter || undefined,
+                      unreadOnly: unreadOnlyFilter,
+                      unreadPatientIds: unreadPatientIdsSet,
                     }}
                     selectedPatientId={selectedPatient}
                     onClearFilters={handleClearFilters}
                   />
-                ) : (
+                ) : activeTab === 'alerts' ? (
                   <AlertsPanel
                     onAlertSelect={(alert) => {
                       // Selecionar o alerta para mostrar detalhes
@@ -450,6 +555,17 @@ export default function ChatPage() {
                     }}
                     selectedAlertId={selectedAlert?.id}
                     severityFilter={alertsSeverityFilter}
+                  />
+                ) : (
+                  <DecisionLogPanel
+                    decisions={pendingDecisions}
+                    showPendingOnly
+                    onDecisionSelect={(decision) => {
+                      if (decision.patientId) {
+                        setSelectedPatient(decision.patientId);
+                        setActiveTab('patients');
+                      }
+                    }}
                   />
                 )}
               </div>
@@ -492,6 +608,7 @@ export default function ChatPage() {
               ) : selectedPatientData ? (
                 <div className="bg-white h-full border-x">
                   <ConversationView
+                    conversationId={conversationId || null}
                     patientName={selectedPatientData.name}
                     patientInfo={{
                       cancerType:
@@ -532,6 +649,8 @@ export default function ChatPage() {
                     structuredData={latestStructuredData}
                     onSendMessage={handleSendMessage}
                     onTakeOver={handleTakeOver}
+                    onReturnToAgent={handleReturnToAgent}
+                    isReturningToAgent={isReturningToAgent}
                     isNursingActive={
                       isNursingActive || isConversationAssumedByCurrentUser
                     }

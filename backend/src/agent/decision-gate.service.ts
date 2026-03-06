@@ -15,20 +15,23 @@ const AUTO_APPROVED_ACTIONS = new Set([
   'SCHEDULE_CHECK_IN',
   'SEND_REMINDER',
   'RECORD_SYMPTOM',
+  'RECALCULATE_PRIORITY',
   'CREATE_LOW_ALERT',
+  'CREATE_HIGH_CRITICAL_ALERT', // Emergency/critical alerts: created immediately for nursing visibility
+  'CRITICAL_ESCALATION', // Same as above, routes to criticalEscalation handler
   'UPDATE_NAVIGATION_STEP',
   // Protocol-driven auto-approved actions
   'CHECK_IN_SCHEDULED',
   'PROTOCOL_ALERT', // Protocol alerts go to nursing dashboard
+  // Saudações: resposta rápida pré-definida, sem riscos clínicos
+  'GREETING_RESPONSE',
 ]);
 
 /**
  * Actions requiring human approval
  */
 const NEEDS_APPROVAL_ACTIONS = new Set([
-  'CRITICAL_ESCALATION',
   'CHANGE_TREATMENT_STATUS',
-  'CREATE_HIGH_CRITICAL_ALERT',
   'RECOMMEND_APPOINTMENT',
   'HANDOFF_TO_SPECIALIST',
   // Questionnaire-triggered high-severity escalations

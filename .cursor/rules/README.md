@@ -200,6 +200,25 @@ Estrutura para criar resumos médicos concisos (≤30 páginas):
 
 ---
 
+## Regras de Desenvolvimento (OncoNav / Agentes)
+
+### 🤖 engenheiro-ia-agentes.mdc
+
+**Tipo:** Aplicada a arquivos do agente (`globs: ai-service/**/*.py`, `backend/src/agent/**/*.ts`)
+
+Subagente **Engenheiro de IA para desenvolvimento de agentes**:
+
+- Arquitetura do pipeline: ChannelGateway → AgentService → AI Service (Orchestrator) → DecisionGate
+- Componentes: orchestrator, symptom_analyzer, protocol_engine, context_builder, questionnaire_engine, llm_provider
+- Decisões auto-aprovadas vs exigem aprovação; estado do agente (`agent_state`)
+- Protocolos clínicos, questionários conversacionais (ESAS, PRO-CTCAE), prompts e guardrails
+- Boas práticas e checklist ao implementar ou alterar o agente
+- Roadmap: intent detection, respostas curtas/streaming, RAG interno, modelo duplo
+
+Ativa ao editar arquivos em `ai-service/` (Python) ou `backend/src/agent/` (TypeScript).
+
+---
+
 ## Meta-Regra
 
 ### 📋 template-especialista.mdc

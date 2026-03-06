@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import {
@@ -10,9 +11,13 @@ import {
   Activity,
   AlertCircle,
   Mail,
+  Pencil,
 } from 'lucide-react';
 import { Patient } from '@/lib/api/patients';
+import { getCancerTypeLabel } from '@/lib/utils/patient-cancer-type';
 import { OncologyNavigationPanel } from './oncology-navigation-panel';
+import { PatientEditDialog } from '@/components/patients/patient-edit-dialog';
+import { Button } from '@/components/ui/button';
 
 interface PatientDetailsProps {
   patient: Patient | null;
@@ -20,6 +25,7 @@ interface PatientDetailsProps {
 }
 
 export function PatientDetails({ patient, isLoading }: PatientDetailsProps) {
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   if (isLoading) {
     return (
       <div className="bg-white p-4 space-y-4">
@@ -60,7 +66,7 @@ export function PatientDetails({ patient, isLoading }: PatientDetailsProps) {
   };
 
   const calculateAge = (birthDate: string | null) => {
-    if (!birthDate) return 'N/A';
+    if (!birthDate) return '—';
     const today = new Date();
     const birth = new Date(birthDate);
     let age = today.getFullYear() - birth.getFullYear();
@@ -76,11 +82,21 @@ export function PatientDetails({ patient, isLoading }: PatientDetailsProps) {
 
   return (
     <div className="bg-white p-4 space-y-4">
-      <div>
-        <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+      <div className="flex items-center justify-between gap-2 mb-4">
+        <h2 className="text-xl font-bold flex items-center gap-2">
           <User className="h-5 w-5" />
           Detalhes do Paciente
         </h2>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="shrink-0 gap-1.5"
+          onClick={() => setIsEditDialogOpen(true)}
+        >
+          <Pencil className="h-4 w-4" />
+          Editar
+        </Button>
       </div>
 
       {/* Informações Básicas */}
@@ -221,7 +237,8 @@ export function PatientDetails({ patient, isLoading }: PatientDetailsProps) {
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
                       <p className="font-semibold text-sm">
-                        {diagnosis.cancerType}
+                        {getCancerTypeLabel(diagnosis.cancerType) ||
+                          diagnosis.cancerType}
                       </p>
                       {diagnosis.isPrimary && (
                         <span className="text-xs px-2 py-0.5 bg-indigo-200 text-indigo-800 rounded">
@@ -266,7 +283,9 @@ export function PatientDetails({ patient, isLoading }: PatientDetailsProps) {
           <>
             <div>
               <p className="text-sm text-gray-500">Tipo de Câncer</p>
-              <p className="font-semibold">{patient.cancerType}</p>
+              <p className="font-semibold">
+                {getCancerTypeLabel(patient.cancerType) || patient.cancerType}
+              </p>
             </div>
             {patient.stage && (
               <div>
@@ -398,6 +417,12 @@ export function PatientDetails({ patient, isLoading }: PatientDetailsProps) {
           />
         </div>
       )}
+
+      <PatientEditDialog
+        open={isEditDialogOpen}
+        onOpenChange={setIsEditDialogOpen}
+        patient={patient}
+      />
     </div>
   );
 }

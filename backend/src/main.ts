@@ -66,13 +66,20 @@ async function bootstrap() {
 
   // ALLOWED_ORIGINS suporta múltiplas origens separadas por vírgula (ex: staging + prod)
   const extraOrigins = process.env.ALLOWED_ORIGINS
-    ? process.env.ALLOWED_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean)
+    ? process.env.ALLOWED_ORIGINS.split(',')
+        .map((o) => o.trim())
+        .filter(Boolean)
     : [];
 
   const allowedOrigins =
     process.env.NODE_ENV === 'production'
       ? [frontendUrl, ...extraOrigins]
-      : ['http://localhost:3000', 'https://localhost:3000', frontendUrl, ...extraOrigins];
+      : [
+          'http://localhost:3000',
+          'https://localhost:3000',
+          frontendUrl,
+          ...extraOrigins,
+        ];
 
   app.enableCors({
     origin: (origin, callback) => {
@@ -105,7 +112,9 @@ async function bootstrap() {
   await app.listen(port);
   logger.log(`Backend running on ${protocol}://localhost:${port}`);
   if (useHttps) {
-    logger.warn('Certifique-se de que o certificado está instalado como confiável!');
+    logger.warn(
+      'Certifique-se de que o certificado está instalado como confiável!'
+    );
   }
 }
 

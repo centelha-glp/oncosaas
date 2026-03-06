@@ -58,6 +58,24 @@ export interface ConversationListResponse {
   limit: number;
 }
 
+export interface SuggestedReply {
+  label: string;
+  text: string;
+}
+
+export interface SuggestedAction {
+  action: string;
+  reason: string;
+  priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+}
+
+export interface NurseAssistResponse {
+  summary: string;
+  suggested_replies: SuggestedReply[];
+  suggested_actions: SuggestedAction[];
+  used_llm: boolean;
+}
+
 export const conversationsApi = {
   list: (params?: {
     patientId?: string;
@@ -71,7 +89,10 @@ export const conversationsApi = {
     apiClient.get(`/agent/conversations/${id}`),
 
   escalate: (id: string): Promise<Conversation> =>
-    apiClient.post(`/agent/conversations/${id}/escalate`),
+    apiClient.patch(`/agent/conversations/${id}/escalate`),
+
+  returnToAgent: (id: string): Promise<Conversation> =>
+    apiClient.patch(`/agent/conversations/${id}/return-to-agent`),
 
   close: (id: string): Promise<Conversation> =>
     apiClient.post(`/agent/conversations/${id}/close`),
@@ -80,8 +101,18 @@ export const conversationsApi = {
     apiClient.get('/agent/decisions/pending'),
 
   approveDecision: (id: string): Promise<AgentDecisionLog> =>
-    apiClient.post(`/agent/decisions/${id}/approve`),
+    apiClient.post(`/agent/decisions/${id}/approve`, {
+      decisionId: id,
+      approved: true,
+    }),
 
   rejectDecision: (id: string, reason: string): Promise<AgentDecisionLog> =>
-    apiClient.post(`/agent/decisions/${id}/reject`, { reason }),
+    apiClient.post(`/agent/decisions/${id}/approve`, {
+      decisionId: id,
+      approved: false,
+      rejectionReason: reason,
+    }),
+
+  getNurseAssist: (conversationId: string): Promise<NurseAssistResponse> =>
+    apiClient.get(`/agent/conversations/${conversationId}/nurse-assist`),
 };

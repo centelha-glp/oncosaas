@@ -28,6 +28,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { ComorbiditiesForm } from './comorbidities-form';
+import { CurrentMedicationsForm } from './current-medications-form';
 import { FamilyHistoryForm } from './family-history-form';
 
 interface PatientCreateDialogProps {
@@ -110,6 +111,16 @@ export function PatientCreateDialog({
                 h.cancerType &&
                 h.cancerType.trim().length > 0
             )
+          : undefined,
+      currentMedications:
+        data.currentMedications && data.currentMedications.length > 0
+          ? data.currentMedications.filter(
+              (m: any) => m.name && m.name.trim().length > 0
+            )
+          : undefined,
+      performanceStatus:
+        data.performanceStatus !== undefined && data.performanceStatus !== null
+          ? data.performanceStatus
           : undefined,
       ehrId: data.ehrPatientId,
     };
@@ -331,12 +342,48 @@ export function PatientCreateDialog({
                 <label className="text-sm font-medium">
                   Performance Status - ECOG (0-4)
                 </label>
-                <Input
-                  type="number"
-                  min="0"
-                  max="4"
-                  {...register('performanceStatus', { valueAsNumber: true })}
-                />
+                <Select
+                  value={
+                    watch('performanceStatus') !== null &&
+                    watch('performanceStatus') !== undefined
+                      ? String(watch('performanceStatus'))
+                      : ''
+                  }
+                  onValueChange={(value) => {
+                    if (value === '' || value === undefined) {
+                      setValue('performanceStatus', undefined, {
+                        shouldValidate: true,
+                      });
+                    } else {
+                      const numValue = parseInt(value, 10);
+                      if (!isNaN(numValue)) {
+                        setValue('performanceStatus', numValue, {
+                          shouldValidate: true,
+                        });
+                      }
+                    }
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione o ECOG" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="0">0 - Ativo, sem restrições</SelectItem>
+                    <SelectItem value="1">
+                      1 - Restrição a atividades extenuantes
+                    </SelectItem>
+                    <SelectItem value="2">
+                      2 - Capaz de autocuidado, incapaz de trabalhar
+                    </SelectItem>
+                    <SelectItem value="3">
+                      3 - Autocuidado limitado, confinado ao leito/cadeira
+                      &gt;50%
+                    </SelectItem>
+                    <SelectItem value="4">
+                      4 - Completamente incapaz, confinado ao leito
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
                 {errors.performanceStatus && (
                   <p className="text-sm text-destructive mt-1">
                     {errors.performanceStatus.message}
@@ -409,6 +456,18 @@ export function PatientCreateDialog({
                       value={watch('comorbidities') as any}
                       onChange={(comorbidities) =>
                         setValue('comorbidities', comorbidities as any)
+                      }
+                    />
+                  </div>
+
+                  <div>
+                    <CurrentMedicationsForm
+                      value={watch('currentMedications') as any}
+                      onChange={(currentMedications) =>
+                        setValue(
+                          'currentMedications',
+                          currentMedications as any
+                        )
                       }
                     />
                   </div>

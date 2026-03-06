@@ -42,7 +42,7 @@ Todos os usuários têm a senha padrão: `senha123`
 
 #### Paciente 2: Roberto Almeida
 
-- **Tipo de Câncer**: Pulmão (lung)
+- **Tipo de Câncer**: Pulmão (Pulmão)
 - **Estágio**: IV
 - **Status**: Em Tratamento (IN_TREATMENT)
 - **Prioridade**: CRÍTICA (score: 90)

@@ -1,9 +1,11 @@
 # Skill: /novo-hook-frontend
 
 ## Descrição
+
 Cria um novo hook React Query + API client para uma entidade no frontend.
 
 ## Uso
+
 ```
 /novo-hook-frontend <entidade>
 ```
@@ -13,6 +15,7 @@ Exemplo: `/novo-hook-frontend interventions`
 ## O que faz
 
 ### 1. API Client
+
 Cria `frontend/src/lib/api/<entidade>.ts`:
 
 ```typescript
@@ -36,6 +39,7 @@ export const <entidade>Api = {
 ```
 
 ### 2. Hook React Query
+
 Cria `frontend/src/hooks/use<Entidade>.ts`:
 
 ```typescript
@@ -67,6 +71,7 @@ export function useCreate<Entidade>() {
 ```
 
 ## Referências
+
 - API client base: `frontend/src/lib/api/client.ts`
 - Hook existente: `frontend/src/hooks/usePatients.ts`
 - React Query config: `frontend/src/app/providers.tsx`

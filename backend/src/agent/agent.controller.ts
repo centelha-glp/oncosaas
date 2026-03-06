@@ -117,6 +117,18 @@ export class AgentController {
   }
 
   // ==========================================
+  // NURSE AI ASSISTANT
+  // ==========================================
+
+  @Get('conversations/:id/nurse-assist')
+  async getNurseAssistance(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Request() req: any
+  ) {
+    return this.agentService.getNurseAssistance(id, req.user.tenantId);
+  }
+
+  // ==========================================
   // DECISIONS
   // ==========================================
 
@@ -138,11 +150,32 @@ export class AgentController {
     @Request() req: any
   ) {
     if (dto.approved) {
-      return this.decisionGateService.approveDecision(
+      const approved = await this.decisionGateService.approveDecision(
         id,
         req.user.tenantId,
         req.user.sub
       );
+
+      try {
+        await this.agentService.executeApprovedDecision({
+          tenantId: approved.tenantId,
+          patientId: approved.patientId,
+          conversationId: approved.conversationId,
+          outputAction: (approved.outputAction && typeof approved.outputAction === 'object' && !Array.isArray(approved.outputAction))
+            ? approved.outputAction as Record<string, any>
+            : null,
+          inputData: (approved.inputData && typeof approved.inputData === 'object' && !Array.isArray(approved.inputData))
+            ? approved.inputData as Record<string, any>
+            : null,
+        });
+        this.logger.log(`Approved decision ${id} executed successfully`);
+      } catch (error) {
+        this.logger.error(
+          `Failed to execute approved decision ${id}: ${error.message}`
+        );
+      }
+
+      return approved;
     }
     return this.decisionGateService.rejectDecision(
       id,
@@ -150,5 +183,13 @@ export class AgentController {
       req.user.sub,
       dto.rejectionReason || 'Rejected'
     );
+  }
+
+  @Get('patients/:patientId/summary')
+  async getPatientSummary(
+    @Param('patientId') patientId: string,
+    @Request() req: any,
+  ) {
+    return this.agentService.getPatientSummary(patientId, req.user.tenantId);
   }
 }

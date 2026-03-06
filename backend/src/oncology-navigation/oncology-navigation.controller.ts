@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Patch,
+  Delete,
   Param,
   Body,
   UseGuards,
@@ -104,6 +105,16 @@ export class OncologyNavigationController {
     }
 
     return this.navigationService.updateStep(id, updateDto, req.user.tenantId);
+  }
+
+  @Delete('steps/:id')
+  @Roles(UserRole.ADMIN, UserRole.COORDINATOR, UserRole.ONCOLOGIST)
+  async deleteStep(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Request() req: any
+  ) {
+    await this.navigationService.deleteStep(id, req.user.tenantId);
+    return { message: 'Etapa excluída com sucesso' };
   }
 
   @Post('steps/:id/upload')

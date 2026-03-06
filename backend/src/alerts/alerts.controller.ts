@@ -71,7 +71,7 @@ export class AlertsController {
   )
   async getCriticalAlertsCount(@CurrentUser() user: any) {
     const count = await this.alertsService.getCriticalAlertsCount(
-      user.tenantId,
+      user.tenantId
     );
     return { count };
   }

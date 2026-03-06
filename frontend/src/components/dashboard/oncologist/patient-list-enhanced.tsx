@@ -127,7 +127,7 @@ export function PatientListEnhanced({
       }
 
       // Filtro de alertas
-      if (hasAlertsFilter && (patient._count?.alerts || 0) === 0) {
+      if (hasAlertsFilter && (patient.pendingAlertsCount ?? patient._count?.alerts ?? 0) === 0) {
         return false;
       }
 
@@ -136,7 +136,7 @@ export function PatientListEnhanced({
       if (hasOverdueStepsFilter) {
         // Por enquanto, verificamos se tem alertas de navegação
         // Isso será melhorado quando tivermos dados de etapas diretamente no paciente
-        const hasNavigationAlerts = (patient._count?.alerts || 0) > 0;
+        const hasNavigationAlerts = (patient.pendingAlertsCount ?? patient._count?.alerts ?? 0) > 0;
         if (!hasNavigationAlerts) {
           return false;
         }
@@ -483,9 +483,9 @@ export function PatientListEnhanced({
                         )}
                       </span>
                     )}
-                    {(patient._count?.alerts || 0) > 0 && (
+                    {(patient.pendingAlertsCount ?? patient._count?.alerts ?? 0) > 0 && (
                       <span className="text-red-600 font-semibold">
-                        {patient._count?.alerts} alerta(s)
+                        {patient.pendingAlertsCount ?? patient._count?.alerts} alerta(s)
                       </span>
                     )}
                   </div>

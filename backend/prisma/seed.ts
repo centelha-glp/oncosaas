@@ -268,7 +268,7 @@ async function main() {
   });
 
   console.log(
-    `✅ Pacientes criados: ${patients.length} (7 tipos de câncer + 1 paliativo)`,
+    `✅ Pacientes criados: ${patients.length} (7 tipos de câncer + 1 paliativo)`
   );
   for (const p of patients) {
     console.log(`  ${p.name} (${p.cancerType} - ${p.currentStage})`);
@@ -360,12 +360,12 @@ async function main() {
       structuredData?: any;
       criticalSymptomsDetected?: string[];
       alertTriggered?: boolean;
-    }>,
+    }>
   ) {
     const baseTime = new Date('2024-12-10T09:00:00Z');
     const lastMsg = msgs[msgs.length - 1];
     const lastMsgTime = new Date(
-      baseTime.getTime() + lastMsg.minutesOffset * 60000,
+      baseTime.getTime() + lastMsg.minutesOffset * 60000
     );
 
     const conversation = await prisma.conversation.create({
@@ -382,7 +382,7 @@ async function main() {
 
     for (const msg of msgs) {
       const timestamp = new Date(
-        baseTime.getTime() + msg.minutesOffset * 60000,
+        baseTime.getTime() + msg.minutesOffset * 60000
       );
       await prisma.message.create({
         data: {
@@ -495,7 +495,7 @@ async function main() {
     ]);
   }
 
-  // --- Conversa 3: Roberto Ferreira (lung/diagnosis) - Dúvidas sobre exames ---
+  // --- Conversa 3: Roberto Ferreira (Pulmão/diagnosis) - Dúvidas sobre exames ---
   const robertoPatient = patients.find((p) => p.name === 'Roberto Ferreira');
   if (robertoPatient) {
     await createConversation(robertoPatient.id, 'ACTIVE', 'AGENT', [
@@ -641,7 +641,7 @@ async function main() {
 
   const totalMessages = msgCounter - 1;
   console.log(
-    `✅ Conversas e mensagens criadas: 6 conversas, ${totalMessages} mensagens`,
+    `✅ Conversas e mensagens criadas: 6 conversas, ${totalMessages} mensagens`
   );
 
   // Criar alertas de exemplo
@@ -712,7 +712,7 @@ async function main() {
   }
 
   // ─── ClinicalProtocols ───────────────────────────────────────────────────────
-  const protocolTypes = ['colorectal', 'bladder', 'renal', 'prostate'];
+  const protocolTypes = ['colorectal', 'bladder', 'renal', 'prostate', 'breast'];
   for (const cancerType of protocolTypes) {
     const existing = await prisma.clinicalProtocol.findFirst({
       where: { tenantId: tenant.id, cancerType },

@@ -14,8 +14,9 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/stores/auth-store';
-import { useUnassumedMessagesCount } from '@/hooks/useMessages';
 import { useCriticalAlertsCount } from '@/hooks/useAlerts';
+import { useUnassumedPatientIds } from '@/hooks/useMessages';
+import { useReadPatients } from '@/hooks/useReadPatients';
 
 interface NavItem {
   path: string;
@@ -71,8 +72,16 @@ export function NavigationBar() {
   const router = useRouter();
   const pathname = usePathname();
   const { user, logout } = useAuthStore();
-  const { data: unassumedCount } = useUnassumedMessagesCount();
   const { data: criticalCount } = useCriticalAlertsCount();
+  const { data: unassumedPatientIds } = useUnassumedPatientIds();
+  const { readPatientIds } = useReadPatients();
+
+  // Chat: conversas não lidas (não assumidas que ainda não foram abertas)
+  const unreadChatCount =
+    unassumedPatientIds?.patientIds && readPatientIds
+      ? unassumedPatientIds.patientIds.filter((id) => !readPatientIds.has(id))
+          .length
+      : 0;
 
   // Verificar se o usuário tem permissão para ver usuários
   const canManageUsers =
@@ -123,8 +132,9 @@ export function NavigationBar() {
   };
 
   const getBadge = (path: string) => {
-    if (path === '/chat' && unassumedCount && unassumedCount.count > 0) {
-      return unassumedCount.count;
+    // Chat: conversas não lidas (não assumidas que ainda não foram abertas)
+    if (path === '/chat' && unreadChatCount > 0) {
+      return unreadChatCount;
     }
     if (path === '/dashboard' && criticalCount && criticalCount.count > 0) {
       return criticalCount.count;
@@ -198,7 +208,9 @@ export function NavigationBar() {
                 variant="ghost"
                 size="sm"
                 onClick={() => router.push('/profile')}
-                className={cn(isActive('/profile') && 'bg-indigo-50 text-indigo-700')}
+                className={cn(
+                  isActive('/profile') && 'bg-indigo-50 text-indigo-700'
+                )}
                 aria-label="Meu perfil"
               >
                 <Settings className="h-4 w-4" />

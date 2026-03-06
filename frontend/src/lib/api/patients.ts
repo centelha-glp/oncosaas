@@ -1,6 +1,29 @@
 import { apiClient } from './client';
 import { getApiUrl } from '@/lib/utils/api-config';
 
+export interface PatientSummaryHighlight {
+  icon: 'info' | 'warning' | 'success' | 'clock';
+  text: string;
+}
+
+export interface PatientSummaryRisk {
+  risk: string;
+  severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+}
+
+export interface PatientSummaryNextStep {
+  step: string;
+  urgency: 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
+}
+
+export interface PatientSummaryResponse {
+  narrative: string;
+  highlights: PatientSummaryHighlight[];
+  risks: PatientSummaryRisk[];
+  next_steps: PatientSummaryNextStep[];
+  used_llm: boolean;
+}
+
 export interface CancerDiagnosis {
   id: string;
   tenantId: string;
@@ -50,6 +73,10 @@ export interface CancerDiagnosis {
   isActive: boolean;
   resolvedDate: string | null;
   resolutionReason: string | null;
+  // Câncer metastático associado ao primário
+  primaryDiagnosisId: string | null;
+  primaryDiagnosis?: CancerDiagnosis | null;
+  metastaticDiagnoses?: CancerDiagnosis[];
   createdAt: string;
   updatedAt: string;
 }
@@ -89,6 +116,13 @@ export interface FamilyHistory {
   ageAtDiagnosis?: number;
 }
 
+export interface CurrentMedication {
+  name: string;
+  dosage?: string;
+  frequency?: string;
+  indication?: string;
+}
+
 export interface Patient {
   id: string;
   tenantId: string;
@@ -104,6 +138,7 @@ export interface Patient {
   performanceStatus: number | null;
   // Comorbidades e Fatores de Risco
   comorbidities: Comorbidity[] | null;
+  currentMedications: CurrentMedication[] | null;
   smokingHistory: string | null;
   alcoholHistory: string | null;
   occupationalExposure: string | null;
@@ -127,6 +162,8 @@ export interface Patient {
     alerts: number;
     observations: number;
   };
+  /** Contagem de alertas PENDING (alinhado com aba Alertas) */
+  pendingAlertsCount?: number;
 }
 
 export interface CreatePatientDto {
@@ -139,7 +176,7 @@ export interface CreatePatientDto {
   cancerType: string;
   stage: string;
   diagnosisDate?: string;
-  performanceStatus?: string;
+  performanceStatus?: number;
   currentStage: string;
   currentSpecialty?: string;
 }
@@ -180,9 +217,39 @@ export interface NavigationStep {
   updatedAt: string;
 }
 
+export type ComplementaryExamType =
+  | 'LABORATORY'
+  | 'ANATOMOPATHOLOGICAL'
+  | 'IMMUNOHISTOCHEMICAL'
+  | 'IMAGING';
+
+export interface ComplementaryExamResult {
+  id: string;
+  performedAt: string;
+  valueNumeric: number | null;
+  valueText: string | null;
+  unit: string | null;
+  referenceRange: string | null;
+  isAbnormal: boolean | null;
+  report: string | null;
+}
+
+export interface ComplementaryExam {
+  id: string;
+  tenantId: string;
+  patientId: string;
+  type: ComplementaryExamType;
+  name: string;
+  code: string | null;
+  unit: string | null;
+  referenceRange: string | null;
+  results: ComplementaryExamResult[];
+}
+
 export interface PatientDetail extends Patient {
   journey: PatientJourney | null;
   cancerDiagnoses: CancerDiagnosis[];
+  complementaryExams?: ComplementaryExam[];
   navigationSteps: NavigationStep[];
   alerts: Array<{
     id: string;
@@ -216,10 +283,14 @@ export const patientsApi = {
   },
 
   async getDetail(id: string): Promise<PatientDetail> {
-    const response = await apiClient.get<{ data: PatientDetail }>(
+    const response = await apiClient.get<{ data: PatientDetail } | PatientDetail>(
       `/patients/${id}/detail`
     );
-    return response.data;
+    // Backend retorna { data: patient }; garantir que retornamos o objeto paciente
+    if (response && typeof response === 'object' && 'data' in response) {
+      return (response as { data: PatientDetail }).data;
+    }
+    return response as PatientDetail;
   },
 
   async create(data: CreatePatientDto): Promise<Patient> {
@@ -288,5 +359,125 @@ export const patientsApi = {
       data
     );
     return response.data;
+  },
+
+  async deleteCancerDiagnosis(
+    patientId: string,
+    diagnosisId: string
+  ): Promise<void> {
+    await apiClient.delete(
+      `/patients/${patientId}/cancer-diagnoses/${diagnosisId}`
+    );
+  },
+
+  async getPatientSummary(
+    patientId: string
+  ): Promise<PatientSummaryResponse> {
+    return apiClient.get<PatientSummaryResponse>(
+      `/agent/patients/${patientId}/summary`
+    );
+  },
+
+  // Complementary exams
+  async getComplementaryExams(
+    patientId: string,
+    type?: ComplementaryExamType
+  ): Promise<ComplementaryExam[]> {
+    const params = type ? { type } : {};
+    return apiClient.get<ComplementaryExam[]>(
+      `/patients/${patientId}/complementary-exams`,
+      { params }
+    );
+  },
+
+  async createComplementaryExam(
+    patientId: string,
+    data: {
+      type: ComplementaryExamType;
+      name: string;
+      code?: string;
+      unit?: string;
+      referenceRange?: string;
+    }
+  ): Promise<ComplementaryExam> {
+    return apiClient.post<ComplementaryExam>(
+      `/patients/${patientId}/complementary-exams`,
+      data
+    );
+  },
+
+  async updateComplementaryExam(
+    patientId: string,
+    examId: string,
+    data: Partial<{
+      type: ComplementaryExamType;
+      name: string;
+      code: string;
+      unit: string;
+      referenceRange: string;
+    }>
+  ): Promise<ComplementaryExam> {
+    return apiClient.patch<ComplementaryExam>(
+      `/patients/${patientId}/complementary-exams/${examId}`,
+      data
+    );
+  },
+
+  async deleteComplementaryExam(
+    patientId: string,
+    examId: string
+  ): Promise<void> {
+    await apiClient.delete(
+      `/patients/${patientId}/complementary-exams/${examId}`
+    );
+  },
+
+  async createComplementaryExamResult(
+    patientId: string,
+    examId: string,
+    data: {
+      performedAt: string;
+      valueNumeric?: number;
+      valueText?: string;
+      unit?: string;
+      referenceRange?: string;
+      isAbnormal?: boolean;
+      report?: string;
+    }
+  ): Promise<ComplementaryExamResult> {
+    return apiClient.post<ComplementaryExamResult>(
+      `/patients/${patientId}/complementary-exams/${examId}/results`,
+      data
+    );
+  },
+
+  async updateComplementaryExamResult(
+    patientId: string,
+    examId: string,
+    resultId: string,
+    data: Partial<{
+      performedAt: string;
+      valueNumeric: number;
+      valueText: string;
+      unit: string;
+      referenceRange: string;
+      isAbnormal: boolean;
+      report: string;
+    }>
+  ): Promise<ComplementaryExamResult> {
+    return apiClient.patch<ComplementaryExamResult>(
+      `/patients/${patientId}/complementary-exams/${examId}/results/${resultId}`,
+      data
+    );
+  },
+
+  async deleteComplementaryExamResult(
+    patientId: string,
+    examId: string,
+    resultId: string
+  ): Promise<void> {
+    await apiClient.delete(
+      `/patients/${patientId}/complementary-exams/${examId}/results/${resultId}`
+    );
   },
 };

@@ -5,6 +5,7 @@ import { ChannelGatewayService } from '../channel-gateway/channel-gateway.servic
 import { ConversationService } from './conversation.service';
 import { DecisionGateService } from './decision-gate.service';
 import { AlertsGateway } from '../gateways/alerts.gateway';
+import { PriorityRecalculationService } from '../oncology-navigation/priority-recalculation.service';
 import {
   ClinicalContext,
   AgentResponse,
@@ -20,7 +21,8 @@ export class AgentService {
     private readonly channelGateway: ChannelGatewayService,
     private readonly conversationService: ConversationService,
     private readonly decisionGate: DecisionGateService,
-    private readonly alertsGateway: AlertsGateway
+    private readonly alertsGateway: AlertsGateway,
+    private readonly priorityRecalculationService: PriorityRecalculationService
   ) {}
 
   /**
@@ -140,8 +142,18 @@ export class AgentService {
     }
 
     // 7. Evaluate decisions through decision gate
+    const decisions = aiResponse.decisions || [];
+    const recordSymptomCount = decisions.filter(
+      (d: any) => d?.outputAction?.type === 'RECORD_SYMPTOM'
+    ).length;
+    if (recordSymptomCount > 0) {
+      this.logger.log(
+        `AI returned ${recordSymptomCount} RECORD_SYMPTOM decision(s), total decisions: ${decisions.length}`
+      );
+    }
+
     const { autoApproved, needsApproval } = this.decisionGate.evaluate(
-      aiResponse.decisions || []
+      decisions
     );
 
     // 8. Execute auto-approved actions
@@ -169,13 +181,27 @@ export class AgentService {
 
     // 11. Send response to patient
     if (aiResponse.response) {
+      const symptomAnalysis = aiResponse.symptomAnalysis as
+        | { structuredData?: unknown; structured_data?: unknown }
+        | undefined;
+      const structuredData =
+        symptomAnalysis?.structuredData ?? symptomAnalysis?.structured_data;
+      const alertTriggered = autoApproved.some(
+        (d) =>
+          d?.outputAction?.type === 'CREATE_LOW_ALERT' ||
+          d?.outputAction?.type === 'CREATE_HIGH_CRITICAL_ALERT'
+      );
       await this.channelGateway.sendMessage(
         patientId,
         tenantId,
         aiResponse.response,
         conversation.channel,
         conversationId,
-        { skipExternalSend }
+        {
+          skipExternalSend,
+          structuredData: structuredData as unknown,
+          alertTriggered,
+        }
       );
     }
 
@@ -217,8 +243,8 @@ export class AgentService {
           tenantId,
           status: { in: ['PENDING', 'IN_PROGRESS', 'OVERDUE'] },
         },
-        orderBy: { createdAt: 'desc' },
-        take: 20,
+        orderBy: [{ dueDate: 'asc' }, { createdAt: 'desc' }],
+        take: 50,
       }),
       this.prisma.alert.findMany({
         where: {
@@ -241,20 +267,25 @@ export class AgentService {
       }),
     ]);
 
+    const currentStage = patient?.currentStage || 'SCREENING';
+    const stepsInCurrentPhase = (navigationSteps || []).filter(
+      (s: { journeyStage?: string }) => s.journeyStage === currentStage,
+    );
+
     return {
       patient: {
         id: patient?.id || patientId,
         name: patient?.name || 'Unknown',
         cancerType: patient?.cancerType || undefined,
         stage: patient?.stage || undefined,
-        currentStage: patient?.currentStage || 'SCREENING',
+        currentStage,
         performanceStatus: patient?.performanceStatus || undefined,
         priorityScore: patient?.priorityScore || 0,
         priorityCategory: patient?.priorityCategory || 'LOW',
       },
       diagnoses,
       treatments,
-      navigationSteps,
+      navigationSteps: stepsInCurrentPhase,
       recentAlerts,
       questionnaireResponses,
       observations,
@@ -370,6 +401,41 @@ export class AgentService {
   }
 
   /**
+   * Execute a decision that was manually approved by a nurse/admin.
+   * Called from the controller after DecisionGateService.approveDecision().
+   */
+  async executeApprovedDecision(decisionLog: {
+    tenantId: string;
+    patientId: string;
+    conversationId: string;
+    outputAction: Record<string, any> | null;
+    inputData: Record<string, any> | null;
+  }) {
+    if (!decisionLog.outputAction) {
+      this.logger.warn(
+        `Approved decision has no outputAction, skipping execution`
+      );
+      return;
+    }
+
+    const decision = {
+      outputAction: decisionLog.outputAction,
+      inputData: decisionLog.inputData || {},
+    };
+
+    this.logger.log(
+      `Executing approved decision: ${decision.outputAction.type} for patient ${decisionLog.patientId}`
+    );
+
+    await this.executeDecision(
+      decision,
+      decisionLog.tenantId,
+      decisionLog.patientId,
+      decisionLog.conversationId
+    );
+  }
+
+  /**
    * Execute an auto-approved decision
    */
   private async executeDecision(
@@ -386,6 +452,7 @@ export class AgentService {
           await this.recordSymptom(decision, tenantId, patientId);
           break;
         case 'CREATE_LOW_ALERT':
+        case 'CREATE_HIGH_CRITICAL_ALERT':
           await this.createAlert(decision, tenantId, patientId);
           break;
         case 'SCHEDULE_CHECK_IN':
@@ -427,6 +494,27 @@ export class AgentService {
         case 'CRITICAL_ESCALATION':
           await this.criticalEscalation(decision, tenantId, patientId);
           break;
+        case 'UPDATE_NAVIGATION_STEP':
+          await this.updateNavigationStep(
+            decision,
+            tenantId,
+            patientId
+          );
+          break;
+        case 'SEND_REMINDER':
+          await this.sendReminder(
+            decision,
+            tenantId,
+            patientId,
+            conversationId
+          );
+          break;
+        case 'RECALCULATE_PRIORITY':
+          await this.priorityRecalculationService.recalculate(
+            patientId,
+            tenantId
+          );
+          break;
         case 'START_QUESTIONNAIRE':
         case 'CONTINUE_QUESTIONNAIRE':
         case 'PROTOCOL_ALERT':
@@ -449,8 +537,15 @@ export class AgentService {
   ) {
     const { code, display, value } = decision.outputAction.payload || {};
     if (!code || !display) {
+      this.logger.warn(
+        `recordSymptom skipped: missing code or display in payload`
+      );
       return;
     }
+
+    this.logger.log(
+      `Registering symptom: code=${code} display=${display} value=${value} patientId=${patientId}`
+    );
 
     await this.prisma.observation.create({
       data: {
@@ -463,6 +558,8 @@ export class AgentService {
         status: 'final',
       },
     });
+
+    this.priorityRecalculationService.triggerRecalculation(patientId, tenantId);
   }
 
   private async createAlert(
@@ -472,8 +569,15 @@ export class AgentService {
   ) {
     const { type, severity, message } = decision.outputAction.payload || {};
     if (!type || !severity || !message) {
+      this.logger.warn(
+        `createAlert skipped: missing type, severity or message in payload`
+      );
       return;
     }
+
+    this.logger.log(
+      `Creating alert: type=${type} severity=${severity} patientId=${patientId}`
+    );
 
     const alert = await this.prisma.alert.create({
       data: {
@@ -486,7 +590,10 @@ export class AgentService {
       },
     });
 
-    // Emit real-time alert
+    // Emit real-time alert (critical gets dedicated event for dashboard)
+    if (alert.severity === 'CRITICAL') {
+      this.alertsGateway.emitCriticalAlert(tenantId, alert);
+    }
     this.alertsGateway.emitNewAlert(tenantId, alert);
   }
 
@@ -499,7 +606,7 @@ export class AgentService {
     const payload = decision.outputAction?.payload || {};
     const frequency = payload.frequency || 'weekly';
 
-    // Determine scheduledAt based on frequency
+    // Determine scheduledAt: payload.days (from agendar_checkin) or frequency map (from protocol)
     const now = new Date();
     const frequencyDays: Record<string, number> = {
       daily: 1,
@@ -508,7 +615,10 @@ export class AgentService {
       biweekly: 14,
       monthly: 30,
     };
-    const daysAhead = frequencyDays[frequency] || 7;
+    const daysAhead =
+      typeof payload.days === 'number' && payload.days >= 1 && payload.days <= 365
+        ? payload.days
+        : frequencyDays[frequency] || 7;
     const scheduledAt = new Date(now);
     scheduledAt.setDate(scheduledAt.getDate() + daysAhead);
 
@@ -672,6 +782,158 @@ export class AgentService {
     );
   }
 
+  private async updateNavigationStep(
+    decision: any,
+    tenantId: string,
+    patientId: string
+  ) {
+    const payload = decision.outputAction?.payload || {};
+    const { stepId, stepKey, status, isCompleted } = payload;
+
+    let resolvedStepId = stepId;
+    if (!resolvedStepId && stepKey) {
+      const step = await this.prisma.navigationStep.findFirst({
+        where: {
+          tenantId,
+          patientId,
+          stepKey: String(stepKey),
+          status: { in: ['PENDING', 'IN_PROGRESS', 'OVERDUE'] },
+        },
+        orderBy: { dueDate: 'asc' },
+        select: { id: true },
+      });
+      resolvedStepId = step?.id;
+    }
+
+    if (!resolvedStepId) {
+      this.logger.warn(
+        'UPDATE_NAVIGATION_STEP missing stepId or unresolvable stepKey in payload, skipping'
+      );
+      return;
+    }
+
+    const validStatuses = [
+      'PENDING',
+      'IN_PROGRESS',
+      'COMPLETED',
+      'OVERDUE',
+      'CANCELLED',
+      'NOT_APPLICABLE',
+    ];
+    const updateData: Record<string, any> = {};
+
+    if (status && validStatuses.includes(String(status).toUpperCase())) {
+      updateData.status = String(status).toUpperCase();
+    }
+    if (typeof isCompleted === 'boolean') {
+      updateData.isCompleted = isCompleted;
+      if (isCompleted) {
+        updateData.completedAt = new Date();
+      }
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      this.logger.warn(
+        'UPDATE_NAVIGATION_STEP payload has no status or isCompleted, skipping'
+      );
+      return;
+    }
+
+    const updated = await this.prisma.navigationStep.updateMany({
+      where: {
+        id: resolvedStepId,
+        tenantId,
+        patientId,
+      },
+      data: updateData,
+    });
+
+    if (updated.count === 0) {
+      this.logger.warn(
+        `UPDATE_NAVIGATION_STEP step ${resolvedStepId} not found or not owned by patient ${patientId}`
+      );
+      return;
+    }
+
+    this.logger.log(
+      `Updated navigation step ${resolvedStepId} for patient ${patientId}: ${JSON.stringify(updateData)}`
+    );
+  }
+
+  private async sendReminder(
+    decision: any,
+    tenantId: string,
+    patientId: string,
+    conversationId: string
+  ) {
+    const payload = decision.outputAction?.payload || {};
+    const {
+      message,
+      scheduledAt,
+      daysFromNow,
+      actionType = 'FOLLOW_UP',
+    } = payload;
+
+    if (!message || typeof message !== 'string') {
+      this.logger.warn(
+        'SEND_REMINDER missing message (string) in payload, skipping'
+      );
+      return;
+    }
+
+    const validActionTypes = [
+      'FOLLOW_UP',
+      'APPOINTMENT_REMINDER',
+      'MEDICATION_REMINDER',
+    ];
+    const finalActionType = validActionTypes.includes(
+      String(actionType).toUpperCase()
+    )
+      ? (String(actionType).toUpperCase() as 'FOLLOW_UP' | 'APPOINTMENT_REMINDER' | 'MEDICATION_REMINDER')
+      : 'FOLLOW_UP';
+
+    let scheduledDate: Date;
+    if (scheduledAt) {
+      scheduledDate = new Date(scheduledAt);
+      if (isNaN(scheduledDate.getTime())) {
+        this.logger.warn(
+          'SEND_REMINDER invalid scheduledAt, using daysFromNow default'
+        );
+        scheduledDate = new Date();
+        scheduledDate.setDate(scheduledDate.getDate() + 1);
+      }
+    } else {
+      const days =
+        typeof daysFromNow === 'number' && daysFromNow >= 0
+          ? daysFromNow
+          : 1;
+      scheduledDate = new Date();
+      scheduledDate.setDate(scheduledDate.getDate() + days);
+    }
+
+    const conv = await this.prisma.conversation.findFirst({
+      where: { id: conversationId, tenantId },
+      select: { channel: true },
+    });
+    const channel = conv?.channel ?? 'WHATSAPP';
+
+    await this.prisma.scheduledAction.create({
+      data: {
+        tenantId,
+        patientId,
+        conversationId,
+        actionType: finalActionType,
+        channel,
+        scheduledAt: scheduledDate,
+        payload: { message, ...payload },
+      },
+    });
+
+    this.logger.log(
+      `Scheduled ${finalActionType} reminder for patient ${patientId} at ${scheduledDate.toISOString()}`
+    );
+  }
+
   private async saveQuestionnaireResult(
     decision: any,
     tenantId: string,
@@ -750,5 +1012,296 @@ export class AgentService {
     } catch (error) {
       this.logger.error('Failed to save questionnaire result', error);
     }
+  }
+
+  /**
+   * Get AI-powered nurse assistance for a conversation.
+   * Provides: summary, suggested replies, suggested actions.
+   */
+  async getNurseAssistance(
+    conversationId: string,
+    tenantId: string
+  ): Promise<any> {
+    const conversation = await this.conversationService.findOne(
+      conversationId,
+      tenantId
+    );
+
+    const patientId = conversation.patientId;
+    const clinicalContext = await this.buildClinicalContext(patientId, tenantId);
+
+    const history = await this.conversationService.getRecentHistory(
+      conversationId,
+      20
+    );
+
+    const agentConfig = await this.getAgentConfig(tenantId);
+
+    const conversationHistory = history.map((msg: any) => ({
+      role:
+        msg.direction === 'INBOUND'
+          ? 'patient'
+          : msg.processedBy === 'NURSING'
+            ? 'nursing'
+            : 'agent',
+      content: msg.content || '',
+      timestamp: msg.createdAt?.toISOString(),
+    }));
+
+    const recentSymptoms: string[] = [];
+    for (const msg of history) {
+      if (msg.criticalSymptomsDetected && Array.isArray(msg.criticalSymptomsDetected)) {
+        for (const s of msg.criticalSymptomsDetected) {
+          if (typeof s === 'string' && !recentSymptoms.includes(s)) {
+            recentSymptoms.push(s);
+          }
+        }
+      }
+    }
+
+    let esasScores: Record<string, any> | undefined;
+    if (clinicalContext.questionnaireResponses?.length > 0) {
+      const latestQr = clinicalContext.questionnaireResponses[0];
+      if (latestQr.scores && typeof latestQr.scores === 'object') {
+        esasScores = latestQr.scores as Record<string, any>;
+      }
+    }
+
+    const payload = {
+      patient_id: patientId,
+      patient_name: clinicalContext.patient.name,
+      cancer_type: clinicalContext.patient.cancerType || null,
+      stage: clinicalContext.patient.stage || null,
+      performance_status: clinicalContext.patient.performanceStatus ?? null,
+      priority_score: clinicalContext.patient.priorityScore || 0,
+      priority_category: clinicalContext.patient.priorityCategory || 'LOW',
+      current_stage: clinicalContext.patient.currentStage || null,
+      conversation_history: conversationHistory,
+      navigation_steps: (clinicalContext.navigationSteps || []).map((s: any) => ({
+        step_key: s.stepKey || s.id,
+        step_name: s.stepName || s.name || 'Step',
+        status: s.status,
+        is_required: s.isRequired ?? true,
+        expected_date: s.expectedDate?.toISOString() || null,
+        due_date: s.dueDate?.toISOString() || null,
+        completed_at: s.completedAt?.toISOString() || null,
+      })),
+      recent_symptoms: recentSymptoms,
+      esas_scores: esasScores || null,
+      alerts: (clinicalContext.recentAlerts || []).map(
+        (a: any) => `[${a.severity}] ${a.message}`
+      ),
+    };
+
+    const aiServiceUrl =
+      this.configService.get<string>('AI_SERVICE_URL') ||
+      'http://localhost:8001';
+
+    try {
+      const response = await fetch(`${aiServiceUrl}/api/v1/agent/nurse-assist`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        this.logger.warn(
+          `AI nurse-assist returned ${response.status}: ${response.statusText}`
+        );
+        return this.buildFallbackNurseAssist(clinicalContext, conversationHistory);
+      }
+
+      return response.json();
+    } catch (error) {
+      this.logger.error(`Failed to call nurse-assist AI: ${error.message}`);
+      return this.buildFallbackNurseAssist(clinicalContext, conversationHistory);
+    }
+  }
+
+  private buildFallbackNurseAssist(
+    context: ClinicalContext,
+    history: any[]
+  ) {
+    const patientFirstName = context.patient.name?.split(' ')[0] || 'Paciente';
+    return {
+      summary: `Paciente ${context.patient.name}, ${context.patient.cancerType || 'diagnóstico não informado'}. Prioridade: ${context.patient.priorityCategory}.`,
+      suggested_replies: [
+        {
+          label: 'Empática',
+          text: `Olá ${patientFirstName}, obrigada por entrar em contato. Estamos acompanhando você. Como está se sentindo?`,
+        },
+        {
+          label: 'Informativa',
+          text: `${patientFirstName}, recebi suas informações e vou verificar com a equipe. Retorno em breve.`,
+        },
+        {
+          label: 'Ação',
+          text: `${patientFirstName}, vou agendar uma avaliação para você. Posso confirmar um horário?`,
+        },
+      ],
+      suggested_actions: [],
+      used_llm: false,
+    };
+  }
+
+  async getPatientSummary(
+    patientId: string,
+    tenantId: string,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  ): Promise<any> {
+    const clinicalContext = await this.buildClinicalContext(patientId, tenantId);
+    const patient = clinicalContext.patient;
+
+    const fullPatient = await this.prisma.patient.findFirst({
+      where: { id: patientId, tenantId },
+      select: { birthDate: true, gender: true, comorbidities: true },
+    });
+
+    const recentSymptoms: string[] = [];
+    const conversations = await this.prisma.conversation.findMany({
+      where: { patientId, tenantId },
+      orderBy: { updatedAt: 'desc' },
+      take: 5,
+      include: { messages: { orderBy: { createdAt: 'desc' }, take: 10 } },
+    });
+
+    for (const conv of conversations) {
+      for (const msg of conv.messages) {
+        if (
+          msg.criticalSymptomsDetected &&
+          Array.isArray(msg.criticalSymptomsDetected)
+        ) {
+          for (const s of msg.criticalSymptomsDetected) {
+            if (typeof s === 'string' && !recentSymptoms.includes(s)) {
+              recentSymptoms.push(s);
+            }
+          }
+        }
+      }
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let esasScores: Record<string, any> | undefined;
+    if (clinicalContext.questionnaireResponses?.length > 0) {
+      const latestQr = clinicalContext.questionnaireResponses[0];
+      if (latestQr.scores && typeof latestQr.scores === 'object') {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        esasScores = latestQr.scores as Record<string, any>;
+      }
+    }
+
+    const comorbidities: string[] = [];
+    const rawComorbidities = fullPatient?.comorbidities;
+    if (rawComorbidities && Array.isArray(rawComorbidities)) {
+      for (const c of rawComorbidities) {
+        if (typeof c === 'string') {
+          comorbidities.push(c);
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        } else if (typeof c === 'object' && c !== null && (c as any).name) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          comorbidities.push((c as any).name);
+        }
+      }
+    }
+
+    const lastConv = conversations[0];
+    const lastInteraction = lastConv?.updatedAt?.toISOString() || null;
+
+    const payload = {
+      patient_id: patientId,
+      patient_name: patient.name,
+      cancer_type: patient.cancerType || null,
+      stage: patient.stage || null,
+      performance_status: patient.performanceStatus ?? null,
+      priority_score: patient.priorityScore || 0,
+      priority_category: patient.priorityCategory || 'LOW',
+      current_stage: patient.currentStage || null,
+      date_of_birth: fullPatient?.birthDate
+        ? new Date(fullPatient.birthDate).toISOString().split('T')[0]
+        : null,
+      gender: fullPatient?.gender || null,
+      comorbidities,
+      navigation_steps: (clinicalContext.navigationSteps || []).map(
+        (s: any) => ({
+          step_key: s.stepKey || s.id,
+          step_name: s.stepName || s.name || 'Step',
+          status: s.status,
+          is_required: s.isRequired ?? true,
+          expected_date: s.expectedDate?.toISOString() || null,
+          due_date: s.dueDate?.toISOString() || null,
+          completed_at: s.completedAt?.toISOString() || null,
+        }),
+      ),
+      recent_symptoms: recentSymptoms,
+      esas_scores: esasScores || null,
+      alerts: (clinicalContext.recentAlerts || []).map(
+        (a: any) => `[${a.severity}] ${a.message}`,
+      ),
+      recent_conversations_count: conversations.length,
+      last_interaction_date: lastInteraction,
+      treatments: [],
+    };
+
+    const aiServiceUrl =
+      this.configService.get<string>('AI_SERVICE_URL') ||
+      'http://localhost:8001';
+
+    try {
+      const response = await fetch(
+        `${aiServiceUrl}/api/v1/agent/patient-summary`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        },
+      );
+
+      if (!response.ok) {
+        this.logger.warn(
+          `AI patient-summary returned ${response.status}: ${response.statusText}`,
+        );
+        return this.buildFallbackPatientSummary(clinicalContext);
+      }
+
+      return response.json();
+    } catch (error) {
+      this.logger.error(`Failed to call patient-summary AI: ${error.message}`);
+      return this.buildFallbackPatientSummary(clinicalContext);
+    }
+  }
+
+  private buildFallbackPatientSummary(context: ClinicalContext) {
+    const p = context.patient;
+    const steps = context.navigationSteps || [];
+    const completed = steps.filter((s: any) => s.status === 'COMPLETED');
+    const pending = steps.filter(
+      (s: any) => s.status === 'PENDING' || s.status === 'IN_PROGRESS',
+    );
+
+    return {
+      narrative: `Paciente ${p.name}, ${p.cancerType || 'diagnóstico a definir'}${p.stage ? ` estágio ${p.stage}` : ''}. Prioridade: ${p.priorityCategory || 'LOW'}. ${completed.length}/${steps.length} etapas concluídas.`,
+      highlights: [
+        ...(p.cancerType
+          ? [{ icon: 'info', text: `Diagnóstico: ${p.cancerType}` }]
+          : []),
+        ...(p.stage
+          ? [{ icon: 'info', text: `Estadiamento: ${p.stage}` }]
+          : []),
+        ...(completed.length > 0
+          ? [
+              {
+                icon: 'success',
+                text: `${completed.length} etapa(s) concluída(s)`,
+              },
+            ]
+          : []),
+      ],
+      risks: [],
+      next_steps: pending.slice(0, 3).map((s: any) => ({
+        step: s.stepName || s.name || 'Próxima etapa',
+        urgency: 'NORMAL',
+      })),
+      used_llm: false,
+    };
   }
 }

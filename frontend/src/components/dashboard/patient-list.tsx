@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import { AlertTriangle } from 'lucide-react';
+import { getCancerTypeLabel } from '@/lib/utils/patient-cancer-type';
 
 interface Patient {
   id: string;
@@ -107,7 +108,9 @@ export function PatientList({
               </div>
               <div className="flex items-center gap-2 mt-0.5">
                 <span className="text-xs text-muted-foreground truncate">
-                  {patient.cancerType}
+                  {patient.cancerType
+                    ? getCancerTypeLabel(patient.cancerType)
+                    : ''}
                   {patient.stage ? ` · ${patient.stage}` : ''}
                 </span>
                 {patient.lastInteraction && (

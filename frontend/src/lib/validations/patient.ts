@@ -20,6 +20,14 @@ export const familyHistorySchema = z.object({
   ageAtDiagnosis: z.number().positive().optional(),
 });
 
+// Schema para medicamento em uso (nome opcional no item para permitir linhas em branco; filtrar no submit)
+export const currentMedicationSchema = z.object({
+  name: z.string().optional(),
+  dosage: z.string().optional(),
+  frequency: z.string().optional(),
+  indication: z.string().optional(),
+});
+
 export const createPatientSchema = z
   .object({
     // Etapa 1 - Dados Básicos
@@ -52,17 +60,22 @@ export const createPatientSchema = z
     mStage: z.enum(M_STAGE_VALUES).optional(),
     grade: z.enum(GRADE_VALUES).optional(),
     diagnosisDate: z.string().optional(),
-    performanceStatus: z
-      .number()
-      .min(0)
-      .max(4, 'ECOG deve ser entre 0 e 4')
-      .optional(),
+    performanceStatus: z.preprocess(
+      (val) =>
+        typeof val === 'number' && Number.isNaN(val) ? undefined : val,
+      z
+        .number()
+        .min(0)
+        .max(4, 'ECOG deve ser entre 0 e 4')
+        .optional()
+    ),
     currentStage: z
       .enum(['SCREENING', 'NAVIGATION', 'DIAGNOSIS', 'TREATMENT', 'FOLLOW_UP'])
       .default('SCREENING'),
 
     // Comorbidades e Fatores de Risco
     comorbidities: z.array(comorbiditySchema).optional(),
+    currentMedications: z.array(currentMedicationSchema).optional(),
     smokingHistory: z.string().optional(),
     alcoholHistory: z.string().optional(),
     occupationalExposure: z.string().optional(),

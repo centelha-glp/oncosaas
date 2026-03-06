@@ -1,8 +1,8 @@
 import {
-  Patient,
   JourneyStage,
   PriorityCategory,
   PatientStatus,
+  ComplementaryExamType,
 } from '@prisma/client';
 
 export interface PatientDetailResponse {
@@ -61,6 +61,24 @@ export interface PatientDetailResponse {
     confirmedBy: string | null;
     isPrimary: boolean;
     isActive: boolean;
+  }>;
+  complementaryExams: Array<{
+    id: string;
+    type: ComplementaryExamType;
+    name: string;
+    code: string | null;
+    unit: string | null;
+    referenceRange: string | null;
+    results: Array<{
+      id: string;
+      performedAt: Date;
+      valueNumeric: number | null;
+      valueText: string | null;
+      unit: string | null;
+      referenceRange: string | null;
+      isAbnormal: boolean | null;
+      report: string | null;
+    }>;
   }>;
   navigationSteps: Array<{
     id: string;

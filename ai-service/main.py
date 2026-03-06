@@ -24,10 +24,19 @@ if ROOT_ENV_PATH.exists():
 if LOCAL_ENV_PATH.exists():
     load_dotenv(LOCAL_ENV_PATH, override=True)
 
-from src.api.routes import router
-
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Load priority model BEFORE routes (ensures routes.py gets trained instance)
+try:
+    from src.models.train_priority import load_or_train
+    load_or_train()
+    from src.models.priority_model import priority_model
+    logger.info("Priority model loaded at startup: is_trained=%s", priority_model.is_trained)
+except Exception as e:
+    logger.warning("Priority model initialization deferred: %s", e, exc_info=True)
+
+from src.api.routes import router
 
 
 class Settings(BaseSettings):
@@ -47,6 +56,12 @@ settings = Settings()
 async def lifespan(app: FastAPI):
     # Startup
     logger.info("[AI Service] Starting...")
+    try:
+        from src.agent.rag import knowledge_rag
+        knowledge_rag.initialize()
+    except Exception as e:
+        logger.warning(f"RAG initialization deferred: {e}")
+    # Priority model loaded at import time (see top of main.py)
     yield
     # Shutdown
     logger.info("[AI Service] Shutting down...")

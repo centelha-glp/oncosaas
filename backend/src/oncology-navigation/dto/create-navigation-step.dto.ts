@@ -54,4 +54,8 @@ export class CreateNavigationStepDto {
   @IsString()
   @IsOptional()
   notes?: string;
+
+  @IsUUID()
+  @IsOptional()
+  diagnosisId?: string; // Vincula a etapa a um diagnóstico (excluída em cascata com o diagnóstico)
 }

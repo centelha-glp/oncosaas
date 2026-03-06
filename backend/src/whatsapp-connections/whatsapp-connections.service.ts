@@ -642,7 +642,8 @@ export class WhatsAppConnectionsService {
             object: 'whatsapp_business_account',
             callback_url: webhookUrl,
             verify_token: verifyToken,
-            fields: 'messages,message_deliveries,message_reads,messaging_postbacks',
+            fields:
+              'messages,message_deliveries,message_reads,messaging_postbacks',
             include_values: 'true',
             access_token: appAccessToken,
           },

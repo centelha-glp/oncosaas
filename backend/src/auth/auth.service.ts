@@ -2,16 +2,19 @@ import {
   Injectable,
   UnauthorizedException,
   ForbiddenException,
+  ConflictException,
   Logger,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
+import { PrismaClient } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+import { RegisterInstitutionDto } from './dto/register-institution.dto';
 import { JwtPayload } from './strategies/jwt.strategy';
 
 const MAX_FAILED_ATTEMPTS = 5;
@@ -46,10 +49,7 @@ export class AuthService {
 
   private async recordFailedAttempt(email: string): Promise<void> {
     const key = this.failedKey(email);
-    const count = await this.redisService.increment(
-      key,
-      LOCKOUT_TTL_SECONDS
-    );
+    const count = await this.redisService.increment(key, LOCKOUT_TTL_SECONDS);
     if (count >= MAX_FAILED_ATTEMPTS) {
       await this.redisService.set(
         this.lockedKey(email),
@@ -221,7 +221,12 @@ export class AuthService {
 
   async updateProfile(
     userId: string,
-    data: { name?: string; email?: string; currentPassword?: string; newPassword?: string }
+    data: {
+      name?: string;
+      email?: string;
+      currentPassword?: string;
+      newPassword?: string;
+    }
   ) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
 
@@ -237,7 +242,11 @@ export class AuthService {
 
     if (data.email && data.email !== user.email) {
       const emailTaken = await this.prisma.user.findFirst({
-        where: { tenantId: user.tenantId, email: data.email, NOT: { id: userId } },
+        where: {
+          tenantId: user.tenantId,
+          email: data.email,
+          NOT: { id: userId },
+        },
       });
       if (emailTaken) {
         throw new ForbiddenException('Email já está em uso');
@@ -247,7 +256,9 @@ export class AuthService {
 
     if (data.newPassword) {
       if (!data.currentPassword) {
-        throw new UnauthorizedException('Senha atual é obrigatória para alterar a senha');
+        throw new UnauthorizedException(
+          'Senha atual é obrigatória para alterar a senha'
+        );
       }
       const isValid = await bcrypt.compare(data.currentPassword, user.password);
       if (!isValid) {
@@ -283,9 +294,7 @@ export class AuthService {
     const resetLink = `${frontendUrl}/reset-password/${token}`;
 
     // Em produção, enviar por email. Em dev, logar no console.
-    this.logger.log(
-      `[DEV] Password reset link for ${email}: ${resetLink}`
-    );
+    this.logger.log(`[DEV] Password reset link for ${email}: ${resetLink}`);
   }
 
   async resetPassword(token: string, newPassword: string): Promise<void> {
@@ -351,5 +360,92 @@ export class AuthService {
       message: 'Usuário criado com sucesso',
       user: result,
     };
+  }
+
+  // ─── Institution Registration ──────────────────────────────────────────────
+
+  async registerInstitution(dto: RegisterInstitutionDto) {
+    const existingUser = await this.prisma.user.findFirst({
+      where: { email: dto.email },
+    });
+
+    if (existingUser) {
+      throw new ConflictException('Este email já está cadastrado no sistema');
+    }
+
+    const schemaName = this.generateSchemaName(dto.institutionName);
+
+    const existingTenant = await this.prisma.tenant.findUnique({
+      where: { schemaName },
+    });
+
+    if (existingTenant) {
+      throw new ConflictException(
+        'Já existe uma instituição com nome semelhante. Tente um nome diferente.',
+      );
+    }
+
+    const hashedPassword = await bcrypt.hash(dto.password, 10);
+
+    const { tenant, user } = await this.prisma.$transaction(async (tx: PrismaClient) => {
+      const newTenant = await tx.tenant.create({
+        data: {
+          name: dto.institutionName,
+          schemaName,
+        },
+      });
+
+      const newUser = await tx.user.create({
+        data: {
+          email: dto.email,
+          password: hashedPassword,
+          name: dto.name,
+          role: 'ADMIN',
+          tenantId: newTenant.id,
+        },
+        include: { tenant: true },
+      });
+
+      return { tenant: newTenant, user: newUser };
+    });
+
+    const payload: JwtPayload = {
+      sub: user.id,
+      email: user.email,
+      tenantId: tenant.id,
+      role: user.role,
+    };
+
+    const accessToken = this.jwtService.sign(payload);
+    const refreshToken = await this.generateRefreshToken(user.id);
+
+    this.logger.log(
+      `Institution registered: ${tenant.name} (${tenant.id}), admin: ${user.email}`,
+    );
+
+    return {
+      access_token: accessToken,
+      refresh_token: refreshToken,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        tenantId: user.tenantId,
+        tenant: user.tenant,
+      },
+    };
+  }
+
+  private generateSchemaName(institutionName: string): string {
+    const slug = institutionName
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+
+    const suffix = crypto.randomBytes(2).toString('hex');
+    return `${slug}-${suffix}`;
   }
 }

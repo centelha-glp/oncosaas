@@ -107,15 +107,30 @@ export default function LoginPage() {
             </Button>
           </div>
 
-          <div className="text-center">
+          <div className="flex items-center justify-between text-sm">
             <Link
               href="/forgot-password"
-              className="text-sm text-indigo-600 hover:text-indigo-500"
+              className="text-indigo-600 hover:text-indigo-500"
             >
               Esqueceu sua senha?
             </Link>
+            <Link
+              href="/"
+              className="text-gray-500 hover:text-gray-700"
+            >
+              ← Voltar ao site
+            </Link>
           </div>
 
+          <div className="text-center text-sm text-gray-600">
+            Ainda não tem conta?{' '}
+            <Link
+              href="/register"
+              className="text-indigo-600 hover:text-indigo-500 font-medium"
+            >
+              Cadastre sua instituição
+            </Link>
+          </div>
         </form>
       </div>
     </div>

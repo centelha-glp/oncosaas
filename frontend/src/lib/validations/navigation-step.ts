@@ -25,3 +25,16 @@ export const updateNavigationStepSchema = z.object({
 export type UpdateNavigationStepFormData = z.infer<
   typeof updateNavigationStepSchema
 >;
+
+/** Schema para criar uma nova etapa (campos editáveis pelo usuário) */
+export const createNavigationStepSchema = z.object({
+  stepName: z.string().min(1, 'Nome da etapa é obrigatório'),
+  stepDescription: z.string().optional(),
+  isRequired: z.boolean().optional().default(true),
+  expectedDate: z.string().optional(),
+  dueDate: z.string().optional(),
+});
+
+export type CreateNavigationStepFormData = z.infer<
+  typeof createNavigationStepSchema
+>;

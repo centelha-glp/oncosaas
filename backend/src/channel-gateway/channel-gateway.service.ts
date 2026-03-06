@@ -6,7 +6,7 @@ import {
   forwardRef,
 } from '@nestjs/common';
 import { randomUUID } from 'crypto';
-import { ChannelType } from '@prisma/client';
+import { ChannelType, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { MessagesGateway } from '../gateways/messages.gateway';
 import { WhatsAppChannel } from './channels/whatsapp.channel';
@@ -188,6 +188,8 @@ export class ChannelGatewayService {
     conversationId?: string,
     options?: {
       skipExternalSend?: boolean;
+      structuredData?: unknown;
+      alertTriggered?: boolean;
     }
   ): Promise<{ message: any; sendResult: SendResult }> {
     const patient = await this.prisma.patient.findFirst({
@@ -244,6 +246,10 @@ export class ChannelGatewayService {
         direction: 'OUTBOUND',
         content,
         processedBy: 'AGENT',
+        structuredData: (options?.structuredData ?? undefined) as
+          | Prisma.InputJsonValue
+          | undefined,
+        alertTriggered: options?.alertTriggered ?? false,
       },
       include: {
         patient: {

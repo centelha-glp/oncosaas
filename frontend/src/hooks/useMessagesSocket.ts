@@ -48,9 +48,12 @@ export const useMessagesSocket = (patientId?: string) => {
         );
       });
 
-      // Invalidar contador de mensagens nao assumidas
+      // Invalidar contador e lista de pacientes com mensagens não assumidas
       queryClient.invalidateQueries({
         queryKey: ['messages', 'unassumed', 'count'],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ['messages', 'unassumed', 'patientIds'],
       });
     };
 
@@ -82,9 +85,12 @@ export const useMessagesSocket = (patientId?: string) => {
         );
       });
 
-      // Invalidar contador
+      // Invalidar contador e lista de pacientes
       queryClient.invalidateQueries({
         queryKey: ['messages', 'unassumed', 'count'],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ['messages', 'unassumed', 'patientIds'],
       });
     };
 
@@ -125,9 +131,8 @@ export const useMessagesSocket = (patientId?: string) => {
         );
       });
 
-      queryClient.invalidateQueries({
-        queryKey: ['messages', 'unassumed', 'count'],
-      });
+      // Nao invalidar contador: mensagens OUTBOUND nao afetam o badge
+      // (o badge conta conversas com mensagens INBOUND nao assumidas)
     };
 
     // Registrar listeners

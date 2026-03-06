@@ -175,6 +175,21 @@ export class PatientsController {
     return { data: diagnosis };
   }
 
+  @Delete(':id/cancer-diagnoses/:diagnosisId')
+  @Roles(UserRole.ADMIN, UserRole.ONCOLOGIST, UserRole.COORDINATOR)
+  async deleteCancerDiagnosis(
+    @Param('id', ParseUUIDPipe) patientId: string,
+    @Param('diagnosisId', ParseUUIDPipe) diagnosisId: string,
+    @CurrentUser() user: any
+  ) {
+    await this.patientsService.deleteCancerDiagnosis(
+      diagnosisId,
+      patientId,
+      user.tenantId
+    );
+    return { data: { success: true } };
+  }
+
   @Get(':id')
   @Roles(
     UserRole.ADMIN,
@@ -187,13 +202,13 @@ export class PatientsController {
   }
 
   @Post()
-  @Roles(UserRole.ADMIN, UserRole.ONCOLOGIST, UserRole.COORDINATOR)
+  @Roles(UserRole.ADMIN, UserRole.ONCOLOGIST, UserRole.NURSE, UserRole.COORDINATOR)
   create(@Body() createPatientDto: CreatePatientDto, @CurrentUser() user: any) {
     return this.patientsService.create(createPatientDto, user.tenantId);
   }
 
   @Patch(':id')
-  @Roles(UserRole.ADMIN, UserRole.ONCOLOGIST, UserRole.COORDINATOR)
+  @Roles(UserRole.ADMIN, UserRole.ONCOLOGIST, UserRole.NURSE, UserRole.COORDINATOR)
   update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() updatePatientDto: UpdatePatientDto,

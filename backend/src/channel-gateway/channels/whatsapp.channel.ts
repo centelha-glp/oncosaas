@@ -33,14 +33,18 @@ export class WhatsAppChannel implements IChannel {
       }
 
       // B3: Check if OAuth token is expired before using it
-      if (connection.oauthExpiresAt && new Date() >= connection.oauthExpiresAt) {
+      if (
+        connection.oauthExpiresAt &&
+        new Date() >= connection.oauthExpiresAt
+      ) {
         this.logger.error(
           `WhatsApp OAuth token for tenant ${message.tenantId} expired at ${connection.oauthExpiresAt.toISOString()}. ` +
             'Reconnect the WhatsApp connection via the integrations page.'
         );
         return {
           success: false,
-          error: 'WhatsApp OAuth token has expired. Please reconnect the integration.',
+          error:
+            'WhatsApp OAuth token has expired. Please reconnect the integration.',
         };
       }
 
@@ -184,10 +188,14 @@ export class WhatsAppChannel implements IChannel {
   ): Promise<string | null> {
     try {
       const connection = await this.getDefaultConnection(tenantId);
-      if (!connection) return null;
+      if (!connection) {
+        return null;
+      }
 
       const accessToken = this.getAccessToken(connection);
-      if (!accessToken) return null;
+      if (!accessToken) {
+        return null;
+      }
 
       const apiVersion =
         this.configService.get<string>('META_API_VERSION') || 'v18.0';

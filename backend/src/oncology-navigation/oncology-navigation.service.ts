@@ -15,6 +15,15 @@ import {
 import { AlertsService } from '../alerts/alerts.service';
 import { AlertType, AlertSeverity } from '@prisma/client';
 
+/** Ordem dos estágios da jornada (para comparar "fase atual" vs "fase futura") */
+const JOURNEY_STAGE_ORDER: Record<JourneyStage, number> = {
+  [JourneyStage.SCREENING]: 0,
+  [JourneyStage.NAVIGATION]: 1,
+  [JourneyStage.DIAGNOSIS]: 2,
+  [JourneyStage.TREATMENT]: 3,
+  [JourneyStage.FOLLOW_UP]: 4,
+};
+
 @Injectable()
 export class OncologyNavigationService {
   private readonly logger = new Logger(OncologyNavigationService.name);
@@ -194,9 +203,20 @@ export class OncologyNavigationService {
 
     const step = await this.prisma.navigationStep.create({
       data: {
-        ...createDto,
         tenantId,
+        patientId: createDto.patientId,
         journeyId: journey?.id,
+        diagnosisId: createDto.diagnosisId ?? undefined,
+        cancerType: createDto.cancerType,
+        journeyStage: createDto.journeyStage,
+        stepKey: createDto.stepKey,
+        stepName: createDto.stepName,
+        stepDescription: createDto.stepDescription ?? null,
+        isRequired: createDto.isRequired ?? true,
+        expectedDate: createDto.expectedDate ? new Date(createDto.expectedDate) : null,
+        dueDate: createDto.dueDate ? new Date(createDto.dueDate) : null,
+        metadata: createDto.metadata ?? undefined,
+        notes: createDto.notes ?? null,
         status: NavigationStepStatus.PENDING,
         isCompleted: false,
       },
@@ -338,14 +358,84 @@ export class OncologyNavigationService {
   }
 
   /**
-   * Inicializa etapas de navegação para um paciente baseado no tipo de câncer e etapa atual
-   * Remove etapas existentes e cria novas para garantir que estejam atualizadas
+   * Remove uma etapa de navegação (somente se pertencer ao tenant).
+   */
+  async deleteStep(stepId: string, tenantId: string): Promise<void> {
+    const existing = await this.prisma.navigationStep.findFirst({
+      where: { id: stepId, tenantId },
+    });
+    if (!existing) {
+      throw new NotFoundException('Navigation step not found');
+    }
+    await this.prisma.navigationStep.delete({
+      where: { id: stepId },
+    });
+  }
+
+  /**
+   * Indica se o estágio da etapa é posterior ao estágio atual do paciente.
+   * Etapas de fases futuras não recebem dueDate/expectedDate para não aparecerem como "próximas".
+   */
+  private isFutureStage(
+    stepStage: JourneyStage,
+    currentStage: JourneyStage
+  ): boolean {
+    const order = JOURNEY_STAGE_ORDER[currentStage] ?? 0;
+    const stepOrder = JOURNEY_STAGE_ORDER[stepStage] ?? 0;
+    return stepOrder > order;
+  }
+
+  /**
+   * Remove prazos (dueDate/expectedDate) de etapas que estão em fases futuras em relação
+   * ao currentStage do paciente. Corrige dados já existentes (ex.: criados antes da regra
+   * de não atribuir prazo a etapas futuras).
+   */
+  async clearFuturePhaseStepDates(
+    patientId: string,
+    tenantId: string
+  ): Promise<number> {
+    const patient = await this.prisma.patient.findFirst({
+      where: { id: patientId, tenantId },
+      select: { currentStage: true },
+    });
+    if (!patient?.currentStage) return 0;
+
+    const currentStage = patient.currentStage as JourneyStage;
+    const steps = await this.prisma.navigationStep.findMany({
+      where: { patientId, tenantId, isCompleted: false },
+      select: { id: true, journeyStage: true, dueDate: true, expectedDate: true },
+    });
+
+    const toClear = steps.filter((s) =>
+      this.isFutureStage(s.journeyStage as JourneyStage, currentStage)
+    );
+    if (toClear.length === 0) return 0;
+
+    await this.prisma.navigationStep.updateMany({
+      where: {
+        id: { in: toClear.map((s) => s.id) },
+      },
+      data: { dueDate: null, expectedDate: null },
+    });
+    this.logger.log(
+      `Limpeza de prazos: ${toClear.length} etapa(s) de fases futuras para paciente ${patientId}`
+    );
+    return toClear.length;
+  }
+
+  /**
+   * Inicializa etapas de navegação para um paciente baseado no tipo de câncer e etapa atual.
+   * Remove etapas existentes e cria novas; prazos (dueDate/expectedDate) são atribuídos
+   * apenas às etapas da fase atual — etapas de fases futuras ficam com prazo null.
+   * Se diagnosisId for informado, as etapas ficam vinculadas a esse diagnóstico e serão
+   * excluídas em cascata quando o diagnóstico for excluído.
    */
   async initializeNavigationSteps(
     patientId: string,
     tenantId: string,
     cancerType: string,
-    currentStage: JourneyStage
+    currentStage: JourneyStage,
+    diagnosisId?: string
   ): Promise<void> {
     // Garantir que currentStage não seja null
     const stage = currentStage || JourneyStage.SCREENING;
@@ -369,15 +459,20 @@ export class OncologyNavigationService {
       `Inicializando etapas para paciente ${patientId}, tipo: ${cancerType}, estágio: ${stage}, status: ${patient.status}`
     );
 
-    // Remover etapas existentes para este paciente e tipo de câncer
-    // Isso garante que as etapas estejam sempre atualizadas conforme o estágio atual
-    await this.prisma.navigationStep.deleteMany({
-      where: {
-        patientId,
-        tenantId,
-        cancerType,
-      },
-    });
+    // Remover etapas existentes: por diagnóstico (se informado) ou por paciente + tipo de câncer
+    if (diagnosisId) {
+      await this.prisma.navigationStep.deleteMany({
+        where: { diagnosisId },
+      });
+    } else {
+      await this.prisma.navigationStep.deleteMany({
+        where: {
+          patientId,
+          tenantId,
+          cancerType,
+        },
+      });
+    }
 
     // Se paciente está em tratamento paliativo, usar etapas específicas
     // Modificado para sempre criar etapas de TODOS os estágios da jornada,
@@ -406,23 +501,25 @@ export class OncologyNavigationService {
       where: { patientId },
     });
 
-    // Criar todas as etapas
+    // Criar todas as etapas; etapas de fases futuras não recebem prazo para não serem destacadas como "próximas"
     let createdCount = 0;
     for (const stepConfig of steps) {
       try {
+        const isFuture = this.isFutureStage(stepConfig.journeyStage, stage);
         const step = await this.prisma.navigationStep.create({
           data: {
             tenantId,
             patientId,
             journeyId: journey?.id,
+            diagnosisId: diagnosisId ?? undefined,
             cancerType: cancerType.toLowerCase(),
             journeyStage: stepConfig.journeyStage,
             stepKey: stepConfig.stepKey,
             stepName: stepConfig.stepName,
             stepDescription: stepConfig.stepDescription,
             isRequired: stepConfig.isRequired ?? true,
-            expectedDate: stepConfig.expectedDate,
-            dueDate: stepConfig.dueDate,
+            expectedDate: isFuture ? null : stepConfig.expectedDate ?? null,
+            dueDate: isFuture ? null : stepConfig.dueDate ?? null,
             status: NavigationStepStatus.PENDING,
             isCompleted: false,
           },
@@ -2284,6 +2381,19 @@ export class OncologyNavigationService {
       expectedDate?: Date;
       dueDate?: Date;
     }> = [];
+
+    // RASTREIO (SCREENING)
+    if (requestedStage === JourneyStage.SCREENING) {
+      steps.push({
+        journeyStage: JourneyStage.SCREENING,
+        stepKey: 'screening_exam',
+        stepName: 'Exame de Rastreio',
+        stepDescription:
+          'Exame de rastreio conforme indicação para o tipo de câncer',
+        isRequired: true,
+        dueDate: this.addDays(new Date(), 30),
+      });
+    }
 
     // DIAGNÓSTICO (DIAGNOSIS)
     if (requestedStage === JourneyStage.DIAGNOSIS) {

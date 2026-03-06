@@ -112,6 +112,22 @@ CRITICAL_KEYWORDS: Dict[str, Dict[str, Any]] = {
         "severity": "MEDIUM",
         "action": "RECORD_AND_MONITOR",
     },
+    "dor": {
+        "keywords": [
+            "dor", "doendo", "dói", "dores", "sentindo dor",
+            "estou com dor", "tenho dor", "com dor",
+        ],
+        "severity": "MEDIUM",
+        "action": "RECORD_AND_MONITOR",
+    },
+    "cansaco": {
+        "keywords": [
+            "cansaço", "cansado", "cansaça", "cansada",
+            "sem energia", "sem disposição",
+        ],
+        "severity": "MEDIUM",
+        "action": "RECORD_AND_MONITOR",
+    },
 }
 
 # Cancer-type-specific critical symptoms
@@ -145,7 +161,7 @@ class SymptomAnalyzer:
         message: str,
         clinical_context: Optional[Dict[str, Any]] = None,
         cancer_type: Optional[str] = None,
-        use_llm: bool = False,
+        use_llm: bool = True,
         llm_config: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
@@ -179,6 +195,40 @@ class SymptomAnalyzer:
             detected_symptoms = self._merge_symptoms(
                 detected_symptoms, llm_results["symptoms"]
             )
+
+        # 4b. Add fever when temperature >= 38°C from structured_data (e.g. user said "38")
+        temp = structured_data.get("scales", {}).get("temperature")
+        if temp is not None and float(temp) >= 38.0:
+            has_fever = any(
+                s.get("name", "").lower() in ("febre", "febre neutropênica")
+                for s in detected_symptoms
+            )
+            if not has_fever:
+                detected_symptoms.append({
+                    "name": "febre",
+                    "severity": "HIGH",
+                    "confidence": 0.9,
+                    "action": "ESCALATE_IMMEDIATELY",
+                    "detectedBy": "structured_temperature",
+                })
+
+        # 4c. Add pain with HIGH severity when score >= 7 from structured_data (e.g. user said "8")
+        pain_score = structured_data.get("scales", {}).get("pain")
+        if pain_score is not None and int(pain_score) >= 7:
+            has_high_pain = any(
+                s.get("name", "").lower() in ("dor", "dor_intensa", "pain")
+                and s.get("severity") in ("HIGH", "CRITICAL")
+                for s in detected_symptoms
+            )
+            if not has_high_pain:
+                detected_symptoms.append({
+                    "name": "dor",
+                    "severity": "HIGH",
+                    "confidence": 0.9,
+                    "action": "ALERT_NURSING",
+                    "detectedBy": "structured_pain_scale",
+                    "score": int(pain_score),
+                })
 
         # 5. Determine overall severity
         overall_severity = self._calculate_overall_severity(detected_symptoms)
@@ -264,9 +314,12 @@ class SymptomAnalyzer:
             r"dor[^\d]*(\d+)\s+de\s+10",
             r"nivel\s+de\s+dor[^\d]*(\d+)",
             r"escala\s+de\s+dor[^\d]*(\d+)",
+            r"^(\d{1,2})\s*$",  # Standalone 0-10 (reply to "qual nota para sua dor?")
+            r"^(\d{1,2})\s*/\s*10\s*$",  # "7/10", "8/10"
+            r"uns?\s*(\d{1,2})",  # "uns 7", "um 8"
         ]
         for pattern in pain_patterns:
-            match = re.search(pattern, message.lower())
+            match = re.search(pattern, message.lower().strip())
             if match:
                 score = int(match.group(1))
                 if 0 <= score <= 10:
@@ -279,9 +332,11 @@ class SymptomAnalyzer:
             r"(\d{2}[.,]\d)\s*°?\s*[cC]",
             r"febre\s+de\s+(\d{2}[.,]\d)",
             r"temperatura\s+(\d{2}[.,]\d)",
+            r"^(\d{2})\s*$",  # Standalone number: "38", "39" (common after "qual sua temperatura?")
+            r"^(\d{2}[.,]\d)\s*$",  # Standalone decimal: "38,5"
         ]
         for pattern in temp_patterns:
-            match = re.search(pattern, message)
+            match = re.search(pattern, message.strip())
             if match:
                 temp = float(match.group(1).replace(",", "."))
                 if 35.0 <= temp <= 42.0:

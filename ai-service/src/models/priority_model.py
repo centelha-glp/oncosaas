@@ -11,6 +11,19 @@ import joblib
 import os
 
 
+FEATURE_COLUMNS = [
+    "cancer_type",
+    "stage",
+    "performance_status",
+    "age",
+    "pain_score",
+    "nausea_score",
+    "fatigue_score",
+    "days_since_last_visit",
+    "treatment_cycle",
+]
+
+
 class PriorityModel:
     """
     Modelo ensemble para calcular score de prioridade (0-100)

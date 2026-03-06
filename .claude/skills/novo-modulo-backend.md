@@ -1,9 +1,11 @@
 # Skill: /novo-modulo-backend
 
 ## Descrição
+
 Cria a estrutura completa de um novo módulo NestJS no backend, seguindo todos os padrões do projeto ONCONAV.
 
 ## Uso
+
 ```
 /novo-modulo-backend <nome-do-modulo>
 ```
@@ -13,6 +15,7 @@ Cria a estrutura completa de um novo módulo NestJS no backend, seguindo todos o
 Dado o nome do módulo (ex: `reports`), cria os seguintes arquivos em `backend/src/<nome>/`:
 
 ### 1. `<nome>.module.ts`
+
 ```typescript
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
@@ -29,6 +32,7 @@ export class <Nome>Module {}
 ```
 
 ### 2. `<nome>.controller.ts`
+
 ```typescript
 import {
   Controller,
@@ -69,6 +73,7 @@ export class <Nome>Controller {
 ```
 
 ### 3. `<nome>.service.ts`
+
 ```typescript
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
@@ -101,15 +106,18 @@ export class <Nome>Service {
 ```
 
 ### 4. `dto/` (diretório com DTOs)
+
 - `create-<nome>.dto.ts` - com class-validator decorators
 - `update-<nome>.dto.ts` - com PartialType
 
 ### 5. `<nome>.service.spec.ts`
+
 - Testes unitários com Jest
 - Mock do PrismaService
 - Testes para findAll (com tenantId) e findOne
 
 ### 6. Registrar no `app.module.ts`
+
 - Importar e adicionar o módulo à lista de imports
 
 ## Regras Obrigatórias
@@ -122,6 +130,7 @@ export class <Nome>Service {
 6. **Services NUNCA devem** acessar `request` diretamente — recebem tenantId como parâmetro
 
 ## Referências
+
 - Padrão existente: `backend/src/patients/` (exemplo completo)
 - Guards: `backend/src/auth/guards/`
 - Prisma: `backend/src/prisma/prisma.service.ts`

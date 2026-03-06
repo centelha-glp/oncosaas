@@ -11,6 +11,7 @@ scikit-learn>=1.4.0
 xgboost>=2.0.0
 lightgbm>=4.0.0
 sentence-transformers>=2.3.0
+faiss-cpu>=1.7.4
 httpx>=0.26.0
 python-multipart>=0.0.9
 

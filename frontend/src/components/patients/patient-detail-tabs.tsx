@@ -1,5 +1,6 @@
 'use client';
 
+import React from 'react';
 import { PatientDetail } from '@/lib/api/patients';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { PatientOverviewTab } from './patient-overview-tab';
@@ -14,7 +15,7 @@ interface PatientDetailTabsProps {
 
 export function PatientDetailTabs({
   patient,
-}: PatientDetailTabsProps): JSX.Element {
+}: PatientDetailTabsProps): React.ReactElement {
   return (
     <Tabs defaultValue="overview" className="w-full">
       <TabsList className="grid w-full grid-cols-5">

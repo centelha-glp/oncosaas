@@ -66,7 +66,7 @@ export function WhatsAppConnectionForm({
         isDefault: false,
       });
     } catch (error) {
-      console.error('Error submitting form:', error);
+      console.error('Erro ao enviar formulário:', error);
     } finally {
       setIsSubmitting(false);
     }

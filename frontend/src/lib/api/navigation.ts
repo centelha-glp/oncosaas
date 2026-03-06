@@ -43,6 +43,20 @@ export interface UpdateNavigationStepData {
   notes?: string;
 }
 
+/** Dados para criar uma nova etapa de navegação */
+export interface CreateNavigationStepData {
+  patientId: string;
+  cancerType: string;
+  journeyStage: string;
+  stepKey: string;
+  stepName: string;
+  stepDescription?: string;
+  isRequired?: boolean;
+  expectedDate?: string;
+  dueDate?: string;
+  diagnosisId?: string;
+}
+
 export const navigationApi = {
   /**
    * Lista todas as etapas de navegação de um paciente
@@ -66,6 +80,15 @@ export const navigationApi = {
   },
 
   /**
+   * Cria uma nova etapa de navegação
+   */
+  createStep: async (
+    data: CreateNavigationStepData
+  ): Promise<NavigationStep> => {
+    return apiClient.post<NavigationStep>('/oncology-navigation/steps', data);
+  },
+
+  /**
    * Atualiza uma etapa de navegação
    */
   updateStep: async (
@@ -76,6 +99,13 @@ export const navigationApi = {
       `/oncology-navigation/steps/${stepId}`,
       data
     );
+  },
+
+  /**
+   * Exclui uma etapa de navegação
+   */
+  deleteStep: async (stepId: string): Promise<void> => {
+    return apiClient.delete(`/oncology-navigation/steps/${stepId}`);
   },
 
   /**

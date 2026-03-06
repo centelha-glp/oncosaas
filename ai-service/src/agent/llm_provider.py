@@ -3,10 +3,12 @@ Multi-LLM provider abstraction.
 Supports Anthropic (Claude) and OpenAI (GPT-4), configurable per tenant.
 """
 
-from typing import Dict, List, Optional, Any
-from openai import AsyncOpenAI
-from anthropic import AsyncAnthropic
+import json
 import logging
+from typing import Dict, List, Optional, Any
+
+from anthropic import AsyncAnthropic
+from openai import AsyncOpenAI
 import os
 from pathlib import Path
 from dotenv import dotenv_values
@@ -68,6 +70,16 @@ class LLMProvider:
             return env_key.strip()
 
         return None
+
+    def has_any_llm_key(self, config: Optional[Dict[str, Any]] = None) -> bool:
+        """
+        Return True if at least one LLM API key is available (from config or .env).
+        Used by the orchestrator to decide whether to run the multi-agent pipeline.
+        """
+        cfg = config or {}
+        anthropic = self._resolve_api_key("ANTHROPIC_API_KEY", cfg.get("anthropic_api_key"))
+        openai = self._resolve_api_key("OPENAI_API_KEY", cfg.get("openai_api_key"))
+        return bool(anthropic or openai)
 
     def _get_anthropic_client(self, api_key: Optional[str] = None) -> Optional[AsyncAnthropic]:
         """Get or create Anthropic client."""
@@ -228,6 +240,23 @@ class LLMProvider:
 
         return response.choices[0].message.content or ""
 
+    def _tools_openai_to_anthropic(self, tools: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Convert OpenAI function tools to Anthropic custom tool format."""
+        anthropic_tools = []
+        for t in tools:
+            if t.get("type") == "function" and "function" in t:
+                fn = t["function"]
+                anthropic_tools.append({
+                    "name": fn["name"],
+                    "description": fn.get("description", ""),
+                    "input_schema": fn.get("parameters", {"type": "object", "properties": {}}),
+                })
+            elif "name" in t and "input_schema" in t:
+                anthropic_tools.append(t)
+            else:
+                logger.warning("Skipping tool with unknown format: %s", list(t.keys()))
+        return anthropic_tools
+
     async def _call_anthropic_with_tools(
         self,
         system_prompt: str,
@@ -243,6 +272,12 @@ class LLMProvider:
         if not client:
             return {"response": self._fallback_response(), "tool_calls": []}
 
+        anthropic_tools = self._tools_openai_to_anthropic(tools)
+        if not anthropic_tools:
+            logger.warning("No valid tools after conversion; calling without tools")
+            text = await self._call_anthropic(system_prompt, messages, model, config)
+            return {"response": text, "tool_calls": []}
+
         anthropic_messages = [
             {"role": m["role"], "content": m["content"]}
             for m in messages
@@ -254,7 +289,7 @@ class LLMProvider:
             max_tokens=1024,
             system=system_prompt,
             messages=anthropic_messages,
-            tools=tools,
+            tools=anthropic_tools,
         )
 
         text_response = ""
@@ -264,10 +299,12 @@ class LLMProvider:
             if block.type == "text":
                 text_response = block.text
             elif block.type == "tool_use":
+                inp = block.input
+                args_str = json.dumps(inp) if isinstance(inp, dict) else (inp or "{}")
                 tool_calls.append({
                     "id": block.id,
                     "name": block.name,
-                    "input": block.input,
+                    "function": {"name": block.name, "arguments": args_str},
                 })
 
         return {"response": text_response, "tool_calls": tool_calls}
@@ -292,18 +329,20 @@ class LLMProvider:
             if m["role"] != "system":
                 openai_messages.append({"role": m["role"], "content": m["content"]})
 
-        # Convert tools to OpenAI function format
-        openai_tools = [
-            {
-                "type": "function",
-                "function": {
-                    "name": t["name"],
-                    "description": t.get("description", ""),
-                    "parameters": t.get("input_schema", {}),
-                },
-            }
-            for t in tools
-        ]
+        # Use OpenAI format as-is, or convert from Anthropic format
+        openai_tools = []
+        for t in tools:
+            if t.get("type") == "function" and "function" in t:
+                openai_tools.append(t)
+            elif "name" in t:
+                openai_tools.append({
+                    "type": "function",
+                    "function": {
+                        "name": t["name"],
+                        "description": t.get("description", ""),
+                        "parameters": t.get("input_schema", {}),
+                    },
+                })
 
         response = await client.chat.completions.create(
             model=model,
@@ -318,16 +357,142 @@ class LLMProvider:
         tool_calls = []
 
         if choice.message.tool_calls:
-            import json
-
             for tc in choice.message.tool_calls:
                 tool_calls.append({
                     "id": tc.id,
                     "name": tc.function.name,
-                    "input": json.loads(tc.function.arguments),
+                    "function": {
+                        "name": tc.function.name,
+                        "arguments": tc.function.arguments or "{}",
+                    },
                 })
 
         return {"response": text_response, "tool_calls": tool_calls}
+
+    async def run_agentic_loop(
+        self,
+        system_prompt: str,
+        initial_messages: List[Dict[str, Any]],
+        tools: List[Dict[str, Any]],
+        config: Optional[Dict[str, Any]] = None,
+        tool_executor: Optional[Any] = None,
+        max_iterations: int = 8,
+    ) -> Dict[str, Any]:
+        """
+        Run a full Anthropic agentic loop with tool use.
+
+        If tool_executor is provided (async callable(name, input) -> str),
+        it is called for each tool use and the result is returned to the LLM
+        (enables the orchestrator pattern).
+
+        If tool_executor is None, collects all tool calls and returns
+        {"status": "queued"} to the LLM (enables the subagent pattern).
+
+        Returns:
+            {
+                "response": str,
+                "tool_calls": List[{name, input, id}],
+                "iterations": int,
+            }
+        """
+        config = config or {}
+        client = self._get_anthropic_client(config.get("anthropic_api_key"))
+        model = config.get("llm_model", "claude-opus-4-6")
+
+        if not client:
+            return {"response": self._fallback_response(), "tool_calls": [], "iterations": 0}
+
+        anthropic_tools = self._tools_openai_to_anthropic(tools)
+
+        working_messages = [
+            {"role": m["role"], "content": m["content"]}
+            for m in initial_messages
+            if m.get("role") in ("user", "assistant") and m.get("content")
+        ]
+
+        all_tool_calls: List[Dict[str, Any]] = []
+        final_text = ""
+        iterations = 0
+
+        extra_params: Dict[str, Any] = {}
+        if config.get("use_adaptive_thinking") and model in ("claude-opus-4-6", "claude-sonnet-4-6"):
+            extra_params["thinking"] = {"type": "adaptive"}
+
+        for iteration in range(max_iterations):
+            iterations = iteration + 1
+            try:
+                create_kwargs: Dict[str, Any] = dict(
+                    model=model,
+                    max_tokens=config.get("max_tokens", 2048),
+                    system=system_prompt,
+                    messages=working_messages,
+                    **extra_params,
+                )
+                if anthropic_tools:
+                    create_kwargs["tools"] = anthropic_tools
+
+                response = await client.messages.create(**create_kwargs)
+            except Exception as e:
+                logger.error(f"Anthropic API error (iteration {iteration + 1}): {e}")
+                break
+
+            text_parts = []
+            tool_use_blocks = []
+            for block in response.content:
+                if block.type == "text":
+                    text_parts.append(block.text)
+                elif block.type == "tool_use":
+                    tool_use_blocks.append(block)
+                elif hasattr(block, "type") and block.type == "thinking":
+                    pass  # ignore thinking blocks in iteration
+
+            final_text = " ".join(text_parts).strip()
+
+            if response.stop_reason == "end_turn" or not tool_use_blocks:
+                break
+
+            # Serialize assistant content for the next turn
+            assistant_content = []
+            for block in response.content:
+                if block.type == "text":
+                    assistant_content.append({"type": "text", "text": block.text})
+                elif block.type == "tool_use":
+                    assistant_content.append({
+                        "type": "tool_use",
+                        "id": block.id,
+                        "name": block.name,
+                        "input": block.input,
+                    })
+
+            working_messages.append({"role": "assistant", "content": assistant_content})
+
+            tool_results = []
+            for tu in tool_use_blocks:
+                tc = {"name": tu.name, "input": tu.input, "id": tu.id}
+                all_tool_calls.append(tc)
+
+                if tool_executor:
+                    try:
+                        result_str = await tool_executor(tu.name, tu.input)
+                    except Exception as e:
+                        logger.error(f"tool_executor error for {tu.name}: {e}")
+                        result_str = json.dumps({"error": str(e)})
+                else:
+                    result_str = json.dumps({"status": "queued", "tool": tu.name})
+
+                tool_results.append({
+                    "type": "tool_result",
+                    "tool_use_id": tu.id,
+                    "content": result_str if isinstance(result_str, str) else json.dumps(result_str),
+                })
+
+            working_messages.append({"role": "user", "content": tool_results})
+
+        return {
+            "response": final_text,
+            "tool_calls": all_tool_calls,
+            "iterations": iterations,
+        }
 
     @staticmethod
     def _fallback_response() -> str:

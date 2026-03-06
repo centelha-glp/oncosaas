@@ -1,5 +1,6 @@
 'use client';
 
+import { useQueryClient } from '@tanstack/react-query';
 import { usePatientDetail } from '@/hooks/use-patient-detail';
 import { usePatientUpdate } from '@/hooks/use-patient-update';
 import { patientsApi } from '@/lib/api/patients';
@@ -19,12 +20,25 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { ArrowLeft, Save } from 'lucide-react';
+import { ArrowLeft, Save, Trash2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
+import { useState } from 'react';
+import { useAuthStore } from '@/stores/auth-store';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { format } from 'date-fns';
 import { useEffect } from 'react';
 import { ComorbiditiesForm } from './comorbidities-form';
+import { CurrentMedicationsForm } from './current-medications-form';
 import { FamilyHistoryForm } from './family-history-form';
 import {
   T_STAGE_VALUES,
@@ -32,6 +46,7 @@ import {
   M_STAGE_VALUES,
   GRADE_VALUES,
 } from '@/lib/validations/cancer-diagnosis';
+import { getCancerTypeKey } from '@/lib/utils/patient-cancer-type';
 
 /**
  * Calcula o campo stage a partir dos campos TNM estruturados
@@ -79,6 +94,10 @@ export function PatientEditPage({ patientId }: PatientEditPageProps) {
   const { data: patient, isLoading, error } = usePatientDetail(patientId);
   const updateMutation = usePatientUpdate();
   const router = useRouter();
+  const { user } = useAuthStore();
+  const queryClient = useQueryClient();
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const {
     register,
@@ -89,6 +108,20 @@ export function PatientEditPage({ patientId }: PatientEditPageProps) {
     reset,
   } = useForm<CreatePatientFormData>({
     resolver: zodResolver(createPatientSchema),
+    defaultValues: {
+      name: '',
+      cpf: '',
+      birthDate: '',
+      phone: '',
+      email: '',
+      currentStage: 'SCREENING',
+      smokingHistory: '',
+      alcoholHistory: '',
+      occupationalExposure: '',
+      comorbidities: [],
+      currentMedications: [],
+      familyHistory: [],
+    },
   });
 
   // Função para formatar telefone para exibição (converte 55XXXXXXXXXXX para formato brasileiro)
@@ -121,16 +154,18 @@ export function PatientEditPage({ patientId }: PatientEditPageProps) {
   // Preencher formulário com dados do paciente quando carregar
   useEffect(() => {
     if (patient && !isLoading) {
-      // Obter cancerType do primeiro diagnóstico ativo ou do campo legacy
+      // Obter cancerType do primeiro diagnóstico ativo ou do campo legacy (pode vir em PT ou EN)
       const primaryDiagnosis =
         patient.cancerDiagnoses?.find((d) => d.isPrimary && d.isActive) ||
         patient.cancerDiagnoses?.[0];
-      const cancerType =
+      const cancerTypeRaw =
         primaryDiagnosis?.cancerType ||
         (patient.cancerType && patient.cancerType.trim() !== ''
           ? patient.cancerType
           : null) ||
         null;
+      // Normalizar para chave do Select (ex: "Pulmão" -> "lung")
+      const cancerType = getCancerTypeKey(cancerTypeRaw) ?? cancerTypeRaw;
 
       // Obter stage do primeiro diagnóstico ativo ou do campo legacy
       const stage =
@@ -165,35 +200,41 @@ export function PatientEditPage({ patientId }: PatientEditPageProps) {
         }
       }
 
+      // Normalizar sexo: API pode retornar "MALE", "M", "Masculino", etc.
+      const genderRaw = patient.gender?.toString?.()?.trim?.() ?? '';
+      const genderNormalized = (() => {
+        const g = genderRaw.toLowerCase();
+        if (['male', 'female', 'other'].includes(g)) return g as 'male' | 'female' | 'other';
+        if (g === 'm' || g === 'masculino') return 'male' as const;
+        if (g === 'f' || g === 'feminino') return 'female' as const;
+        return undefined;
+      })();
+
+      // Normalizar currentStage: sempre um valor válido para o Select (default SCREENING)
+      const STAGES = ['SCREENING', 'NAVIGATION', 'DIAGNOSIS', 'TREATMENT', 'FOLLOW_UP'] as const;
+      const currentStageRaw = patient.currentStage?.toString?.()?.trim?.()?.toUpperCase?.() ?? '';
+      const currentStageNormalized = (STAGES as readonly string[]).includes(currentStageRaw)
+        ? (currentStageRaw as CreatePatientFormData['currentStage'])
+        : ('SCREENING' as CreatePatientFormData['currentStage']);
+
       const formData: Partial<CreatePatientFormData> = {
         name: patient.name || '',
         cpf: patient.cpf || '',
         birthDate: patient.birthDate
           ? format(new Date(patient.birthDate), 'yyyy-MM-dd')
           : '',
-        // Garantir que gender seja uma string válida ou undefined (não null)
-        gender:
-          patient.gender && ['male', 'female', 'other'].includes(patient.gender)
-            ? (patient.gender as 'male' | 'female' | 'other')
-            : undefined,
+        gender: genderNormalized,
         phone: formatPhoneForDisplay(patient.phone),
         email: patient.email || '',
-        // Manter valores como strings quando existirem
         cancerType: (cancerType ||
           undefined) as CreatePatientFormData['cancerType'],
         stage: stage || undefined,
-        // Campos TNM estruturados
         tStage: (tStage || undefined) as CreatePatientFormData['tStage'],
         nStage: (nStage || undefined) as CreatePatientFormData['nStage'],
         mStage: (mStage || undefined) as CreatePatientFormData['mStage'],
         grade: (grade || undefined) as CreatePatientFormData['grade'],
         diagnosisDate: diagnosisDate || undefined,
-        // currentStage deve ser uma string válida do enum JourneyStage
-        currentStage: (patient.currentStage &&
-        typeof patient.currentStage === 'string' &&
-        patient.currentStage.trim() !== ''
-          ? patient.currentStage
-          : undefined) as CreatePatientFormData['currentStage'] | undefined,
+        currentStage: currentStageNormalized,
         // performanceStatus deve ser um número (não string) para o schema Zod
         performanceStatus: performanceStatusValue,
         smokingHistory: patient.smokingHistory || '',
@@ -202,51 +243,54 @@ export function PatientEditPage({ patientId }: PatientEditPageProps) {
         comorbidities: Array.isArray(patient.comorbidities)
           ? patient.comorbidities
           : [],
+        currentMedications: Array.isArray(patient.currentMedications)
+          ? patient.currentMedications
+          : [],
         familyHistory: Array.isArray(patient.familyHistory)
           ? patient.familyHistory
           : [],
         ehrPatientId: patient.ehrPatientId || undefined,
       };
 
-      // Usar reset com keepDefaultValues: false para garantir que todos os valores sejam aplicados
       reset(formData, {
         keepDefaultValues: false,
         keepValues: false,
       });
 
-      // Garantir que os valores sejam aplicados explicitamente nos campos Select
-      // Isso é necessário porque alguns componentes Select podem não sincronizar corretamente com reset
-      if (formData.cancerType) {
-        setValue('cancerType', formData.cancerType, { shouldValidate: false });
-      }
-      if (formData.currentStage) {
-        setValue('currentStage', formData.currentStage, {
-          shouldValidate: false,
-        });
-      }
-      if (formData.performanceStatus !== undefined) {
-        setValue('performanceStatus', formData.performanceStatus, {
-          shouldValidate: false,
-        });
-      }
-      if (formData.diagnosisDate) {
-        setValue('diagnosisDate', formData.diagnosisDate, {
-          shouldValidate: false,
-        });
-      }
-      // Campos TNM
-      if (formData.tStage) {
-        setValue('tStage', formData.tStage, { shouldValidate: false });
-      }
-      if (formData.nStage) {
-        setValue('nStage', formData.nStage, { shouldValidate: false });
-      }
-      if (formData.mStage) {
-        setValue('mStage', formData.mStage, { shouldValidate: false });
-      }
-      if (formData.grade) {
-        setValue('grade', formData.grade, { shouldValidate: false });
-      }
+      // Aplicar valores dos Selects no próximo tick para o Radix Select sincronizar após o reset
+      const timer = setTimeout(() => {
+        if (formData.gender) {
+          setValue('gender', formData.gender, { shouldValidate: false });
+        }
+        if (formData.cancerType) {
+          setValue('cancerType', formData.cancerType, { shouldValidate: false });
+        }
+        setValue('currentStage', formData.currentStage!, { shouldValidate: false });
+        if (formData.performanceStatus !== undefined) {
+          setValue('performanceStatus', formData.performanceStatus, {
+            shouldValidate: false,
+          });
+        }
+        if (formData.diagnosisDate) {
+          setValue('diagnosisDate', formData.diagnosisDate, {
+            shouldValidate: false,
+          });
+        }
+        if (formData.tStage) {
+          setValue('tStage', formData.tStage, { shouldValidate: false });
+        }
+        if (formData.nStage) {
+          setValue('nStage', formData.nStage, { shouldValidate: false });
+        }
+        if (formData.mStage) {
+          setValue('mStage', formData.mStage, { shouldValidate: false });
+        }
+        if (formData.grade) {
+          setValue('grade', formData.grade, { shouldValidate: false });
+        }
+      }, 0);
+
+      return () => clearTimeout(timer);
     }
   }, [patient, isLoading, reset, setValue]);
 
@@ -360,6 +404,30 @@ export function PatientEditPage({ patientId }: PatientEditPageProps) {
       }
     }
 
+    // Medicamentos em uso
+    if (data.currentMedications !== undefined) {
+      if (data.currentMedications.length > 0) {
+        const validMedications = data.currentMedications
+          .filter(
+            (m: any) =>
+              m &&
+              typeof m === 'object' &&
+              m.name &&
+              typeof m.name === 'string' &&
+              m.name.trim().length > 0
+          )
+          .map((m: any) => ({
+            name: m.name.trim(),
+            dosage: m.dosage?.trim() || undefined,
+            frequency: m.frequency?.trim() || undefined,
+            indication: m.indication?.trim() || undefined,
+          }));
+        updateData.currentMedications = validMedications;
+      } else {
+        updateData.currentMedications = [];
+      }
+    }
+
     // História familiar - apenas se houver itens válidos e completos
     if (data.familyHistory !== undefined) {
       if (data.familyHistory.length > 0) {
@@ -441,6 +509,30 @@ export function PatientEditPage({ patientId }: PatientEditPageProps) {
       router.push(`/patients/${patientId}`);
     } catch (error: any) {
       toast.error(`Erro ao atualizar paciente: ${error.message}`);
+    }
+  };
+
+  const handleDeletePatient = async () => {
+    if (!patientId) return;
+    setIsDeleting(true);
+    try {
+      await patientsApi.delete(patientId);
+      await queryClient.invalidateQueries({ queryKey: ['patients'] });
+      queryClient.removeQueries({ queryKey: ['patient', patientId] });
+      queryClient.removeQueries({ queryKey: ['patient-detail', patientId] });
+      toast.success('Paciente excluído com sucesso.');
+      router.replace('/patients');
+    } catch (err: unknown) {
+      const message =
+        err && typeof err === 'object' && 'response' in err
+          ? (err as { response?: { status?: number } }).response?.status === 403
+            ? 'Você não tem permissão para excluir pacientes.'
+            : (err as { message?: string }).message ?? 'Erro ao excluir.'
+          : 'Erro ao excluir.';
+      toast.error(message);
+    } finally {
+      setIsDeleting(false);
+      setDeleteDialogOpen(false);
     }
   };
 
@@ -979,6 +1071,20 @@ export function PatientEditPage({ patientId }: PatientEditPageProps) {
             </div>
 
             <div>
+              <CurrentMedicationsForm
+                value={watch('currentMedications') as any}
+                onChange={(currentMedications) =>
+                  setValue('currentMedications', currentMedications as any)
+                }
+              />
+              {errors.currentMedications && (
+                <p className="text-sm text-destructive mt-1">
+                  {errors.currentMedications.message}
+                </p>
+              )}
+            </div>
+
+            <div>
               <FamilyHistoryForm
                 value={watch('familyHistory') as any}
                 onChange={(familyHistory) =>
@@ -1029,6 +1135,54 @@ export function PatientEditPage({ patientId }: PatientEditPageProps) {
             {updateMutation.isPending ? 'Salvando...' : 'Salvar Alterações'}
           </Button>
         </div>
+
+        {user?.role === 'ADMIN' && (
+          <>
+            <Card className="mt-8 border-destructive/50">
+              <CardHeader>
+                <CardTitle className="text-destructive">Zona de perigo</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Excluir este paciente remove todos os dados associados (jornada, etapas, alertas, conversas). Esta ação não pode ser desfeita.
+                </p>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  onClick={() => setDeleteDialogOpen(true)}
+                  disabled={isDeleting}
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Excluir paciente
+                </Button>
+              </CardContent>
+            </Card>
+
+            <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Excluir paciente?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Tem certeza que deseja excluir <strong>{patient?.name}</strong>? Todos os dados do paciente (jornada, etapas, alertas, mensagens) serão removidos permanentemente. Esta ação não pode ser desfeita.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel disabled={isDeleting}>Cancelar</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={(e) => {
+                      e.preventDefault();
+                      handleDeletePatient();
+                    }}
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    disabled={isDeleting}
+                  >
+                    {isDeleting ? 'Excluindo...' : 'Excluir'}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </>
+        )}
       </form>
     </div>
   );

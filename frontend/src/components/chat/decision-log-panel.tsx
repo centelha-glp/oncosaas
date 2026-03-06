@@ -10,6 +10,7 @@ import {
   ChevronUp,
   Bot,
   AlertTriangle,
+  MessageSquare,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -22,6 +23,7 @@ interface DecisionLogPanelProps {
   decisions: AgentDecisionLog[];
   showPendingOnly?: boolean;
   className?: string;
+  onDecisionSelect?: (decision: AgentDecisionLog) => void;
 }
 
 const DECISION_TYPE_LABELS: Record<string, string> = {
@@ -34,7 +36,13 @@ const DECISION_TYPE_LABELS: Record<string, string> = {
   APPLY_QUESTIONNAIRE: 'Questionário iniciado',
 };
 
-function DecisionItem({ decision }: { decision: AgentDecisionLog }) {
+function DecisionItem({
+  decision,
+  onSelect,
+}: {
+  decision: AgentDecisionLog;
+  onSelect?: (decision: AgentDecisionLog) => void;
+}) {
   const [expanded, setExpanded] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
   const [showRejectInput, setShowRejectInput] = useState(false);
@@ -181,6 +189,18 @@ function DecisionItem({ decision }: { decision: AgentDecisionLog }) {
               )}
             </div>
           )}
+
+          {onSelect && decision.patientId && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="mt-2 h-7 text-xs text-indigo-600 hover:bg-indigo-50"
+              onClick={() => onSelect(decision)}
+            >
+              <MessageSquare className="mr-1 h-3 w-3" />
+              Ver conversa
+            </Button>
+          )}
         </div>
       </div>
     </div>
@@ -191,6 +211,7 @@ export function DecisionLogPanel({
   decisions,
   showPendingOnly = false,
   className,
+  onDecisionSelect,
 }: DecisionLogPanelProps) {
   const filtered = showPendingOnly
     ? decisions.filter(
@@ -233,7 +254,11 @@ export function DecisionLogPanel({
       )}
 
       {filtered.map((decision) => (
-        <DecisionItem key={decision.id} decision={decision} />
+        <DecisionItem
+          key={decision.id}
+          decision={decision}
+          onSelect={onDecisionSelect}
+        />
       ))}
     </div>
   );

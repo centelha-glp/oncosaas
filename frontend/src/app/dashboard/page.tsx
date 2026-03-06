@@ -36,7 +36,10 @@ import { useDashboardSocket } from '@/hooks/useDashboardSocket';
 import { Calendar, RefreshCw } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { mapPriorityToDisplay } from '@/lib/utils/priority';
-import { getPatientCancerType, getPatientAllCancerTypes } from '@/lib/utils/patient-cancer-type';
+import {
+  getPatientCancerType,
+  getPatientAllCancerTypes,
+} from '@/lib/utils/patient-cancer-type';
 import { ChartDrillDownModal } from '@/components/dashboard/shared/chart-drill-down-modal';
 
 // Componente do Dashboard Específico para Enfermeiros
@@ -187,6 +190,7 @@ function NursingDashboard() {
               ) : selectedPatientData ? (
                 <div className="bg-white h-full border-x">
                   <ConversationView
+                    conversationId={conversationId || null}
                     patientName={selectedPatientData.name}
                     patientInfo={{
                       cancerType:
@@ -322,7 +326,6 @@ function ManagementDashboard() {
   } = useDashboardStatistics(statisticsPeriod);
 
   useDashboardSocket();
-
 
   if (!isAuthenticated || !user) {
     return null;

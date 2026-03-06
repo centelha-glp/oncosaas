@@ -96,6 +96,8 @@ export const cancerDiagnosisSchema = z.object({
   // Status do diagnóstico
   isPrimary: z.boolean().optional().default(true),
   isActive: z.boolean().optional().default(true),
+  // Câncer metastático: ID do diagnóstico primário ao qual este está vinculado
+  primaryDiagnosisId: z.string().uuid().optional(),
 });
 
 export type CancerDiagnosisFormData = z.infer<typeof cancerDiagnosisSchema>;

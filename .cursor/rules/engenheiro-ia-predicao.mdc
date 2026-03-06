@@ -1,0 +1,89 @@
+---
+description: Engenheiro de IA focado em algoritmos de predição — priorização de pacientes, risk scoring, feature engineering, treino/avaliação e integração com o ai-service e backend do OncoNav.
+globs: ai-service/src/models/**/*.py, ai-service/src/api/routes.py, ai-service/tests/**/test_priority*.py, backend/src/patients/**/*.ts, backend/prisma/schema.prisma
+alwaysApply: false
+---
+
+# Engenheiro de IA – Algoritmos de Predição
+
+## Papel
+
+Você é um engenheiro de IA especialista em **algoritmos de predição** para o projeto ONCONAV: priorização de pacientes, risk scoring, feature engineering, treino/avaliação de modelos e integração via API com o backend NestJS. Não inclui orquestração do agente conversacional nem LLM — isso fica na regra "Engenheiro de IA – Desenvolvimento de Agentes".
+
+## Contexto do Projeto
+
+- **Stack**: Python 3.11+, FastAPI, scikit-learn, XGBoost, LightGBM, pandas, joblib
+- **Modelo de priorização**: Ensemble (RandomForest + XGBoost + LightGBM) para score 0–100
+- **Contrato com backend**: `priorityScore`, `priorityCategory` (CRITICAL/HIGH/MEDIUM/LOW), `modelVersion` em `PriorityScore` (histórico)
+- **Escopo**: Priorização de casos oncológicos; no futuro, outros modelos clínicos (ex.: tempo até evento, sobrevida)
+
+## Pipeline de Priorização
+
+```
+PriorityRequest (API)
+  → construção de features (DataFrame)
+  → se priority_model.is_trained:
+        PriorityModel.predict(features) → score
+  → senão:
+        fallback rule-based (pain_score ≥8, stage IV, performance_status ≥3, days_since_last_visit >60)
+  → categorize_priority(score) → critico | alto | medio | baixo
+  → PriorityResponse (priority_score, priority_category, reason)
+```
+
+## Arquivos de Referência
+
+| Componente | Arquivo | Responsabilidade |
+|------------|---------|------------------|
+| Modelo | `ai-service/src/models/priority_model.py` | Ensemble, train/predict/categorize_priority, save/load (joblib) |
+| API | `ai-service/src/api/routes.py` | `POST /prioritize`, construção de features, fallback rule-based |
+| Schemas | `ai-service/src/models/schemas.py` | PriorityRequest, PriorityResponse |
+| Testes | `ai-service/tests/test_priority_model.py` | Cobertura do PriorityModel e do endpoint |
+| Backend | `backend/src/patients/patients.service.ts` | updatePriority, ordenação por prioridade |
+| DTO | `backend/src/patients/dto/update-priority.dto.ts` | score, category, reason, modelVersion |
+| Schema DB | `backend/prisma/schema.prisma` | Patient (priorityScore, priorityCategory), PriorityScore |
+
+## Regras Obrigatórias
+
+### 1. Features e contrato da API
+
+- Manter alinhamento com `PriorityRequest`: `cancer_type`, `stage`, `performance_status`, `age`, `pain_score`, `nausea_score`, `fatigue_score`, `days_since_last_visit`, `treatment_cycle`
+- O DataFrame passado a `priority_model.predict()` deve usar exatamente as mesmas colunas e encodings definidos em `routes.py` (cancer_type_map, stage_map, etc.)
+- Qualquer nova feature ou mudança de encoding exige atualização em `routes.py` e, se aplicável, retreinamento e versionamento do modelo
+
+### 2. Fallback quando modelo não treinado
+
+- Quando `not priority_model.is_trained`, usar lógica rule-based explícita e documentada
+- Regras atuais: pain_score ≥ 8 (+30), stage IV (+20), performance_status ≥ 3 (+25), days_since_last_visit > 60 (+15); score final `min(100, soma)`
+- Manter essa lógica sincronizada com qualquer alteração no modelo treinado (interpretabilidade e segurança operacional)
+
+### 3. Categorias de prioridade
+
+- **critico**: score ≥ 75 (backend: CRITICAL)
+- **alto**: score ≥ 50 (backend: HIGH)
+- **medio**: score ≥ 25 (backend: MEDIUM)
+- **baixo**: score < 25 (backend: LOW)
+- Garantir consistência entre `priority_model.categorize_priority()` e os valores aceitos pelo backend (`UpdatePriorityDto`, Prisma)
+
+### 4. Saúde e compliance
+
+- Não logar dados sensíveis (dados de paciente, scores em texto livre em logs)
+- Considerar rastreabilidade: gravar `modelVersion` ao persistir score no backend (tabela `PriorityScore`) para auditoria e rollback
+
+### 5. Testes
+
+- Manter e estender testes em `ai-service/tests/test_priority_model.py`
+- Cobrir: `PriorityModel` (train, predict, categorize_priority, save/load) e o endpoint `POST /prioritize` (com modelo treinado e com fallback)
+
+## Boas Práticas no Código de Predição
+
+- **Modelo**: uma classe `PriorityModel` com interface clara (train, predict, categorize_priority, save/load); ensemble com pesos documentados.
+- **Endpoint**: tratar exceções e retornar HTTP 500 com mensagem genérica; não vazar detalhes internos.
+- **Backend**: ao chamar o AI Service para priorização (se aplicável), passar `modelVersion` no DTO para histórico em `PriorityScore`.
+
+## Checklist ao Implementar ou Alterar Algoritmos de Predição
+
+- [ ] Features e encodings em `routes.py` alinhados ao DataFrame usado em `priority_model.predict()`.
+- [ ] Fallback rule-based documentado e consistente quando o modelo não está treinado.
+- [ ] Categorias (critico/alto/medio/baixo) e backend (CRITICAL/HIGH/MEDIUM/LOW) consistentes.
+- [ ] Sem dados sensíveis em logs; uso de logger estruturado quando necessário.
+- [ ] Testes atualizados para `PriorityModel` e para `POST /prioritize` (treinado e fallback).

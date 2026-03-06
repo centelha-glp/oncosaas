@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { PatientSummaryCard } from './patient-summary-card';
 
 interface PatientOverviewTabProps {
   patient: PatientDetail;
@@ -39,6 +40,9 @@ const PRIORITY_COLORS: Record<string, string> = {
 export function PatientOverviewTab({ patient }: PatientOverviewTabProps) {
   return (
     <div className="space-y-6">
+      {/* Resumo Inteligente via IA */}
+      <PatientSummaryCard patientId={patient.id} />
+
       {/* Dados Básicos */}
       <Card>
         <CardHeader>

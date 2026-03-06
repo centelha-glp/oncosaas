@@ -1,0 +1,28 @@
+{
+  "message": "Estou com dor e náusea há dois dias",
+  "patient_id": "test-patient-001",
+  "tenant_id": "test-tenant-001",
+  "clinical_context": {
+    "patient": {
+      "name": "Paciente Teste",
+      "cancerType": "BREAST",
+      "stage": "II",
+      "currentStage": "treatment",
+      "priorityCategory": "medio"
+    },
+    "recentObservations": [],
+    "activeTreatments": [],
+    "lastAlerts": []
+  },
+  "protocol": {
+    "name": "Breast protocol",
+    "check_ins": {"frequency": "weekly"}
+  },
+  "conversation_history": [],
+  "agent_state": {},
+  "agent_config": {
+    "llm_provider": "anthropic",
+    "llm_model": "claude-sonnet-4-6",
+    "agent_language": "pt-BR"
+  }
+}

@@ -59,8 +59,27 @@ export const messagesApi = {
     return apiClient.get<MessageCount>('/messages/unassumed/count');
   },
 
+  async getUnassumedPatientIds(): Promise<{ patientIds: string[] }> {
+    return apiClient.get<{ patientIds: string[] }>(
+      '/messages/unassumed/patient-ids'
+    );
+  },
+
   async assume(id: string): Promise<Message> {
     return apiClient.patch<Message>(`/messages/${id}/assume`, {});
+  },
+
+  /**
+   * Assumir todas as mensagens não lidas de um paciente.
+   * Marca a conversa como lida ao abrir.
+   */
+  async assumePatientConversation(
+    patientId: string
+  ): Promise<{ count: number }> {
+    return apiClient.patch<{ count: number }>(
+      `/messages/patient/${patientId}/assume`,
+      {}
+    );
   },
 
   async send(data: SendMessageDto): Promise<Message> {

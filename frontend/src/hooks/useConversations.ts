@@ -3,6 +3,7 @@ import {
   conversationsApi,
   type Conversation,
   type AgentDecisionLog,
+  type NurseAssistResponse,
 } from '@/lib/api/conversations';
 
 // ─── Query Keys ───────────────────────────────────────────────────────────────
@@ -15,6 +16,8 @@ export const conversationKeys = {
   details: () => [...conversationKeys.all, 'detail'] as const,
   detail: (id: string) => [...conversationKeys.details(), id] as const,
   decisions: () => [...conversationKeys.all, 'decisions'] as const,
+  nurseAssist: (id: string) =>
+    [...conversationKeys.all, 'nurse-assist', id] as const,
 };
 
 // ─── Conversations List ────────────────────────────────────────────────────────
@@ -92,4 +95,24 @@ export function useRejectDecision() {
       queryClient.invalidateQueries({ queryKey: conversationKeys.decisions() });
     },
   });
+}
+
+// ─── Nurse AI Assistant ──────────────────────────────────────────────────────
+
+export function useNurseAssist(conversationId: string | null) {
+  return useQuery<NurseAssistResponse>({
+    queryKey: conversationKeys.nurseAssist(conversationId || ''),
+    queryFn: () => conversationsApi.getNurseAssist(conversationId!),
+    enabled: false,
+    staleTime: 0,
+    gcTime: 0,
+  });
+}
+
+export function useRefreshNurseAssist() {
+  const queryClient = useQueryClient();
+  return (conversationId: string) =>
+    queryClient.invalidateQueries({
+      queryKey: conversationKeys.nurseAssist(conversationId),
+    });
 }

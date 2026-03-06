@@ -1,9 +1,11 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/auth-store';
 import { apiClient } from '@/lib/api/client';
 import { Button } from '@/components/ui/button';
+import { NavigationBar } from '@/components/shared/navigation-bar';
 
 interface ProfileData {
   id: string;
@@ -23,7 +25,8 @@ const ROLE_LABELS: Record<string, string> = {
 };
 
 export default function ProfilePage() {
-  const { user } = useAuthStore();
+  const router = useRouter();
+  const { isAuthenticated, isInitializing, initialize } = useAuthStore();
 
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [name, setName] = useState('');
@@ -38,6 +41,17 @@ export default function ProfilePage() {
   const [error, setError] = useState('');
 
   useEffect(() => {
+    initialize();
+  }, [initialize]);
+
+  useEffect(() => {
+    if (!isInitializing && !isAuthenticated) {
+      router.replace('/login');
+    }
+  }, [isAuthenticated, isInitializing, router]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
     apiClient
       .get<ProfileData>('/auth/profile')
       .then((data) => {
@@ -47,7 +61,7 @@ export default function ProfilePage() {
       })
       .catch(() => setError('Erro ao carregar perfil.'))
       .finally(() => setIsLoading(false));
-  }, []);
+  }, [isAuthenticated]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -79,7 +93,10 @@ export default function ProfilePage() {
         return;
       }
 
-      const updated = await apiClient.patch<ProfileData>('/auth/profile', payload);
+      const updated = await apiClient.patch<ProfileData>(
+        '/auth/profile',
+        payload
+      );
       setProfile(updated);
       setCurrentPassword('');
       setNewPassword('');
@@ -93,24 +110,48 @@ export default function ProfilePage() {
     }
   };
 
+  if (isInitializing) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-lg text-gray-600">Carregando...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return null;
+  }
+
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-64">
-        <p className="text-gray-500">Carregando...</p>
+      <div className="min-h-screen bg-gray-50 flex flex-col">
+        <NavigationBar />
+        <div className="flex-1 flex items-center justify-center min-h-64">
+          <p className="text-gray-500">Carregando...</p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="max-w-2xl mx-auto p-6 space-y-6">
+    <div className="min-h-screen bg-gray-50 flex flex-col">
+      <NavigationBar />
+      <div className="flex-1">
+        <div className="max-w-2xl mx-auto p-6 space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Meu Perfil</h1>
         <p className="text-sm text-gray-500 mt-1">
-          {profile?.tenant?.name} &middot; {ROLE_LABELS[profile?.role || ''] || profile?.role}
+          {profile?.tenant?.name} &middot;{' '}
+          {ROLE_LABELS[profile?.role || ''] || profile?.role}
         </p>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-6 bg-white rounded-lg border border-gray-200 p-6">
+      <form
+        onSubmit={handleSubmit}
+        className="space-y-6 bg-white rounded-lg border border-gray-200 p-6"
+      >
         {success && (
           <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded">
             {success}
@@ -128,7 +169,10 @@ export default function ProfilePage() {
           </h2>
 
           <div>
-            <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">
+            <label
+              htmlFor="name"
+              className="block text-sm font-medium text-gray-700 mb-1"
+            >
               Nome completo
             </label>
             <input
@@ -142,7 +186,10 @@ export default function ProfilePage() {
           </div>
 
           <div>
-            <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
+            <label
+              htmlFor="email"
+              className="block text-sm font-medium text-gray-700 mb-1"
+            >
               Email
             </label>
             <input
@@ -158,11 +205,15 @@ export default function ProfilePage() {
 
         <div className="space-y-4 pt-4 border-t border-gray-100">
           <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">
-            Alterar senha <span className="font-normal text-gray-400">(opcional)</span>
+            Alterar senha{' '}
+            <span className="font-normal text-gray-400">(opcional)</span>
           </h2>
 
           <div>
-            <label htmlFor="currentPassword" className="block text-sm font-medium text-gray-700 mb-1">
+            <label
+              htmlFor="currentPassword"
+              className="block text-sm font-medium text-gray-700 mb-1"
+            >
               Senha atual
             </label>
             <input
@@ -177,7 +228,10 @@ export default function ProfilePage() {
           </div>
 
           <div>
-            <label htmlFor="newPassword" className="block text-sm font-medium text-gray-700 mb-1">
+            <label
+              htmlFor="newPassword"
+              className="block text-sm font-medium text-gray-700 mb-1"
+            >
               Nova senha
             </label>
             <input
@@ -193,7 +247,10 @@ export default function ProfilePage() {
           </div>
 
           <div>
-            <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 mb-1">
+            <label
+              htmlFor="confirmPassword"
+              className="block text-sm font-medium text-gray-700 mb-1"
+            >
               Confirmar nova senha
             </label>
             <input
@@ -213,6 +270,8 @@ export default function ProfilePage() {
           </Button>
         </div>
       </form>
+        </div>
+      </div>
     </div>
   );
 }

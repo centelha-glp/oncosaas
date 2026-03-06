@@ -1,21 +1,25 @@
 # MCP Server: AI Service (FastAPI)
 
 ## Descrição
+
 MCP Server para interagir com o AI Service do ONCONAV, permitindo testar o agente conversacional, análise de sintomas e questionários.
 
 ## Configuração
 
 ### Base URL
+
 ```
 http://localhost:8001
 ```
 
 ### Swagger Docs
+
 ```
 http://localhost:8001/docs
 ```
 
 ### Configuração MCP (usando fetch server)
+
 ```json
 {
   "mcpServers": {
@@ -31,11 +35,13 @@ http://localhost:8001/docs
 ## Endpoints
 
 ### Health Check
+
 ```bash
 GET /api/v1/health
 ```
 
 ### Priorização de Paciente
+
 ```bash
 POST /api/v1/prioritize
 {
@@ -49,6 +55,7 @@ POST /api/v1/prioritize
 ```
 
 ### Processar Mensagem do Agente (principal)
+
 ```bash
 POST /api/v1/agent/process
 {
@@ -65,6 +72,7 @@ POST /api/v1/agent/process
 ```
 
 ### Analisar Sintomas
+
 ```bash
 POST /api/v1/agent/analyze-symptoms
 {
@@ -75,6 +83,7 @@ POST /api/v1/agent/analyze-symptoms
 ```
 
 ### Pontuar Questionário
+
 ```bash
 POST /api/v1/agent/score-questionnaire
 {
@@ -85,6 +94,7 @@ POST /api/v1/agent/score-questionnaire
 ```
 
 ### Avaliar Protocolo
+
 ```bash
 POST /api/v1/agent/evaluate-protocol
 {
@@ -96,6 +106,7 @@ POST /api/v1/agent/evaluate-protocol
 ```
 
 ## Notas
+
 - O AI Service funciona sem API keys (respostas mock/fallback)
 - Para respostas reais do LLM, configurar OPENAI_API_KEY ou ANTHROPIC_API_KEY no .env
 - O modelo de priorização funciona com regras se não treinado

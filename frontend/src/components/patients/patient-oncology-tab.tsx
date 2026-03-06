@@ -1,13 +1,25 @@
 'use client';
 
-import { useState } from 'react';
-import { PatientDetail, CancerDiagnosis } from '@/lib/api/patients';
+import React, { useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { PatientDetail, CancerDiagnosis, patientsApi } from '@/lib/api/patients';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Plus, Edit } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Plus, Edit, Trash2, GitBranch } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { toast } from 'sonner';
 import { CancerDiagnosisDialog } from './cancer-diagnosis-dialog';
 
 interface PatientOncologyTabProps {
@@ -16,30 +28,68 @@ interface PatientOncologyTabProps {
 
 export function PatientOncologyTab({
   patient,
-}: PatientOncologyTabProps): JSX.Element {
+}: PatientOncologyTabProps): React.ReactElement {
+  const queryClient = useQueryClient();
   const [showDialog, setShowDialog] = useState(false);
   const [editingDiagnosis, setEditingDiagnosis] = useState<
     CancerDiagnosis | undefined
   >();
+  const [diagnosisToDelete, setDiagnosisToDelete] = useState<
+    CancerDiagnosis | null
+  >(null);
+  const [primaryForMetastatic, setPrimaryForMetastatic] = useState<{
+    id: string;
+    cancerType: string;
+  } | null>(null);
+
+  const deleteDiagnosisMutation = useMutation({
+    mutationFn: ({
+      patientId,
+      diagnosisId,
+    }: {
+      patientId: string;
+      diagnosisId: string;
+    }) => patientsApi.deleteCancerDiagnosis(patientId, diagnosisId),
+    onSuccess: (_, { patientId }) => {
+      queryClient.invalidateQueries({ queryKey: ['patient', patientId] });
+      setDiagnosisToDelete(null);
+      toast.success('Diagnóstico excluído com sucesso.');
+    },
+    onError: () => {
+      toast.error('Não foi possível excluir o diagnóstico.');
+    },
+  });
 
   const handleAddDiagnosis = (): void => {
     setEditingDiagnosis(undefined);
+    setPrimaryForMetastatic(null);
+    setShowDialog(true);
+  };
+
+  const handleAddMetastatic = (primary: CancerDiagnosis): void => {
+    setEditingDiagnosis(undefined);
+    setPrimaryForMetastatic({
+      id: primary.id,
+      cancerType: primary.cancerType || 'Tipo não especificado',
+    });
     setShowDialog(true);
   };
 
   const handleEditDiagnosis = (diagnosis: CancerDiagnosis): void => {
     setEditingDiagnosis(diagnosis);
+    setPrimaryForMetastatic(null);
     setShowDialog(true);
   };
 
   const handleDialogClose = (open: boolean): void => {
     if (!open) {
       setEditingDiagnosis(undefined);
+      setPrimaryForMetastatic(null);
     }
     setShowDialog(open);
   };
 
-  const renderTNMStaging = (diagnosis: CancerDiagnosis): JSX.Element | null => {
+  const renderTNMStaging = (diagnosis: CancerDiagnosis): React.ReactElement | null => {
     if (
       !diagnosis.tStage &&
       !diagnosis.nStage &&
@@ -79,7 +129,7 @@ export function PatientOncologyTab({
     );
   };
 
-  const renderBiomarkers = (diagnosis: CancerDiagnosis): JSX.Element | null => {
+  const renderBiomarkers = (diagnosis: CancerDiagnosis): React.ReactElement | null => {
     const biomarkers: Array<{ label: string; value: string | number | null }> =
       [];
 
@@ -164,7 +214,7 @@ export function PatientOncologyTab({
 
   const renderTumorMarkers = (
     diagnosis: CancerDiagnosis
-  ): JSX.Element | null => {
+  ): React.ReactElement | null => {
     const markers: Array<{ label: string; value: number | null }> = [];
 
     if (diagnosis.ceaBaseline !== null && diagnosis.ceaBaseline !== undefined) {
@@ -255,6 +305,25 @@ export function PatientOncologyTab({
                     >
                       <Edit className="h-4 w-4 mr-2" />
                       Editar
+                    </Button>
+                    {diagnosis.isPrimary && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleAddMetastatic(diagnosis)}
+                      >
+                        <GitBranch className="h-4 w-4 mr-2" />
+                        Adicionar metastático
+                      </Button>
+                    )}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                      onClick={() => setDiagnosisToDelete(diagnosis)}
+                    >
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      Excluir
                     </Button>
                   </div>
                 </div>
@@ -375,6 +444,69 @@ export function PatientOncologyTab({
                     </p>
                   </div>
                 )}
+
+                {/* Cânceres metastáticos associados (apenas para primários) */}
+                {diagnosis.isPrimary && (
+                  <div>
+                    <h4 className="font-semibold mb-2">
+                      Cânceres metastáticos associados
+                    </h4>
+                    {diagnosis.metastaticDiagnoses &&
+                    diagnosis.metastaticDiagnoses.length > 0 ? (
+                      <ul className="space-y-2">
+                        {diagnosis.metastaticDiagnoses.map((met) => (
+                          <li
+                            key={met.id}
+                            className="flex items-center justify-between rounded-md border bg-muted/30 px-3 py-2 text-sm"
+                          >
+                            <span className="font-medium">
+                              {met.cancerType || 'Tipo não especificado'}
+                            </span>
+                            <div className="flex items-center gap-2">
+                              {met.diagnosisDate && (
+                                <span className="text-muted-foreground">
+                                  {format(
+                                    new Date(met.diagnosisDate),
+                                    'dd/MM/yyyy',
+                                    { locale: ptBR }
+                                  )}
+                                </span>
+                              )}
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleEditDiagnosis(met)}
+                              >
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="text-destructive hover:text-destructive"
+                                onClick={() => setDiagnosisToDelete(met)}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">
+                        Nenhum diagnóstico metastático registrado.
+                      </p>
+                    )}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="mt-2"
+                      onClick={() => handleAddMetastatic(diagnosis)}
+                    >
+                      <Plus className="h-4 w-4 mr-2" />
+                      Adicionar câncer metastático
+                    </Button>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>
@@ -395,7 +527,45 @@ export function PatientOncologyTab({
         onOpenChange={handleDialogClose}
         patientId={patient.id}
         diagnosis={editingDiagnosis}
+        primaryDiagnosisId={primaryForMetastatic?.id}
+        primaryCancerType={primaryForMetastatic?.cancerType}
       />
+
+      {/* Confirmação de exclusão de diagnóstico */}
+      <AlertDialog
+        open={!!diagnosisToDelete}
+        onOpenChange={(open) => !open && setDiagnosisToDelete(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir diagnóstico?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta ação não pode ser desfeita. O diagnóstico{' '}
+              {diagnosisToDelete?.cancerType && (
+                <strong>{diagnosisToDelete.cancerType}</strong>
+              )}{' '}
+              será removido permanentemente.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                if (diagnosisToDelete) {
+                  deleteDiagnosisMutation.mutate({
+                    patientId: patient.id,
+                    diagnosisId: diagnosisToDelete.id,
+                  });
+                }
+              }}
+              disabled={deleteDiagnosisMutation.isPending}
+            >
+              {deleteDiagnosisMutation.isPending ? 'Excluindo…' : 'Excluir'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

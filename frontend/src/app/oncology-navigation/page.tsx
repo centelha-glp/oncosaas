@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useDebounce } from '@/lib/utils/use-debounce';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/auth-store';
@@ -29,9 +29,17 @@ import {
   File,
   X,
   Check,
+  Plus,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { NavigationBar } from '@/components/shared/navigation-bar';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
+import { CreateNavigationStepDialog } from '@/components/patients/create-navigation-step-dialog';
+import { useQueryClient } from '@tanstack/react-query';
 
 interface FileMetadata {
   filename: string;
@@ -55,6 +63,20 @@ const CANCER_TYPE_LABELS: Record<string, string> = {
   other: 'Outros',
 };
 
+/** Normaliza tipo de câncer para a chave canônica (ex.: pulmão → lung) para agrupamento e label. */
+function normalizeCancerTypeKey(raw: string): string {
+  const lower = raw.toLowerCase().trim();
+  if (lower === 'pulmão' || lower === 'pulmao') return 'lung';
+  return lower;
+}
+
+const JOURNEY_STAGE_ORDER = [
+  'SCREENING',
+  'DIAGNOSIS',
+  'TREATMENT',
+  'FOLLOW_UP',
+] as const;
+
 const JOURNEY_STAGE_LABELS: Record<string, string> = {
   SCREENING: '🔍 Rastreio',
   NAVIGATION: '🧭 Navegação',
@@ -72,7 +94,7 @@ const STATUS_COLORS: Record<string, string> = {
   NOT_APPLICABLE: 'bg-gray-50 text-gray-500',
 };
 
-const STATUS_ICONS: Record<string, JSX.Element> = {
+const STATUS_ICONS: Record<string, React.ReactElement> = {
   PENDING: <Clock className="h-4 w-4" />,
   IN_PROGRESS: <ChevronRight className="h-4 w-4" />,
   COMPLETED: <CheckCircle2 className="h-4 w-4" />,
@@ -179,7 +201,7 @@ export default function OncologyNavigationPage() {
       // Verificar cancerDiagnoses primeiro
       if (patient.cancerDiagnoses && patient.cancerDiagnoses.length > 0) {
         patient.cancerDiagnoses.forEach((diagnosis) => {
-          const cancerType = diagnosis.cancerType.toLowerCase();
+          const cancerType = normalizeCancerTypeKey(diagnosis.cancerType);
           if (!grouped[cancerType]) {
             grouped[cancerType] = [];
           }
@@ -189,7 +211,7 @@ export default function OncologyNavigationPage() {
           }
         });
       } else if (patient.cancerType) {
-        const cancerType = patient.cancerType.toLowerCase();
+        const cancerType = normalizeCancerTypeKey(patient.cancerType);
         if (!grouped[cancerType]) {
           grouped[cancerType] = [];
         }
@@ -381,9 +403,12 @@ function PatientNavigationCard({
   onToggle,
   apiUrl,
 }: PatientNavigationCardProps) {
+  const queryClient = useQueryClient();
   const { data: navigationSteps, isLoading } = usePatientNavigationSteps(
     patient.id || null
   );
+  const [createStage, setCreateStage] = useState<string | null>(null);
+  const [addStepPopoverOpen, setAddStepPopoverOpen] = useState(false);
 
   const stepsByStage = useMemo(() => {
     if (!navigationSteps) return {};
@@ -465,6 +490,35 @@ function PatientNavigationCard({
 
       {isExpanded && (
         <div className="mt-4 ml-8 space-y-4">
+          <div className="flex justify-end">
+            <Popover open={addStepPopoverOpen} onOpenChange={setAddStepPopoverOpen}>
+              <PopoverTrigger asChild>
+                <Button size="sm">
+                  <Plus className="h-4 w-4 mr-2" />
+                  Adicionar etapa
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-56 p-2 bg-background z-[100]">
+                <p className="text-sm font-medium text-muted-foreground px-2 py-1 mb-1">
+                  Escolha a fase
+                </p>
+                {JOURNEY_STAGE_ORDER.map((stage) => (
+                  <Button
+                    key={stage}
+                    variant="ghost"
+                    className="w-full justify-start"
+                    size="sm"
+                    onClick={() => {
+                      setCreateStage(stage);
+                      setAddStepPopoverOpen(false);
+                    }}
+                  >
+                    {JOURNEY_STAGE_LABELS[stage] ?? stage}
+                  </Button>
+                ))}
+              </PopoverContent>
+            </Popover>
+          </div>
           {isLoading ? (
             <div className="text-center py-4 text-gray-500">
               Carregando etapas de navegação...
@@ -517,6 +571,20 @@ function PatientNavigationCard({
               );
             })
           )}
+          <CreateNavigationStepDialog
+            open={createStage !== null}
+            onOpenChange={(open) => !open && setCreateStage(null)}
+            patientId={patient.id ?? ''}
+            cancerType={cancerType}
+            journeyStage={createStage ?? 'NAVIGATION'}
+            diagnosisId={undefined}
+            onSuccess={() => {
+              queryClient.invalidateQueries({
+                queryKey: ['navigation-steps', patient.id],
+              });
+              queryClient.invalidateQueries({ queryKey: ['patients'] });
+            }}
+          />
         </div>
       )}
     </div>

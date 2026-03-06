@@ -25,6 +25,8 @@ import { ClinicalProtocolsModule } from './clinical-protocols/clinical-protocols
 import { AuditLogModule } from './audit-log/audit-log.module';
 import { AuditLogInterceptor } from './audit-log/audit-log.interceptor';
 import { ScheduledActionsModule } from './scheduled-actions/scheduled-actions.module';
+import { ComplementaryExamsModule } from './complementary-exams/complementary-exams.module';
+import { QuestionnaireResponsesModule } from './questionnaire-responses/questionnaire-responses.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { ThrottleGuard } from './common/guards/throttle.guard';
 
@@ -56,6 +58,8 @@ import { ThrottleGuard } from './common/guards/throttle.guard';
     ClinicalProtocolsModule,
     AuditLogModule,
     ScheduledActionsModule,
+    ComplementaryExamsModule,
+    QuestionnaireResponsesModule,
   ],
   controllers: [AppController],
   providers: [

@@ -60,6 +60,10 @@ export const alertsApi = {
     return apiClient.get<AlertCount>('/alerts/critical/count');
   },
 
+  async getOpenCount(): Promise<AlertCount> {
+    return apiClient.get<AlertCount>('/alerts/open/count');
+  },
+
   async create(data: CreateAlertDto): Promise<Alert> {
     return apiClient.post<Alert>('/alerts', data);
   },

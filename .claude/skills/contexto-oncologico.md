@@ -1,9 +1,11 @@
 # Skill: /contexto-oncologico
 
 ## Descrição
+
 Carrega contexto completo do domínio oncológico para informar decisões de desenvolvimento.
 
 ## Uso
+
 ```
 /contexto-oncologico
 ```
@@ -11,6 +13,7 @@ Carrega contexto completo do domínio oncológico para informar decisões de des
 ## Contexto Carregado
 
 ### Arquivos de Domínio
+
 1. **Navegação Oncológica** (`.cursor/rules/navegacao-oncologica.mdc` - 36KB)
    - Jornada do paciente: SCREENING → DIAGNOSIS → TREATMENT → FOLLOW_UP
    - NavigationSteps por tipo de câncer
@@ -38,11 +41,13 @@ Carrega contexto completo do domínio oncológico para informar decisões de des
    - Dashboard de enfermagem
 
 ### Tipos de Câncer Suportados
+
 - **Colorretal**: colonoscopia, CEA, KRAS/BRAF/MSI, cirurgia, FOLFOX/FOLFIRI
 - **Bexiga**: cistoscopia, RTU, BCG, cistectomia
 - **Renal**: TC, nefrectomia, sunitinibe/pazopanibe, imunoterapia
 - **Próstata**: PSA, biópsia, prostatectomia, radioterapia, ADT
 
 ### Questionários Validados
+
 - **ESAS**: 9 itens (0-10), alerta se ≥7 ou total ≥50
 - **PRO-CTCAE**: 10 sintomas (grade 0-4), alerta se ≥3

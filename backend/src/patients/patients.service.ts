@@ -16,6 +16,7 @@ import { CreateCancerDiagnosisDto } from './dto/create-cancer-diagnosis.dto';
 import { UpdateCancerDiagnosisDto } from './dto/update-cancer-diagnosis.dto';
 import { Patient, Prisma, JourneyStage } from '@prisma/client';
 import { OncologyNavigationService } from '../oncology-navigation/oncology-navigation.service';
+import { PriorityRecalculationService } from '../oncology-navigation/priority-recalculation.service';
 import {
   normalizePhoneNumber,
   hashPhoneNumber,
@@ -36,7 +37,8 @@ export class PatientsService {
   constructor(
     private readonly prisma: PrismaService,
     @Inject(forwardRef(() => OncologyNavigationService))
-    private readonly navigationService?: OncologyNavigationService
+    private readonly navigationService?: OncologyNavigationService,
+    private readonly priorityRecalculationService?: PriorityRecalculationService
   ) {}
 
   async findAll(
@@ -67,6 +69,29 @@ export class PatientsService {
       skip: offset,
     });
 
+    // Contar apenas alertas PENDENTES por paciente (alinhado com AlertsPanel)
+    const patientIds = patients.map((p) => p.id);
+    const pendingCounts =
+      patientIds.length > 0
+        ? await this.prisma.alert.groupBy({
+            by: ['patientId'],
+            where: {
+              patientId: { in: patientIds },
+              tenantId,
+              status: 'PENDING',
+            },
+            _count: { id: true },
+          })
+        : [];
+    const pendingByPatient = new Map(
+      pendingCounts.map((r) => [r.patientId, r._count.id])
+    );
+
+    const patientsWithPending = patients.map((p) => ({
+      ...p,
+      pendingAlertsCount: pendingByPatient.get(p.id) ?? 0,
+    }));
+
     // Ordenar por prioridade: CRITICAL > HIGH > MEDIUM > LOW
     // Dentro da mesma categoria, ordenar por score (maior primeiro)
     const priorityOrder = {
@@ -76,7 +101,7 @@ export class PatientsService {
       LOW: 3,
     };
 
-    return patients.sort((a, b) => {
+    return patientsWithPending.sort((a, b) => {
       const priorityA = priorityOrder[a.priorityCategory || 'MEDIUM'] ?? 2;
       const priorityB = priorityOrder[b.priorityCategory || 'MEDIUM'] ?? 2;
 
@@ -106,11 +131,17 @@ export class PatientsService {
       include: {
         journey: true, // Incluir jornada (rastreio, diagnóstico, tratamento)
         cancerDiagnoses: {
-          where: { isActive: true }, // Apenas diagnósticos ativos
+          where: { isActive: true, primaryDiagnosisId: null }, // Apenas primários ativos (metastáticos vêm aninhados)
           orderBy: [
-            { isPrimary: 'desc' }, // Primário primeiro
-            { diagnosisDate: 'desc' }, // Mais recente primeiro
+            { isPrimary: 'desc' },
+            { diagnosisDate: 'desc' },
           ],
+          include: {
+            metastaticDiagnoses: {
+              where: { isActive: true },
+              orderBy: { diagnosisDate: 'desc' },
+            },
+          },
         },
         messages: {
           orderBy: { createdAt: 'desc' },
@@ -157,8 +188,14 @@ export class PatientsService {
         include: {
           journey: true,
           cancerDiagnoses: {
-            where: { isActive: true },
+            where: { isActive: true, primaryDiagnosisId: null },
             orderBy: [{ isPrimary: 'desc' }, { diagnosisDate: 'desc' }],
+            include: {
+              metastaticDiagnoses: {
+                where: { isActive: true },
+                orderBy: { diagnosisDate: 'desc' },
+              },
+            },
           },
           messages: {
             orderBy: { createdAt: 'desc' },
@@ -230,6 +267,7 @@ export class PatientsService {
         performanceStatus: patientData.performanceStatus,
         currentStage: patientData.currentStage as JourneyStage,
         comorbidities: patientData.comorbidities as any,
+        currentMedications: patientData.currentMedications as any,
         smokingHistory: patientData.smokingHistory,
         alcoholHistory: patientData.alcoholHistory,
         occupationalExposure: patientData.occupationalExposure,
@@ -343,6 +381,9 @@ export class PatientsService {
     if (updatePatientDto.comorbidities !== undefined) {
       updateData.comorbidities = updatePatientDto.comorbidities as any;
     }
+    if (updatePatientDto.currentMedications !== undefined) {
+      updateData.currentMedications = updatePatientDto.currentMedications as any;
+    }
     if (updatePatientDto.smokingHistory !== undefined) {
       updateData.smokingHistory = updatePatientDto.smokingHistory;
     }
@@ -393,7 +434,8 @@ export class PatientsService {
       const oldStage = existingPatient.currentStage;
       const newStage = updatedPatient.currentStage || JourneyStage.SCREENING;
 
-      // Reinicializar se mudou tipo de câncer ou estágio
+      // Quando currentStage ou cancerType mudam: etapas são recriadas em initializeNavigationSteps;
+      // prazos (dueDate/expectedDate) são atribuídos apenas às etapas da fase atual (oncology-navigation.service).
       if (
         newCancerType &&
         (newCancerType !== oldCancerType || newStage !== oldStage)
@@ -409,6 +451,19 @@ export class PatientsService {
           this.logger.error(
             'Erro ao atualizar etapas de navegação:',
             error instanceof Error ? error.stack : String(error)
+          );
+        }
+      } else {
+        // Sem reinit: garantir que etapas de fases futuras não tenham prazo (dados legados)
+        try {
+          await this.navigationService.clearFuturePhaseStepDates(
+            id,
+            tenantId
+          );
+        } catch (err) {
+          this.logger.warn(
+            'Falha ao limpar prazos de etapas futuras:',
+            err instanceof Error ? err.message : err
           );
         }
       }
@@ -565,6 +620,13 @@ export class PatientsService {
                 if (!row.tipoCancer) {
                   rowErrors.push('Tipo de câncer é obrigatório');
                 }
+                // Normalizar tipo de câncer: valor canônico é em inglês (ex.: lung)
+                const raw = (row.tipoCancer as string).trim();
+                const normalizedTipoCancer =
+                  raw === 'Pulmão' || raw === 'pulmão' || raw === 'pulmao'
+                    ? 'lung'
+                    : raw;
+                row.tipoCancer = normalizedTipoCancer as CancerType;
                 // Data de diagnóstico só é obrigatória se não estiver em rastreio
                 // Por padrão, assumimos SCREENING se não especificado
                 const currentStage = (row as any).currentStage || 'SCREENING';
@@ -774,6 +836,11 @@ export class PatientsService {
           where: { isActive: true },
           orderBy: [{ isPrimary: 'desc' }, { diagnosisDate: 'desc' }],
         },
+        complementaryExams: {
+          include: {
+            results: { orderBy: { performedAt: 'desc' } },
+          },
+        },
         alerts: {
           where: {
             status: { not: 'RESOLVED' },
@@ -878,6 +945,23 @@ export class PatientsService {
       throw new NotFoundException(`Patient with ID ${patientId} not found`);
     }
 
+    // Se for diagnóstico metastático, validar que o primário existe e pertence ao mesmo paciente
+    if (createDto.primaryDiagnosisId) {
+      const primary = await this.prisma.cancerDiagnosis.findFirst({
+        where: {
+          id: createDto.primaryDiagnosisId,
+          patientId,
+          tenantId,
+          primaryDiagnosisId: null, // deve ser um primário
+        },
+      });
+      if (!primary) {
+        throw new BadRequestException(
+          'Diagnóstico primário não encontrado ou não pertence a este paciente.'
+        );
+      }
+    }
+
     // Calcular stage automaticamente se tStage, nStage, mStage estiverem preenchidos
     const calculatedStage = this.calculateStageFromTNM(
       createDto.tStage,
@@ -928,16 +1012,20 @@ export class PatientsService {
       ca153Baseline: createDto.ca153Baseline,
       afpBaseline: createDto.afpBaseline,
       hcgBaseline: createDto.hcgBaseline,
-      // Status
-      isPrimary: createDto.isPrimary ?? true,
+      // Status (metastático = não primário, vinculado ao primário)
+      isPrimary: createDto.primaryDiagnosisId ? false : (createDto.isPrimary ?? true),
       isActive: createDto.isActive ?? true,
+      // Vincular ao diagnóstico primário quando for metastático
+      ...(createDto.primaryDiagnosisId && {
+        primaryDiagnosis: { connect: { id: createDto.primaryDiagnosisId } },
+      }),
     };
 
     const diagnosis = await this.prisma.cancerDiagnosis.create({
       data: diagnosisData,
     });
 
-    // Inicializar etapas de navegação automaticamente ao adicionar diagnóstico
+    // Inicializar etapas de navegação vinculadas a este diagnóstico (excluídas em cascata ao excluir o diagnóstico)
     if (this.navigationService) {
       try {
         const cancerTypeStr = String(createDto.cancerType);
@@ -946,7 +1034,8 @@ export class PatientsService {
           patientId,
           tenantId,
           cancerTypeStr,
-          journeyStage
+          journeyStage,
+          diagnosis.id
         );
       } catch (error) {
         this.logger.error(
@@ -955,6 +1044,8 @@ export class PatientsService {
         );
       }
     }
+
+    this.priorityRecalculationService?.triggerRecalculation(patientId, tenantId);
 
     return diagnosis;
   }
@@ -1014,10 +1105,14 @@ export class PatientsService {
       updateData.stagingDate = new Date(updateDto.stagingDate);
     }
 
-    return this.prisma.cancerDiagnosis.update({
+    const updated = await this.prisma.cancerDiagnosis.update({
       where: { id: diagnosisId },
       data: updateData,
     });
+
+    this.priorityRecalculationService?.triggerRecalculation(patientId, tenantId);
+
+    return updated;
   }
 
   /**
@@ -1048,6 +1143,36 @@ export class PatientsService {
         ...(includeInactive ? {} : { isActive: true }),
       },
       orderBy: [{ isPrimary: 'desc' }, { diagnosisDate: 'desc' }],
+    });
+  }
+
+  /**
+   * Remove um diagnóstico de câncer do paciente
+   * @param diagnosisId ID do diagnóstico
+   * @param patientId ID do paciente
+   * @param tenantId ID do tenant
+   */
+  async deleteCancerDiagnosis(
+    diagnosisId: string,
+    patientId: string,
+    tenantId: string
+  ): Promise<void> {
+    const existingDiagnosis = await this.prisma.cancerDiagnosis.findFirst({
+      where: {
+        id: diagnosisId,
+        patientId,
+        tenantId,
+      },
+    });
+
+    if (!existingDiagnosis) {
+      throw new NotFoundException(
+        `Cancer diagnosis with ID ${diagnosisId} not found`
+      );
+    }
+
+    await this.prisma.cancerDiagnosis.delete({
+      where: { id: diagnosisId },
     });
   }
 }

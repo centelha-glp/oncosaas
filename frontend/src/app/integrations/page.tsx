@@ -1,23 +1,21 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { Suspense, useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuthStore } from '@/stores/auth-store';
 import { NavigationBar } from '@/components/shared/navigation-bar';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
 import { WhatsAppConnectionsList } from '@/components/dashboard/integrations/whatsapp-connections-list';
 import { WhatsAppConnectionForm } from '@/components/dashboard/integrations/whatsapp-connection-form';
 import { EmbeddedSignup } from '@/components/dashboard/integrations/embedded-signup';
 import {
-  WhatsAppConnection,
   whatsappConnectionsApi,
   CreateWhatsAppConnectionDto,
 } from '@/lib/api/whatsapp-connections';
-import { Plus, MessageSquare, AlertCircle, Loader2 } from 'lucide-react';
+import { MessageSquare, AlertCircle } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
-export default function IntegrationsPage() {
+function IntegrationsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { isAuthenticated, isInitializing, initialize } = useAuthStore();
@@ -219,5 +217,19 @@ export default function IntegrationsPage() {
         />
       </main>
     </div>
+  );
+}
+
+export default function IntegrationsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center">
+          <p className="text-lg text-gray-600">Carregando...</p>
+        </div>
+      }
+    >
+      <IntegrationsPageContent />
+    </Suspense>
   );
 }

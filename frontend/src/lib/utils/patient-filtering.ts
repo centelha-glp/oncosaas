@@ -4,6 +4,10 @@ export interface PatientFilters {
   searchTerm?: string;
   priorityCategory?: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | null;
   cancerType?: string | null;
+  /** Quando true, mostra apenas conversas com mensagens não assumidas (não lidas) */
+  unreadOnly?: boolean;
+  /** IDs de pacientes com mensagens não assumidas (usado quando unreadOnly=true) */
+  unreadPatientIds?: Set<string>;
 }
 
 /**
@@ -83,6 +87,13 @@ export function filterPatients(
           .includes(filters.cancerType!.toLowerCase())
       );
     });
+  }
+
+  // Filtro "Não lidas" - apenas conversas com mensagens não assumidas
+  if (filters.unreadOnly && filters.unreadPatientIds?.size) {
+    filtered = filtered.filter((patient) =>
+      filters.unreadPatientIds!.has(patient.id)
+    );
   }
 
   return filtered;

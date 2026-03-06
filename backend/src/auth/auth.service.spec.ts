@@ -182,7 +182,9 @@ describe('AuthService', () => {
     it('should silently succeed when email is not found (no enumeration)', async () => {
       mockPrisma.user.findFirst.mockResolvedValue(null);
 
-      await expect(service.forgotPassword('ghost@example.com')).resolves.not.toThrow();
+      await expect(
+        service.forgotPassword('ghost@example.com')
+      ).resolves.not.toThrow();
       expect(mockRedis.set).not.toHaveBeenCalled();
     });
 

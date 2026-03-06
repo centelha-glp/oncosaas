@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Dialog,
@@ -19,6 +19,10 @@ interface CancerDiagnosisDialogProps {
   onOpenChange: (open: boolean) => void;
   patientId: string;
   diagnosis?: CancerDiagnosis;
+  /** Ao preencher sem diagnosis, abre o formulário para adicionar câncer metastático a este primário */
+  primaryDiagnosisId?: string;
+  /** Nome do câncer primário (para exibir no título quando for metastático) */
+  primaryCancerType?: string;
 }
 
 export function CancerDiagnosisDialog({
@@ -26,7 +30,10 @@ export function CancerDiagnosisDialog({
   onOpenChange,
   patientId,
   diagnosis,
-}: CancerDiagnosisDialogProps): JSX.Element {
+  primaryDiagnosisId,
+  primaryCancerType,
+}: CancerDiagnosisDialogProps): React.ReactElement {
+  const isAddingMetastatic = !!primaryDiagnosisId && !diagnosis;
   const queryClient = useQueryClient();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -99,17 +106,24 @@ export function CancerDiagnosisDialog({
           <DialogTitle>
             {diagnosis
               ? 'Editar Diagnóstico de Câncer'
-              : 'Adicionar Diagnóstico de Câncer'}
+              : isAddingMetastatic
+                ? 'Adicionar Câncer Metastático'
+                : 'Adicionar Diagnóstico de Câncer'}
           </DialogTitle>
           <DialogDescription>
             {diagnosis
               ? 'Atualize as informações do diagnóstico de câncer.'
-              : 'Preencha os dados do novo diagnóstico de câncer.'}
+              : isAddingMetastatic
+                ? primaryCancerType
+                  ? `Registrar metástase associada ao primário: ${primaryCancerType}.`
+                  : 'Registrar câncer metastático associado ao diagnóstico primário.'
+                : 'Preencha os dados do novo diagnóstico de câncer.'}
           </DialogDescription>
         </DialogHeader>
         <CancerDiagnosisForm
           patientId={patientId}
           diagnosis={diagnosis}
+          primaryDiagnosisId={primaryDiagnosisId}
           onSubmit={handleSubmit}
           onCancel={handleCancel}
         />

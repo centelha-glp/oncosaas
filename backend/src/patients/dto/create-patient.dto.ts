@@ -17,6 +17,7 @@ import { Type } from 'class-transformer';
 import { CreateCancerDiagnosisDto } from './create-cancer-diagnosis.dto';
 import { ComorbidityDto } from './comorbidity.dto';
 import { FamilyHistoryDto } from './family-history.dto';
+import { CurrentMedicationDto } from './current-medication.dto';
 
 export enum Gender {
   MALE = 'male',
@@ -130,4 +131,10 @@ export class CreatePatientDto {
   @ValidateNested({ each: true })
   @Type(() => FamilyHistoryDto)
   familyHistory?: FamilyHistoryDto[];
+
+  @IsArray()
+  @IsOptional()
+  @ValidateNested({ each: true })
+  @Type(() => CurrentMedicationDto)
+  currentMedications?: CurrentMedicationDto[];
 }

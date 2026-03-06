@@ -10,10 +10,17 @@ import {
   UnauthorizedException,
   Request,
 } from '@nestjs/common';
-import { IsString, IsNotEmpty, IsEmail, MinLength, IsOptional } from 'class-validator';
+import {
+  IsString,
+  IsNotEmpty,
+  IsEmail,
+  MinLength,
+  IsOptional,
+} from 'class-validator';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+import { RegisterInstitutionDto } from './dto/register-institution.dto';
 import { Public } from './decorators/public.decorator';
 
 class RefreshDto {
@@ -92,7 +99,9 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   async forgotPassword(@Body() body: ForgotPasswordDto) {
     await this.authService.forgotPassword(body.email);
-    return { message: 'Se o email existir, você receberá um link de redefinição.' };
+    return {
+      message: 'Se o email existir, você receberá um link de redefinição.',
+    };
   }
 
   @Public()
@@ -105,17 +114,24 @@ export class AuthController {
 
   @Get('profile')
   async getProfile(@Request() req) {
-    return this.authService.getProfile(req.user.sub);
+    return this.authService.getProfile(req.user?.id ?? req.user?.sub);
   }
 
   @Patch('profile')
   async updateProfile(@Body() body: UpdateProfileDto, @Request() req) {
-    return this.authService.updateProfile(req.user.sub, body);
+    return this.authService.updateProfile(req.user?.id ?? req.user?.sub, body);
   }
 
   @Public()
   @Post('register')
   async register(@Body() registerDto: RegisterDto) {
     return this.authService.register(registerDto);
+  }
+
+  @Public()
+  @Post('register-institution')
+  @HttpCode(HttpStatus.CREATED)
+  async registerInstitution(@Body() dto: RegisterInstitutionDto) {
+    return this.authService.registerInstitution(dto);
   }
 }

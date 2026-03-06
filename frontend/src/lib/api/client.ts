@@ -1,4 +1,4 @@
-import axios, { AxiosInstance, AxiosError } from 'axios';
+import axios, { AxiosInstance, AxiosError, AxiosRequestHeaders } from 'axios';
 import { getApiUrl } from '@/lib/utils/api-config';
 
 export interface ApiError {
@@ -72,7 +72,7 @@ class ApiClient {
             try {
               const newAccessToken =
                 await this.refreshAccessToken(refreshToken);
-              originalRequest.headers = originalRequest.headers ?? {};
+              originalRequest.headers = (originalRequest.headers ?? {}) as AxiosRequestHeaders;
               originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
               return this.client(originalRequest);
             } catch {

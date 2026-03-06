@@ -13,13 +13,23 @@ import {
   Calendar,
   FileText,
   ClipboardList,
+  Pencil,
 } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { NavigationStep } from '@/lib/api/oncology-navigation';
 import {
   usePatientNavigationSteps,
   useUpdateNavigationStep,
 } from '@/hooks/useOncologyNavigation';
 import { Button } from '@/components/ui/button';
+import { NavigationStepForm } from '@/components/patients/navigation-step-form';
+import type { UpdateNavigationStepFormData } from '@/lib/validations/navigation-step';
 
 interface OncologyNavigationPanelProps {
   patientId: string;
@@ -55,6 +65,7 @@ export function OncologyNavigationPanel({
   const [expandedStages, setExpandedStages] = useState<Set<string>>(
     new Set([currentStage])
   );
+  const [editingStep, setEditingStep] = useState<NavigationStep | null>(null);
   const { data: steps, isLoading } = usePatientNavigationSteps(patientId);
   const updateStep = useUpdateNavigationStep();
 
@@ -133,6 +144,30 @@ export function OncologyNavigationPanel({
         actualDate: new Date().toISOString(),
       },
     });
+  };
+
+  const handleEditStep = (step: NavigationStep) => {
+    setEditingStep(step);
+  };
+
+  const handleEditSubmit = async (data: UpdateNavigationStepFormData) => {
+    if (!editingStep) return;
+    await updateStep.mutateAsync({
+      stepId: editingStep.id,
+      data: {
+        status: data.status,
+        isCompleted: data.isCompleted,
+        completedAt: data.completedAt,
+        actualDate: data.actualDate,
+        dueDate: data.dueDate,
+        institutionName: data.institutionName,
+        professionalName: data.professionalName,
+        result: data.result,
+        findings: data.findings,
+        notes: data.notes,
+      },
+    });
+    setEditingStep(null);
   };
 
   if (isLoading) {
@@ -324,9 +359,19 @@ export function OncologyNavigationPanel({
                           )}
                         </div>
 
-                        {/* Botão de ação no canto direito */}
-                        {!step.isCompleted && step.status !== 'CANCELLED' && (
-                          <div className="flex-shrink-0">
+                        {/* Botões de ação no canto direito */}
+                        <div className="flex flex-shrink-0 items-center gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-8 gap-1.5 text-xs"
+                            onClick={() => handleEditStep(step)}
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                            Editar
+                          </Button>
+                          {!step.isCompleted && step.status !== 'CANCELLED' && (
                             <button
                               onClick={() => handleMarkComplete(step)}
                               disabled={updateStep.isPending}
@@ -336,8 +381,8 @@ export function OncologyNavigationPanel({
                                 ? 'Salvando...'
                                 : 'Marcar como Concluída'}
                             </button>
-                          </div>
-                        )}
+                          )}
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -347,6 +392,34 @@ export function OncologyNavigationPanel({
           );
         })}
       </div>
+
+      {/* Diálogo de edição da etapa */}
+      <Dialog
+        open={!!editingStep}
+        onOpenChange={(open) => !open && setEditingStep(null)}
+      >
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Editar próxima etapa</DialogTitle>
+            <DialogDescription>
+              {editingStep
+                ? `Atualize as informações da etapa: ${editingStep.stepName}`
+                : ''}
+            </DialogDescription>
+          </DialogHeader>
+          {editingStep && (
+            <NavigationStepForm
+              step={
+                editingStep as Parameters<
+                  typeof NavigationStepForm
+                >[0]['step']
+              }
+              onSubmit={handleEditSubmit}
+              onCancel={() => setEditingStep(null)}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
