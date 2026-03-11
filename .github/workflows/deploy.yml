@@ -1,0 +1,134 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+# ── Required GitHub Secrets ────────────────────────────────────────────────────
+# AWS_ACCESS_KEY_ID        IAM user access key (needs ECR push + describe permissions)
+# AWS_SECRET_ACCESS_KEY    IAM user secret key
+# AWS_ACCOUNT_ID           12-digit AWS account ID
+# AWS_REGION               e.g. us-east-1
+# EC2_HOST                 Public IP or hostname of the EC2 instance
+# EC2_USER                 SSH user (ec2-user for Amazon Linux, ubuntu for Ubuntu)
+# EC2_SSH_KEY              PEM private key (the full contents of the .pem file)
+# APP_URL                  Public URL of the app, e.g. https://yourdomain.com
+#                          Used as NEXT_PUBLIC_API_URL baked into the frontend image
+# ──────────────────────────────────────────────────────────────────────────────
+
+env:
+  ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
+
+jobs:
+  # ── 1. Build & push all three images to ECR ───────────────────────────────
+  build-and-push:
+    name: Build & push — ${{ matrix.service }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: backend
+            context: ./backend
+          - service: frontend
+            context: ./frontend
+          - service: ai-service
+            context: ./ai-service
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Derive wss:// or ws:// from APP_URL (https → wss, http → ws)
+      - name: Compute WebSocket URL
+        id: ws
+        run: |
+          APP_URL="${{ secrets.APP_URL }}"
+          WS_URL="${APP_URL/https:\/\//wss://}"
+          WS_URL="${WS_URL/http:\/\//ws://}"
+          echo "url=$WS_URL" >> "$GITHUB_OUTPUT"
+
+      # Build args only apply to the frontend image; ignored by backend/ai-service
+      - name: Build and push ${{ matrix.service }}
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          push: true
+          tags: |
+            ${{ env.ECR_REGISTRY }}/oncosaas-${{ matrix.service }}:${{ github.sha }}
+            ${{ env.ECR_REGISTRY }}/oncosaas-${{ matrix.service }}:latest
+          build-args: |
+            NEXT_PUBLIC_API_URL=${{ secrets.APP_URL }}
+            NEXT_PUBLIC_WS_URL=${{ steps.ws.outputs.url }}
+          # Layer cache scoped per service — dramatically speeds up subsequent builds
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+  # ── 2. Deploy to EC2 ──────────────────────────────────────────────────────
+  deploy:
+    name: Deploy to EC2
+    needs: build-and-push
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Copy compose files and nginx config to EC2
+      # These are the only repo files the EC2 instance needs at runtime
+      - name: Sync compose files and nginx config
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "docker-compose.yml,docker-compose.prod.yml,nginx/"
+          target: ~/app
+          strip_components: 0
+
+      - name: Pull images and restart services
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            set -e
+
+            export ECR_REGISTRY="${{ env.ECR_REGISTRY }}"
+            export IMAGE_TAG="${{ github.sha }}"
+            export AWS_REGION="${{ secrets.AWS_REGION }}"
+
+            # Authenticate Docker with ECR using the EC2 instance's IAM role
+            aws ecr get-login-password --region "$AWS_REGION" | \
+              docker login --username AWS --password-stdin "$ECR_REGISTRY"
+
+            cd ~/app
+
+            # Pull the three app images (infra images are pulled on demand by Compose)
+            docker pull "$ECR_REGISTRY/oncosaas-backend:$IMAGE_TAG"
+            docker pull "$ECR_REGISTRY/oncosaas-frontend:$IMAGE_TAG"
+            docker pull "$ECR_REGISTRY/oncosaas-ai-service:$IMAGE_TAG"
+
+            # Restart the full stack — --no-build forces Compose to use the pulled images
+            docker compose \
+              -f docker-compose.yml \
+              -f docker-compose.prod.yml \
+              up -d --no-build
+
+            # Remove dangling images from previous deploys
+            docker image prune -f

@@ -78,3 +78,6 @@ certs/*.pem
 certs/*.pfx
 certs/openssl.conf
 !certs/.gitkeep
+
+# Keys
+*.pem
