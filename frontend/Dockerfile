@@ -1,10 +1,15 @@
-# ---- Builder ----
-FROM node:20-alpine AS builder
+# ---- Dependencies ----
+FROM node:20-alpine AS deps
 WORKDIR /app
 
 COPY package*.json ./
 RUN npm ci
 
+# ---- Builder ----
+FROM node:20-alpine AS builder
+WORKDIR /app
+
+COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
 # These public env vars are baked into the JS bundle at build time
@@ -20,12 +25,12 @@ FROM node:20-alpine AS production
 WORKDIR /app
 
 ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
 
-COPY --from=builder /app/.next ./.next
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/package*.json ./
-COPY --from=builder /app/next.config.js ./next.config.js
+# COPY --from=builder /app/public ./public
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
 
 EXPOSE 3000
 
-CMD ["npm", "run", "start"]
+CMD ["node" "server.js"]
