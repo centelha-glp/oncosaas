@@ -4,6 +4,7 @@ const nextConfig = {
   images: {
     domains: [],
   },
+  output: 'standalone',
   env: {
     // URLs são detectadas automaticamente baseadas no protocolo da página
     // Se necessário forçar uma URL específica, defina no .env.local
