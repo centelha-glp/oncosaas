@@ -88,6 +88,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      # Obtain ECR token on the GHA runner — the EC2 instance needs no IAM role
+      - name: Get ECR login password
+        id: ecr
+        run: echo "password=$(aws ecr get-login-password)" >> "$GITHUB_OUTPUT"
+
       # Copy compose files and nginx config to EC2
       # These are the only repo files the EC2 instance needs at runtime
       - name: Sync compose files and nginx config
@@ -102,20 +114,20 @@ jobs:
 
       - name: Pull images and restart services
         uses: appleboy/ssh-action@v1.0.3
+        env:
+          ECR_REGISTRY: ${{ env.ECR_REGISTRY }}
+          IMAGE_TAG: ${{ github.sha }}
+          ECR_PASSWORD: ${{ steps.ecr.outputs.password }}
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
+          envs: ECR_REGISTRY,IMAGE_TAG,ECR_PASSWORD
           script: |
             set -e
 
-            export ECR_REGISTRY="${{ env.ECR_REGISTRY }}"
-            export IMAGE_TAG="${{ github.sha }}"
-            export AWS_REGION="${{ secrets.AWS_REGION }}"
-
-            # Authenticate Docker with ECR using the EC2 instance's IAM role
-            aws ecr get-login-password --region "$AWS_REGION" | \
-              docker login --username AWS --password-stdin "$ECR_REGISTRY"
+            # Authenticate Docker using the token obtained on the GHA runner
+            echo "$ECR_PASSWORD" | docker login --username AWS --password-stdin "$ECR_REGISTRY"
 
             cd ~/app
 

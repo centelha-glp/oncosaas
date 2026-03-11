@@ -7,7 +7,7 @@ services:
       POSTGRES_PASSWORD: ONCONAV_dev
       POSTGRES_DB: ONCONAV_development
     ports:
-      - '5432:5432'
+      - '127.0.0.1:5432:5432'
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -20,7 +20,7 @@ services:
     image: redis:7-alpine
     container_name: redis-cache
     ports:
-      - '6379:6379'
+      - '127.0.0.1:6379:6379'
     volumes:
       - redis_data:/data
     healthcheck:
@@ -36,8 +36,8 @@ services:
       RABBITMQ_DEFAULT_USER: ONCONAV
       RABBITMQ_DEFAULT_PASS: ONCONAV_dev
     ports:
-      - '5672:5672'
-      - '15672:15672'
+      - '127.0.0.1:5672:5672'
+      - '127.0.0.1:15672:15672'
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
     healthcheck:
@@ -59,7 +59,7 @@ services:
       rabbitmq:
         condition: service_healthy
     ports:
-      - '3002:3002'
+      - '127.0.0.1:3002:3002'
     environment:
       NODE_ENV: production
       PORT: '3002'
@@ -96,7 +96,7 @@ services:
     depends_on:
       - backend
     ports:
-      - '3000:3000'
+      - '127.0.0.1:3000:3000'
     environment:
       NODE_ENV: production
       NEXTAUTH_URL: http://localhost:3000
@@ -111,7 +111,7 @@ services:
       backend:
         condition: service_healthy
     ports:
-      - '8001:8001'
+      - '127.0.0.1:8001:8001'
     environment:
       BACKEND_URL: http://backend:3002
 
