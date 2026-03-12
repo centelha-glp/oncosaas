@@ -65,7 +65,9 @@ export function PatientClinicalTab({
 }: PatientClinicalTabProps): React.ReactElement {
   const [chartExam, setChartExam] = useState<ComplementaryExam | null>(null);
   const [openAddExam, setOpenAddExam] = useState(false);
-  const [examForResult, setExamForResult] = useState<ComplementaryExam | null>(null);
+  const [examForResult, setExamForResult] = useState<ComplementaryExam | null>(
+    null
+  );
 
   const complementaryExams: ComplementaryExam[] = Array.isArray(
     patient.complementaryExams
@@ -81,11 +83,7 @@ export function PatientClinicalTab({
     ? patient.familyHistory
     : [];
 
-  const currentMedications: CurrentMedication[] = Array.isArray(
-    patient.currentMedications
-  )
-    ? patient.currentMedications
-    : [];
+  const currentMedications: CurrentMedication[] = [];
 
   return (
     <div className="space-y-6">
@@ -182,7 +180,9 @@ export function PatientClinicalTab({
             </p>
           ) : (
             EXAM_TYPE_ORDER.map((type) => {
-              const examsOfType = complementaryExams.filter((e) => e.type === type);
+              const examsOfType = complementaryExams.filter(
+                (e) => e.type === type
+              );
               if (examsOfType.length === 0) return null;
               return (
                 <div key={type}>
@@ -261,7 +261,7 @@ export function PatientClinicalTab({
                                   <span className="text-right truncate min-w-0">
                                     {r.valueNumeric != null
                                       ? `${r.valueNumeric}${r.unit ? ` ${r.unit}` : ''}`
-                                      : r.valueText ?? r.report ?? '-'}
+                                      : (r.valueText ?? r.report ?? '-')}
                                     {r.isAbnormal && (
                                       <span className="text-amber-600 ml-1">
                                         (fora ref.)

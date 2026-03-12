@@ -328,7 +328,9 @@ export interface CreatePatientDto {
   currentSpecialty?: string;
 }
 
-export interface UpdatePatientDto extends Partial<CreatePatientDto> {}
+export interface UpdatePatientDto extends Partial<CreatePatientDto> {
+  currentMedications?: CurrentMedication[];
+}
 
 export interface NavigationStep {
   id: string;
@@ -418,6 +420,7 @@ export interface PatientDetail extends Patient {
   cancerDiagnoses: CancerDiagnosis[];
   complementaryExams?: ComplementaryExam[];
   navigationSteps: NavigationStep[];
+  currentMedications?: CurrentMedication[];
   alerts: Array<{
     id: string;
     type: string;
@@ -450,9 +453,9 @@ export const patientsApi = {
   },
 
   async getDetail(id: string): Promise<PatientDetail> {
-    const response = await apiClient.get<{ data: PatientDetail } | PatientDetail>(
-      `/patients/${id}/detail`
-    );
+    const response = await apiClient.get<
+      { data: PatientDetail } | PatientDetail
+    >(`/patients/${id}/detail`);
     // Backend retorna { data: patient }; garantir que retornamos o objeto paciente
     if (response && typeof response === 'object' && 'data' in response) {
       return (response as { data: PatientDetail }).data;
@@ -537,9 +540,7 @@ export const patientsApi = {
     );
   },
 
-  async getPatientSummary(
-    patientId: string
-  ): Promise<PatientSummaryResponse> {
+  async getPatientSummary(patientId: string): Promise<PatientSummaryResponse> {
     return apiClient.get<PatientSummaryResponse>(
       `/agent/patients/${patientId}/summary`
     );
@@ -687,9 +688,7 @@ export const patientsApi = {
   // ── Comorbidities ──────────────────────────────────────────────────────────
 
   async getComorbidities(patientId: string): Promise<Comorbidity[]> {
-    return apiClient.get<Comorbidity[]>(
-      `/patients/${patientId}/comorbidities`
-    );
+    return apiClient.get<Comorbidity[]>(`/patients/${patientId}/comorbidities`);
   },
 
   async createComorbidity(
@@ -734,7 +733,12 @@ export const patientsApi = {
 
   async addPerformanceStatus(
     patientId: string,
-    data: { ecogScore: number; assessedAt?: string; notes?: string; source?: string }
+    data: {
+      ecogScore: number;
+      assessedAt?: string;
+      notes?: string;
+      source?: string;
+    }
   ): Promise<PerformanceStatusEntry> {
     return apiClient.post<PerformanceStatusEntry>(
       `/patients/${patientId}/performance-status`,
