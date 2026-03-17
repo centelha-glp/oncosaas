@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import * as bcrypt from 'bcrypt';
@@ -80,10 +80,14 @@ export class AuthService {
       );
     }
 
-    const where = tenantId ? { tenantId, email } : { email };
+    if (!tenantId) {
+      throw new UnauthorizedException(
+        'tenantId é obrigatório para autenticação'
+      );
+    }
 
     const user = await this.prisma.user.findFirst({
-      where,
+      where: { tenantId, email },
       include: { tenant: true },
     });
 
@@ -348,7 +352,7 @@ export class AuthService {
         email: registerDto.email,
         password: hashedPassword,
         name: registerDto.name,
-        role: registerDto.role,
+        role: UserRole.NURSE,
         tenantId: registerDto.tenantId,
       },
       include: { tenant: true },
