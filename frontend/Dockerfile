@@ -1,5 +1,8 @@
 # ---- Dependencies ----
 FROM node:20-alpine AS deps
+
+RUN apk upgrade --no-cache
+
 WORKDIR /app
 
 COPY package*.json ./
@@ -7,6 +10,9 @@ RUN npm ci
 
 # ---- Builder ----
 FROM node:20-alpine AS builder
+
+RUN apk upgrade --no-cache
+
 WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
@@ -22,6 +28,9 @@ RUN npm run build
 
 # ---- Production ----
 FROM node:20-alpine AS production
+
+RUN apk upgrade --no-cache && npm install -g npm@latest
+
 WORKDIR /app
 
 ENV NODE_ENV=production
