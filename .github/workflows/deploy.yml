@@ -45,8 +45,8 @@ jobs:
             context: ./backend
           - service: frontend
             context: ./frontend
-          - service: ai-service
-            context: ./ai-service
+          # - service: ai-service
+          #   context: ./ai-service
 
     steps:
       - name: Checkout
@@ -99,7 +99,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [backend, frontend, ai-service]
+        service: [backend, frontend]
 
     steps:
       - name: Configure AWS credentials
@@ -154,15 +154,14 @@ jobs:
           DOMAIN="${DOMAIN%/}"
           echo "value=$DOMAIN" >> "$GITHUB_OUTPUT"
 
-      # Copy compose files and nginx config to EC2
-      # These are the only repo files the EC2 instance needs at runtime
-      - name: Sync compose files and nginx config
+      # Copy compose file to EC2 — the only repo files needed at runtime
+      - name: Sync compose
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          source: "docker-compose.yml,nginx/"
+          source: "docker-compose.yml"
           target: ~/app
           strip_components: 0
 
@@ -189,7 +188,7 @@ jobs:
             # Pull the three app images (infra images are pulled on demand by Compose)
             docker pull "$ECR_REGISTRY/oncosaas-backend:$IMAGE_TAG"
             docker pull "$ECR_REGISTRY/oncosaas-frontend:$IMAGE_TAG"
-            docker pull "$ECR_REGISTRY/oncosaas-ai-service:$IMAGE_TAG"
+            # docker pull "$ECR_REGISTRY/oncosaas-ai-service:$IMAGE_TAG"
 
             # Restart the full stack — --no-build forces Compose to use the pulled images
             # --force-recreate ensures old containers are stopped before new ones start,
