@@ -338,7 +338,6 @@ export function PatientCreateDialog({
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="SCREENING">Rastreio</SelectItem>
-                    <SelectItem value="NAVIGATION">Navegação</SelectItem>
                     <SelectItem value="DIAGNOSIS">Diagnóstico</SelectItem>
                     <SelectItem value="TREATMENT">Tratamento</SelectItem>
                     <SelectItem value="FOLLOW_UP">Seguimento</SelectItem>

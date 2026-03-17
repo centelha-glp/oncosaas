@@ -12,9 +12,6 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# Garante que public exista (Next.js opcional; evita falha no COPY do stage production)
-RUN mkdir -p public
-
 # These public env vars are baked into the JS bundle at build time
 ARG NEXT_PUBLIC_API_URL=http://localhost:3002
 ARG NEXT_PUBLIC_WS_URL=ws://localhost:3002
@@ -30,7 +27,7 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
-COPY --from=builder /app/public ./public
+# COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 
