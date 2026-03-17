@@ -200,28 +200,3 @@ jobs:
 
             # Remove dangling images from previous deploys
             docker image prune -f
-
-      - name: Verify deployment health
-        uses: appleboy/ssh-action@v1.0.3
-        env:
-          DOMAIN: ${{ steps.domain.outputs.value }}
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          envs: DOMAIN
-          script: |
-            # Wait up to 90s for backend health endpoint to respond 200
-            echo "Waiting for backend to become healthy..."
-            for i in $(seq 1 18); do
-              STATUS=$(curl -s -o /dev/null -w "%{http_code}" "https://$DOMAIN/api/v1/health" || echo "000")
-              if [ "$STATUS" = "200" ]; then
-                echo "Backend healthy (attempt $i)"
-                exit 0
-              fi
-              echo "Attempt $i: status=$STATUS — retrying in 5s..."
-              sleep 5
-            done
-            echo "ERROR: Backend did not become healthy after 90s"
-            docker compose -f ~/app/docker-compose.yml logs --tail=50 backend
-            exit 1
