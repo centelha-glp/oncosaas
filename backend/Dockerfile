@@ -1,5 +1,8 @@
 # ---- Builder ----
 FROM node:20-alpine AS builder
+
+RUN apk upgrade --no-cache
+
 WORKDIR /app
 
 COPY package*.json ./
@@ -16,6 +19,9 @@ RUN npm run build
 
 # ---- Production ----
 FROM node:20-alpine AS production
+
+RUN apk upgrade --no-cache && npm install -g npm@latest
+
 WORKDIR /app
 
 COPY --from=builder /app/dist ./dist
