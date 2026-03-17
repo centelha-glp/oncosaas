@@ -40,22 +40,6 @@ class ApiClient {
       headers: {
         'Content-Type': 'application/json',
       },
-      transformResponse: [
-        (data: unknown) => {
-          // Evita JSON.parse("") que lança "Unexpected end of JSON input"
-          if (typeof data === 'string' && data.trim() === '') {
-            return null;
-          }
-          if (typeof data === 'string') {
-            try {
-              return JSON.parse(data);
-            } catch {
-              return data;
-            }
-          }
-          return data;
-        },
-      ],
     });
 
     // Interceptor de request: adicionar token JWT e tenant
@@ -95,8 +79,7 @@ class ApiClient {
             try {
               const newAccessToken =
                 await this.refreshAccessToken(refreshToken);
-              originalRequest.headers = (originalRequest.headers ??
-                {}) as AxiosRequestHeaders;
+              originalRequest.headers = (originalRequest.headers ?? {}) as AxiosRequestHeaders;
               originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
               return this.client(originalRequest);
             } catch {
@@ -211,8 +194,7 @@ class ApiClient {
       localStorage.removeItem('tenant_id');
       localStorage.removeItem('user');
       // Clear session cookie so middleware redirects unauthenticated requests
-      document.cookie =
-        'session_active=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax';
+      document.cookie = 'session_active=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax';
     }
     this.tenantId = null;
   }

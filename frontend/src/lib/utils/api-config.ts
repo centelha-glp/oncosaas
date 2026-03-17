@@ -27,21 +27,13 @@ function detectProtocol(): 'https' | 'http' {
 /**
  * Obtém a URL base da API
  * Prioridade:
- * 1. No navegador: alinhar protocolo ao da página (evita HTTP quando a página é HTTPS)
- * 2. Variável de ambiente NEXT_PUBLIC_API_URL (se definida e completa)
- * 3. Protocolo detectado + localhost:3002
+ * 1. Variável de ambiente NEXT_PUBLIC_API_URL (se definida e completa)
+ * 2. Protocolo detectado + localhost:3002
  */
 export function getApiUrl(): string {
-  const port = process.env.NEXT_PUBLIC_API_PORT || '3002';
-  const baseHost = `localhost:${port}`;
-
-  // No navegador: usar o mesmo protocolo da página para evitar mixed content (HTTPS página → HTTP API)
-  if (typeof window !== 'undefined') {
-    const protocol = window.location.protocol;
-    return `${protocol}//${baseHost}`;
-  }
-
   const envUrl = process.env.NEXT_PUBLIC_API_URL;
+
+  // Se a variável de ambiente já tem protocolo completo, usar ela
   if (
     envUrl &&
     (envUrl.startsWith('http://') || envUrl.startsWith('https://'))
@@ -49,32 +41,29 @@ export function getApiUrl(): string {
     return envUrl;
   }
 
+  // Caso contrário, detectar protocolo e construir URL
   const protocol = detectProtocol();
-  return `${protocol}://${baseHost}`;
+  const port = process.env.NEXT_PUBLIC_API_PORT || '3002';
+  return `${protocol}://localhost:${port}`;
 }
 
 /**
  * Obtém a URL base do WebSocket
  * Prioridade:
- * 1. No navegador: alinhar protocolo ao da página (wss quando a página é HTTPS)
- * 2. Variável de ambiente NEXT_PUBLIC_WS_URL (se definida e completa)
- * 3. Protocolo detectado (ws/wss) + localhost:3002
+ * 1. Variável de ambiente NEXT_PUBLIC_WS_URL (se definida e completa)
+ * 2. Protocolo detectado (ws/wss) + localhost:3002
  */
 export function getWebSocketUrl(): string {
-  const port = process.env.NEXT_PUBLIC_API_PORT || '3002';
-  const baseHost = `localhost:${port}`;
-
-  if (typeof window !== 'undefined') {
-    const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    return `${wsProtocol}://${baseHost}`;
-  }
-
   const envUrl = process.env.NEXT_PUBLIC_WS_URL;
+
+  // Se a variável de ambiente já tem protocolo completo, usar ela
   if (envUrl && (envUrl.startsWith('ws://') || envUrl.startsWith('wss://'))) {
     return envUrl;
   }
 
+  // Caso contrário, detectar protocolo e construir URL
   const protocol = detectProtocol();
   const wsProtocol = protocol === 'https' ? 'wss' : 'ws';
-  return `${wsProtocol}://${baseHost}`;
+  const port = process.env.NEXT_PUBLIC_API_PORT || '3002';
+  return `${wsProtocol}://localhost:${port}`;
 }
