@@ -127,12 +127,20 @@ export class AlertsGateway implements OnGatewayConnection, OnGatewayDisconnect {
    * Cliente pode se inscrever para receber alertas de um paciente específico
    */
   @SubscribeMessage('subscribe_patient_alerts')
-  handleSubscribePatientAlerts(
+  async handleSubscribePatientAlerts(
     @ConnectedSocket() client: AuthenticatedSocket,
     @MessageBody() data: { patientId: string }
   ) {
     if (!client.tenantId) {
       return { error: 'Unauthorized' };
+    }
+
+    const patient = await this.prisma.patient.findFirst({
+      where: { id: data.patientId, tenantId: client.tenantId },
+      select: { id: true },
+    });
+    if (!patient) {
+      return { error: 'Forbidden' };
     }
 
     // Entrar na room do paciente (para alertas específicos)

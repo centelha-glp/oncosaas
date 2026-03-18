@@ -102,11 +102,6 @@ export class WhatsAppConnectionsService {
       configuredEncryptionKey || 'default-dev-key-32-bytes-long!!';
     this.metaApiBaseUrl = `https://graph.facebook.com/${this.metaApiVersion}`;
 
-    // Configurar versão da API via variável de ambiente (SDK usa FACEBOOK_ADS_API_VERSION)
-    if (!process.env.FACEBOOK_ADS_API_VERSION) {
-      process.env.FACEBOOK_ADS_API_VERSION = this.metaApiVersion;
-    }
-
     if (!this.metaAppId || !this.metaAppSecret) {
       this.logger.warn(
         'META_APP_ID or META_APP_SECRET not configured. OAuth flow will not work.'

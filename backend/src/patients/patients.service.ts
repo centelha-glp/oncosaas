@@ -158,6 +158,7 @@ export class PatientsService {
         alerts: {
           where: { status: { not: 'RESOLVED' } },
           orderBy: { createdAt: 'desc' },
+          take: 20,
         },
       },
     });
@@ -422,7 +423,7 @@ export class PatientsService {
     }
 
     const updatedPatient = await this.prisma.patient.update({
-      where: { id },
+      where: { id, tenantId },
       data: updateData,
       include: {
         cancerDiagnoses: {
@@ -554,7 +555,7 @@ export class PatientsService {
     }
 
     await this.prisma.patient.delete({
-      where: { id },
+      where: { id, tenantId },
     });
   }
 
@@ -1127,7 +1128,7 @@ export class PatientsService {
     }
 
     const updated = await this.prisma.cancerDiagnosis.update({
-      where: { id: diagnosisId },
+      where: { id: diagnosisId, tenantId },
       data: updateData,
     });
 
@@ -1193,7 +1194,7 @@ export class PatientsService {
     }
 
     await this.prisma.cancerDiagnosis.delete({
-      where: { id: diagnosisId },
+      where: { id: diagnosisId, tenantId },
     });
   }
 }
