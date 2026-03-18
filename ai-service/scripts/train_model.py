@@ -6,7 +6,7 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 from src.models.train_priority import generate_synthetic_dataset, MODEL_PATH
-from src.models.priority_model import FEATURE_COLUMNS, DISPOSITION_CLASSES, DISPOSITION_TO_IDX, priority_model, MODEL_PATH
+from src.models.priority_model import FEATURE_COLUMNS, DISPOSITION_CLASSES, DISPOSITION_TO_IDX, priority_model
 from sklearn.metrics import classification_report, confusion_matrix
 
 """

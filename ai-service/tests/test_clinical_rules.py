@@ -5,13 +5,10 @@ import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import pytest
 from src.agent.clinical_rules import (
     ClinicalRulesEngine,
     ER_IMMEDIATE,
     ER_DAYS,
-    ADVANCE_CONSULT,
-    SCHEDULED_CONSULT,
     REMOTE_NURSING,
 )
 
@@ -44,8 +41,8 @@ def _active_chemo_ctx(days_ago=5):
     start = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
     last = (datetime.now(timezone.utc) - timedelta(days=days_ago)).isoformat()
     return _ctx(treatments=[{
-        "status": "ACTIVE",
-        "type": "CHEMOTHERAPY",
+        "isActive": True,
+        "treatmentType": "CHEMOTHERAPY",
         "startDate": start,
         "lastApplicationDate": last,
     }])

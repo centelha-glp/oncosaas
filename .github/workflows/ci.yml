@@ -36,7 +36,7 @@ jobs:
         run: npm run lint
 
       - name: Test
-        run: npm test -- --forceExit
+        run: npm test
 
       - name: Security audit
         run: npm audit --audit-level=high

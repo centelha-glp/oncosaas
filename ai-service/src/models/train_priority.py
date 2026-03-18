@@ -33,7 +33,6 @@ from src.models.priority_model import (
     priority_model,
 )
 from src.agent.clinical_rules import clinical_rules_engine
-from src.agent.clinical_scores import clinical_scores
 
 
 # ─── Synthetic patient generators ─────────────────────────────────────────────
@@ -72,8 +71,6 @@ def _build_synthetic_patient(
     """
     from datetime import datetime, timezone, timedelta
 
-    p: Dict[str, Any] = {}
-
     cancer_type = _random_cancer_type(rng)
     stage = _random_stage(rng)
     age = int(rng.integers(25, 85))
@@ -100,9 +97,6 @@ def _build_synthetic_patient(
     # Comorbidities
     has_sepsis_risk = int(rng.random() < 0.10)
     has_thrombosis_risk = int(rng.random() < 0.10)
-    has_pulmonary_risk = int(rng.random() < 0.08)
-    has_renal_risk = int(rng.random() < 0.12)
-
     # Override defaults by scenario
     if scenario == "febrile_neutropenia":
         temperature = float(rng.uniform(38.0, 40.5))

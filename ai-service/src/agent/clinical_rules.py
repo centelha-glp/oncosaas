@@ -95,10 +95,8 @@ class ClinicalRulesEngine:
         """
         findings: List[RuleFinding] = []
 
-        patient = clinical_context.get("patient", {})
         treatments = clinical_context.get("treatments", [])
         medications = clinical_context.get("medications", [])
-        comorbidities = clinical_context.get("comorbidities", [])
         performance_history = clinical_context.get("performanceStatusHistory", [])
         detected_symptoms = symptom_analysis.get("detectedSymptoms", [])
         structured_data = symptom_analysis.get("structuredData", {})
@@ -322,7 +320,7 @@ class ClinicalRulesEngine:
                 findings.append(RuleFinding(
                     rule_id="R18_ECOG_DECLINE",
                     disposition=ADVANCE_CONSULT,
-                    reason=f"Declínio funcional de 1 ponto ECOG. Consulta antecipada para reavaliação clínica.",
+                    reason="Declínio funcional de 1 ponto ECOG. Consulta antecipada para reavaliação clínica.",
                     evidence={"ecog_delta": ecog_delta},
                 ))
 

@@ -9,11 +9,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 class TestModuleImports:
 
     def test_priority_model_imports(self):
-        from src.models.priority_model import OncologyPriorityModel, FEATURE_COLUMNS, DISPOSITION_CLASSES
+        from src.models.priority_model import OncologyPriorityModel
         assert OncologyPriorityModel is not None
 
     def test_clinical_rules_imports(self):
-        from src.agent.clinical_rules import ClinicalRulesEngine, ER_IMMEDIATE, ER_DAYS
+        from src.agent.clinical_rules import ClinicalRulesEngine
         assert ClinicalRulesEngine is not None
 
     def test_llm_provider_imports(self):
