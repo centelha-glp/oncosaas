@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
-import { useForm } from 'react-hook-form';
+import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import {
   cancerDiagnosisSchema,
@@ -136,7 +136,7 @@ export function CancerDiagnosisForm({
     }
   }, [primaryDiagnosisId, diagnosis, form]);
 
-  const cancerType = form.watch('cancerType');
+  const cancerType = useWatch({ control: form.control, name: 'cancerType' });
   const isBreastCancer =
     cancerType?.toLowerCase().includes('mama') || cancerType === 'breast';
   const isLungCancer =

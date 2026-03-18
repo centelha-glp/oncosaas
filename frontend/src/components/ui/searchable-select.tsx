@@ -78,27 +78,29 @@ export function SearchableSelect({
     [options, inputValue]
   );
 
-  const syncInputFromValue = useCallback(() => {
-    if (selectedOption) {
-      setInputValue(selectedOption.label);
-    } else if (value) {
-      setInputValue(value);
-    } else {
-      setInputValue('');
-    }
-  }, [value, selectedOption]);
+  // Derive the display label for the current value — recomputed synchronously.
+  const labelForValue = selectedOption?.label ?? value ?? '';
 
+  // "setState during render" — React will discard the render and re-render once
+  // synchronously when value/selectedOption changes, avoiding a cascading effect.
+  const [prevValue, setPrevValue] = React.useState(value);
+  const [prevSelectedLabel, setPrevSelectedLabel] = React.useState(labelForValue);
+  if (prevValue !== value || prevSelectedLabel !== labelForValue) {
+    setPrevValue(value);
+    setPrevSelectedLabel(labelForValue);
+    setInputValue(labelForValue);
+  }
+
+  const syncInputFromValue = useCallback(() => {
+    setInputValue(labelForValue);
+  }, [labelForValue]);
+
+  // DOM side-effect only: focus the input when the popover opens.
   useEffect(() => {
     if (open) {
-      syncInputFromValue();
-      setHighlightedIndex(0);
       setTimeout(() => inputRef.current?.focus(), 0);
     }
-  }, [open, syncInputFromValue]);
-
-  useEffect(() => {
-    syncInputFromValue();
-  }, [value, syncInputFromValue]);
+  }, [open]);
 
   const handleSelect = useCallback(
     (option: SearchableSelectOption) => {
@@ -175,7 +177,10 @@ export function SearchableSelect({
   }, [highlightedIndex]);
 
   const handleOpenChange = (next: boolean) => {
-    if (!next) {
+    if (next) {
+      syncInputFromValue();
+      setHighlightedIndex(0);
+    } else {
       syncInputFromValue();
     }
     setOpen(next);
@@ -226,6 +231,7 @@ export function SearchableSelect({
           {filteredOptions.length === 0 ? (
             <li
               role="option"
+              aria-selected={false}
               className="px-3 py-2 text-sm text-muted-foreground"
             >
               {emptyMessage}

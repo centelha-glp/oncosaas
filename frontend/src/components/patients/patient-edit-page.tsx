@@ -721,7 +721,7 @@ export function PatientEditPage({ patientId }: PatientEditPageProps) {
                   value={watch('currentStage') || ''}
                   onValueChange={(value) => {
                     if (value === '') {
-                      setValue('currentStage', undefined, {
+                      setValue('currentStage', 'SCREENING', {
                         shouldValidate: true,
                       });
                     } else {

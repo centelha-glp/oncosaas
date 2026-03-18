@@ -85,8 +85,8 @@ export function AlertsPanel({
 
   // Filtrar por severidade se especificado
   const filteredAlerts = severityFilter
-    ? alerts.filter((alert) => alert.severity === severityFilter)
-    : alerts;
+    ? (alerts ?? []).filter((alert) => alert.severity === severityFilter)
+    : (alerts ?? []);
 
   if (!alerts || alerts.length === 0) {
     return (

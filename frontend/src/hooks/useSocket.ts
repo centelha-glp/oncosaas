@@ -63,7 +63,9 @@ export const useSocket = (namespace: string = '/') => {
     socketRef.current = socketInstance;
 
     return () => {
-      socketInstance.close();
+      // Use disconnect() rather than close() so the underlying transport is not
+      // terminated when socket.io multiplexes multiple hooks on the same namespace.
+      socketInstance.disconnect();
       socketRef.current = null;
     };
   }, [token, user, namespace]);

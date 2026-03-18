@@ -122,7 +122,7 @@ export function ComplementaryExamCreateDialog({
       if (hasInitialResult && ir) {
         const performedAt =
           (ir.performedAt ?? '').trim() !== ''
-            ? new Date(ir.performedAt).toISOString()
+            ? new Date(ir.performedAt!).toISOString()
             : new Date().toISOString();
         await patientsApi.createComplementaryExamResult(patientId, exam.id, {
           performedAt,
@@ -244,9 +244,9 @@ export function ComplementaryExamCreateDialog({
                       <FormControl>
                         <div className="relative">
                           <Input
-                            ref={inputRef}
                             placeholder="Pesquisar por nome ou código..."
                             {...field}
+                            ref={inputRef}
                             onChange={(e) => field.onChange(e.target.value)}
                             onFocus={() => setComboboxOpen(true)}
                             className="pr-8"
