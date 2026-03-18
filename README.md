@@ -112,10 +112,16 @@ cd backend && npm install && cd ..
 cd ai-service && pip install -r requirements.txt && cd ..
 
 # 2. Variáveis de ambiente
+# Arquivo raiz (compartilhado)
 cp .env.example .env
-cp .env.example backend/.env
-cp .env.example frontend/.env.local
-# Edite os arquivos conforme necessário
+
+# Arquivos por serviço (isolado)
+cp backend/.env.example backend/.env
+cp frontend/.env.example frontend/.env.local
+cp ai-service/.env.example ai-service/.env
+
+# Ajuste secrets e domínios reais para produção.
+# Para desenvolvimento local, mantenha localhost + 127.0.0.1 em ALLOWED_ORIGINS/CORS_ORIGINS.
 
 # 3. Infra local (PostgreSQL, Redis, RabbitMQ)
 npm run docker:up   # equivale a docker-compose up -d
@@ -129,6 +135,26 @@ cd backend && npx prisma db seed && cd ..
 # 6. Ambiente de desenvolvimento (Frontend + Backend + AI Service)
 npm run dev
 ```
+
+### 🐳 Modos de Compose
+
+Use os arquivos de Compose conforme o objetivo:
+
+```bash
+# 1) Fluxo local padrão (recomendado para desenvolvimento)
+docker compose -f docker-compose.dev.yml up -d --build
+
+# 2) Infra apenas (rodar app fora do Docker)
+docker compose -f compose.infra.yml up -d
+
+# 3) Stack completo via composição modular
+docker compose -f compose.infra.yml -f compose.app.yml up -d --build
+```
+
+> `docker-compose.dev.yml` **não é igual** a `compose.infra.yml + compose.app.yml`.  
+> O arquivo `docker-compose.dev.yml` aplica defaults de desenvolvimento (ex: `NODE_ENV=development`,
+> CORS para `localhost`/`127.0.0.1` e URLs locais).  
+> A combinação modular (`infra + app`) é mais genérica e depende mais das variáveis de ambiente que você fornecer.
 
 ### 🔑 Credenciais de Teste
 
