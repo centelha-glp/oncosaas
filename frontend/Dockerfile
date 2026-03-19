@@ -1,12 +1,12 @@
 # ---- deps ----
-FROM node:24.14.0-alpine3.21 AS deps
+FROM node:24.14.0-alpine3.23 AS deps
 WORKDIR /app
 
 COPY package*.json ./
 RUN npm ci
 
 # ---- builder ----
-FROM node:24.14.0-alpine3.21 AS builder
+FROM node:24.14.0-alpine3.23 AS builder
 WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
