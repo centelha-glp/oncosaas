@@ -1,7 +1,7 @@
 # ---- Builder ----
-FROM node:20-alpine AS builder
+FROM node:24-alpine AS builder
 
-RUN apk upgrade --no-cache
+RUN apk update && apk upgrade --no-cache
 
 WORKDIR /app
 
@@ -18,9 +18,9 @@ COPY . .
 RUN npm run build
 
 # ---- Production ----
-FROM node:20-alpine AS production
+FROM node:24-alpine AS production
 
-RUN apk upgrade --no-cache && npm install -g npm@latest
+RUN apk update && apk upgrade --no-cache && npm install -g npm@latest
 
 WORKDIR /app
 
@@ -29,9 +29,6 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/package*.json ./
 COPY docker-entrypoint.sh ./docker-entrypoint.sh
-
-# Converte CRLF -> LF (evita "no such file or directory" no Alpine com arquivos do Windows)
-RUN sed -i 's/\r$//' ./docker-entrypoint.sh
 
 RUN chmod +x ./docker-entrypoint.sh && chown -R node:node /app
 

@@ -1,7 +1,7 @@
 # ---- Dependencies ----
-FROM node:20-alpine AS deps
+FROM node:24-alpine AS deps
 
-RUN apk upgrade --no-cache
+RUN apk update && apk upgrade --no-cache
 
 WORKDIR /app
 
@@ -9,9 +9,9 @@ COPY package*.json ./
 RUN npm ci
 
 # ---- Builder ----
-FROM node:20-alpine AS builder
+FROM node:24-alpine AS builder
 
-RUN apk upgrade --no-cache
+RUN apk update && apk upgrade --no-cache
 
 WORKDIR /app
 
