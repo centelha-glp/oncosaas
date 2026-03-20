@@ -4,38 +4,39 @@ on:
   push:
     branches: [main]
 
-# ── Required GitHub Secrets ────────────────────────────────────────────────────
-# AWS_ACCESS_KEY_ID        IAM user access key (needs ECR push + describe permissions)
-# AWS_SECRET_ACCESS_KEY    IAM user secret key
+# ── Recommended GitHub Variables (non-sensitive) ───────────────────────────────
 # AWS_ACCOUNT_ID           12-digit AWS account ID
 # AWS_REGION               e.g. us-east-1
-# EC2_HOST                 Public IP or hostname of the EC2 instance
-# EC2_USER                 SSH user (ec2-user for Amazon Linux, ubuntu for Ubuntu)
-# EC2_SSH_KEY              PEM private key (the full contents of the .pem file)
 # APP_URL                  Public URL of the app, e.g. https://yourdomain.com
 #                          Used as NEXT_PUBLIC_API_URL baked into the frontend image
-#                          Must be https:// — Caddy provisions the cert automatically
-#                          EC2 security group must allow inbound TCP 80 and 443
+#                          Must be https:// and allowed by your reverse proxy/TLS config
 #
-# ── Required Secrets on the EC2 instance (in ~/app/.env) ──────────────────────
-# DATABASE_URL             Managed Postgres URL (RDS/Postgres-compatible)
-# JWT_SECRET               Min 48 bytes: openssl rand -base64 48
-# ENCRYPTION_KEY           Exactly 32 chars: openssl rand -hex 16
-# NEXTAUTH_SECRET          Min 48 bytes: openssl rand -base64 48
-# ALLOWED_ORIGINS          Comma-separated CORS origins, e.g. https://yourdomain.com
-# CORS_ORIGINS             Same value, used by ai-service
-# RABBITMQ_DEFAULT_PASS    Strong random password
+# ── Required GitHub Secrets (CI/CD only) ───────────────────────────────────────
+# AWS_ACCESS_KEY_ID        IAM user access key (push images to ECR)
+# AWS_SECRET_ACCESS_KEY    IAM user secret key
+# EC2_HOST                 Public IP or hostname of the EC2 instance
+# EC2_USER                 SSH user (ec2-user for Amazon Linux, ubuntu for Ubuntu)
+# EC2_SSH_KEY              PEM private key (full private key contents)
+#
+# ── Runtime app config/secrets (do NOT keep in GitHub) ────────────────────────
+# Store on EC2 via AWS Secrets Manager / SSM Parameter Store and load at deploy/start:
+# DATABASE_URL, JWT_SECRET, ENCRYPTION_KEY, NEXTAUTH_SECRET, RABBITMQ_DEFAULT_PASS
+# ALLOWED_ORIGINS, CORS_ORIGINS
 # See docs/producao/secret-generation.md for generation commands
 # ──────────────────────────────────────────────────────────────────────────────
 
 env:
-  ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
+  AWS_REGION: ${{ vars.AWS_REGION || secrets.AWS_REGION }}
+  AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID || secrets.AWS_ACCOUNT_ID }}
+  APP_URL: ${{ vars.APP_URL || secrets.APP_URL }}
+  ECR_REGISTRY: ${{ (vars.AWS_ACCOUNT_ID || secrets.AWS_ACCOUNT_ID) }}.dkr.ecr.${{ (vars.AWS_REGION || secrets.AWS_REGION) }}.amazonaws.com
 
 jobs:
   # ── 1. Build & push all three images to ECR ───────────────────────────────
   build-and-push:
     name: Build & push — ${{ matrix.service }}
     runs-on: ubuntu-latest
+    environment: production
 
     strategy:
       fail-fast: false
@@ -50,14 +51,14 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
@@ -69,7 +70,7 @@ jobs:
       - name: Compute WebSocket URL
         id: ws
         run: |
-          APP_URL="${{ secrets.APP_URL }}"
+          APP_URL="${{ env.APP_URL }}"
           WS_URL="${APP_URL/https:\/\//wss://}"
           WS_URL="${WS_URL/http:\/\//ws://}"
           echo "url=$WS_URL" >> "$GITHUB_OUTPUT"
@@ -84,7 +85,7 @@ jobs:
             ${{ env.ECR_REGISTRY }}/oncosaas-${{ matrix.service }}:${{ github.sha }}
             ${{ env.ECR_REGISTRY }}/oncosaas-${{ matrix.service }}:latest
           build-args: |
-            NEXT_PUBLIC_API_URL=${{ secrets.APP_URL }}
+            NEXT_PUBLIC_API_URL=${{ env.APP_URL }}
             NEXT_PUBLIC_WS_URL=${{ steps.ws.outputs.url }}
           # Layer cache scoped per service — dramatically speeds up subsequent builds
           cache-from: type=gha,scope=${{ matrix.service }}
@@ -95,6 +96,7 @@ jobs:
     name: Scan — ${{ matrix.service }}
     needs: build-and-push
     runs-on: ubuntu-latest
+    environment: production
 
     strategy:
       fail-fast: false
@@ -107,7 +109,7 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
@@ -136,29 +138,25 @@ jobs:
     name: Deploy to EC2
     needs: scan
     runs-on: ubuntu-latest
+    environment: production
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
-
-      # Obtain ECR token on the GHA runner — the EC2 instance needs no IAM role
-      - name: Get ECR login password
-        id: ecr
-        run: echo "password=$(aws ecr get-login-password)" >> "$GITHUB_OUTPUT"
+          aws-region: ${{ env.AWS_REGION }}
 
       # Extract bare domain from APP_URL (e.g. https://app.example.com → app.example.com)
       # Caddy uses the domain as the site address and provisions the cert automatically
       - name: Extract domain from APP_URL
         id: domain
         run: |
-          DOMAIN="${{ secrets.APP_URL }}"
+          DOMAIN="${{ env.APP_URL }}"
           DOMAIN="${DOMAIN#https://}"
           DOMAIN="${DOMAIN#http://}"
           DOMAIN="${DOMAIN%/}"
@@ -180,18 +178,18 @@ jobs:
         env:
           ECR_REGISTRY: ${{ env.ECR_REGISTRY }}
           IMAGE_TAG: ${{ github.sha }}
-          ECR_PASSWORD: ${{ steps.ecr.outputs.password }}
+          AWS_REGION: ${{ env.AWS_REGION }}
           DOMAIN: ${{ steps.domain.outputs.value }}
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          envs: ECR_REGISTRY,IMAGE_TAG,ECR_PASSWORD,DOMAIN
+          envs: ECR_REGISTRY,IMAGE_TAG,AWS_REGION,DOMAIN
           script: |
             set -e
 
-            # Authenticate Docker using the token obtained on the GHA runner
-            echo "$ECR_PASSWORD" | docker login --username AWS --password-stdin "$ECR_REGISTRY"
+            # Authenticate Docker on the EC2 host using its instance role/profile
+            aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$ECR_REGISTRY"
 
             cd ~/app
 

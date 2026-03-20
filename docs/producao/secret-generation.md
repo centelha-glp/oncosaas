@@ -57,21 +57,40 @@ openssl rand -hex 32
 - **ENCRYPTION_KEY**: Requires data re-encryption. Do not rotate without a migration plan.
 - **Database passwords**: Rotate every 180 days.
 
-## GitHub Actions Secrets
+## GitHub Actions configuration
+
+Use GitHub only for CI/CD and deployment transport credentials.
+
+### GitHub Secrets (sensitive CI/CD values)
 
 Add these under **Settings → Secrets and variables → Actions**:
 
-| Secret Name             | Description                  | How to generate               |
-| ----------------------- | ---------------------------- | ----------------------------- |
-| `JWT_SECRET`            | JWT signing key              | `openssl rand -base64 48`     |
-| `ENCRYPTION_KEY`        | AES-256 key                  | `openssl rand -hex 16`        |
-| `NEXTAUTH_SECRET`       | NextAuth session key         | `openssl rand -base64 48`     |
-| `ALLOWED_ORIGINS`       | Comma-separated CORS origins | e.g. `https://yourdomain.com` |
-| `AWS_ACCESS_KEY_ID`     | AWS deployment credentials   | AWS IAM console               |
-| `AWS_SECRET_ACCESS_KEY` | AWS deployment credentials   | AWS IAM console               |
-| `AWS_ACCOUNT_ID`        | AWS account number           | AWS console                   |
-| `AWS_REGION`            | AWS region                   | e.g. `sa-east-1`              |
-| `EC2_HOST`              | EC2 instance hostname/IP     | AWS EC2 console               |
-| `EC2_USER`              | SSH user                     | e.g. `ec2-user`               |
-| `EC2_SSH_KEY`           | SSH private key              | `ssh-keygen -t ed25519`       |
-| `APP_URL`               | Production app URL           | e.g. `https://yourdomain.com` |
+| Secret Name             | Description                       | How to generate         |
+| ----------------------- | --------------------------------- | ----------------------- |
+| `AWS_ACCESS_KEY_ID`     | AWS deployment credentials        | AWS IAM console         |
+| `AWS_SECRET_ACCESS_KEY` | AWS deployment credentials        | AWS IAM console         |
+| `EC2_HOST`              | EC2 instance hostname/IP          | AWS EC2 console         |
+| `EC2_USER`              | SSH user                          | e.g. `ec2-user`         |
+| `EC2_SSH_KEY`           | SSH private key for deploy access | `ssh-keygen -t ed25519` |
+
+### GitHub Variables (non-sensitive environment config)
+
+Add these under **Settings → Secrets and variables → Actions → Variables**:
+
+| Variable Name    | Description            | Example                   |
+| ---------------- | ---------------------- | ------------------------- |
+| `AWS_ACCOUNT_ID` | AWS account number     | `123456789012`            |
+| `AWS_REGION`     | AWS region             | `sa-east-1`               |
+| `APP_URL`        | Production public URL  | `https://yourdomain.com`  |
+
+### Do not keep app runtime secrets in GitHub
+
+Store these in **AWS Secrets Manager** (preferred for secrets/rotation) or **SSM Parameter Store** (config + secure strings), and load them on EC2 at deploy/startup time:
+
+- `DATABASE_URL`
+- `JWT_SECRET`
+- `ENCRYPTION_KEY`
+- `NEXTAUTH_SECRET`
+- `RABBITMQ_DEFAULT_PASS`
+- `ALLOWED_ORIGINS`
+- `CORS_ORIGINS`
