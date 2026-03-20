@@ -9,8 +9,8 @@ numpy==1.26.0
 pandas==2.2.0
 scikit-learn==1.4.0
 lightgbm==4.6.0
-fastembed==0.3.0
-faiss-cpu==1.7.4
+fastembed==0.7.4
+faiss-cpu==1.11.0
 httpx==0.26.0
 python-multipart==0.0.22
-pillow==12.1.1
+pillow==11.3.0
