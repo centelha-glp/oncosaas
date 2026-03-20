@@ -128,7 +128,7 @@ Copy and configure:
 ```bash
 cp .env.example .env
 cp .env.example backend/.env
-cp .env.example frontend/.env.local
+cp .env.example frontend/.env
 ```
 
 Key variables:

@@ -23,10 +23,13 @@ Este documento consolida todo o processo de preparação do ambiente de desenvol
 
 ## 2. Variáveis de Ambiente
 
-1. Copie o exemplo: `cp .env.example .env`
+1. Copie os templates por serviço:
+   - `cp backend/.env.example backend/.env`
+   - `cp frontend/.env.example frontend/.env`
+   - `cp ai-service/.env.example ai-service/.env`
 2. Ajuste as credenciais locais (Postgres/Redis/RabbitMQ já vêm preenchidos para uso com o `docker-compose`).
-3. Para habilitar o agente de IA real, configure `OPENAI_API_KEY` e/ou `ANTHROPIC_API_KEY`.
-4. Configure os endpoints de WhatsApp/FHIR conforme necessário.
+3. Para habilitar o agente de IA real, configure `OPENAI_API_KEY` e/ou `ANTHROPIC_API_KEY` no `ai-service/.env`.
+4. Configure os endpoints de WhatsApp/FHIR conforme necessário (principalmente no `backend/.env`).
 
 > Sem as chaves de LLM, o AI Service sobe em modo _mock_, respondendo com mensagens padrão para facilitar o desenvolvimento.
 
@@ -169,10 +172,10 @@ Outros cenários:
 ```bash
 # 0. Pré-requisitos (Node 18+, python3, Docker, etc.)
 
-# 1. Configurar .env
-cp .env.example .env
-cp .env.example backend/.env
-cp .env.example frontend/.env.local
+# 1. Configurar .env por serviço
+cp backend/.env.example backend/.env
+cp frontend/.env.example frontend/.env
+cp ai-service/.env.example ai-service/.env
 
 # 2. Instalar dependências
 npm install

@@ -55,7 +55,7 @@ O frontend detectará automaticamente que está em `https://localhost:3000` e us
 
 ### Forçar URL Específica
 
-Se você precisar forçar uma URL específica (por exemplo, para desenvolvimento com proxy ou ambiente diferente), defina no `frontend/.env.local`:
+Se você precisar forçar uma URL específica (por exemplo, para desenvolvimento com proxy ou ambiente diferente), defina no `frontend/.env`:
 
 ```env
 # Forçar HTTPS mesmo que a página esteja em HTTP
@@ -79,7 +79,7 @@ NEXT_PUBLIC_WS_URL=ws://localhost:3002
 - `frontend/src/lib/api/client.ts`: Usa `getApiUrl()` em vez de variável estática
 - `frontend/src/hooks/useSocket.ts`: Usa `getWebSocketUrl()` em vez de variável estática
 - `frontend/next.config.js`: Removidas URLs hardcoded, agora usa detecção automática
-- `frontend/.env.local`: URLs comentadas (opcionais)
+- `frontend/.env`: URLs comentadas (opcionais)
 
 ### Backend
 

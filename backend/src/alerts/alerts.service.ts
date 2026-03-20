@@ -1,9 +1,20 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateAlertDto } from './dto/create-alert.dto';
 import { UpdateAlertDto } from './dto/update-alert.dto';
 import { Alert, AlertStatus } from '@prisma/client';
 import { AlertsGateway } from '../gateways/alerts.gateway';
+
+/** Forward-only status transitions. A terminal state (RESOLVED/DISMISSED) cannot be left. */
+const VALID_TRANSITIONS: Partial<Record<AlertStatus, AlertStatus[]>> = {
+  PENDING: ['ACKNOWLEDGED', 'RESOLVED', 'DISMISSED'],
+  ACKNOWLEDGED: ['RESOLVED', 'DISMISSED'],
+};
 
 @Injectable()
 export class AlertsService {
@@ -94,6 +105,25 @@ export class AlertsService {
       );
     }
 
+    // Deduplication: return the existing open alert rather than creating a duplicate
+    const existingOpenAlert = await this.prisma.alert.findFirst({
+      where: {
+        patientId: createAlertDto.patientId,
+        type: createAlertDto.type,
+        tenantId,
+        status: { in: ['PENDING', 'ACKNOWLEDGED'] },
+      },
+      include: {
+        patient: {
+          select: { id: true, name: true, phone: true },
+        },
+      },
+    });
+
+    if (existingOpenAlert) {
+      return existingOpenAlert;
+    }
+
     const alert = await this.prisma.alert.create({
       data: {
         ...createAlertDto,
@@ -137,43 +167,51 @@ export class AlertsService {
       throw new NotFoundException(`Alert with ID ${id} not found`);
     }
 
+    // Validate forward-only status transition
+    if (updateAlertDto.status && updateAlertDto.status !== existingAlert.status) {
+      const validNext = VALID_TRANSITIONS[existingAlert.status] ?? [];
+      if (!validNext.includes(updateAlertDto.status)) {
+        throw new BadRequestException(
+          `Invalid status transition: ${existingAlert.status} → ${updateAlertDto.status}`
+        );
+      }
+    }
+
     const updateData: any = { ...updateAlertDto };
 
-    // Se status mudou para RESOLVED, registrar resolvedAt e resolvedBy
+    // Registrar timestamps de lifecycle
     if (
       updateAlertDto.status === 'RESOLVED' &&
       existingAlert.status !== 'RESOLVED'
     ) {
       updateData.resolvedAt = new Date();
-      if (updateAlertDto.resolvedBy) {
-        updateData.resolvedBy = updateAlertDto.resolvedBy;
-      }
     }
 
-    // Se status mudou para ACKNOWLEDGED, registrar acknowledgedAt e acknowledgedBy
     if (
       updateAlertDto.status === 'ACKNOWLEDGED' &&
       existingAlert.status !== 'ACKNOWLEDGED'
     ) {
       updateData.acknowledgedAt = new Date();
-      if (updateAlertDto.acknowledgedBy) {
-        updateData.acknowledgedBy = updateAlertDto.acknowledgedBy;
-      }
     }
 
-    const updatedAlert = await this.prisma.alert.update({
-      where: { id },
-      data: updateData,
-      include: {
-        patient: {
-          select: {
-            id: true,
-            name: true,
-            phone: true,
-          },
-        },
-      },
-    });
+    if (updateAlertDto.status) {
+      // Atomic conditional update: only applies if status has not changed since we read it
+      const { count } = await this.prisma.alert.updateMany({
+        where: { id, tenantId, status: existingAlert.status },
+        data: updateData,
+      });
+
+      if (count === 0) {
+        throw new ConflictException(
+          'Alert status was modified by a concurrent request. Please refresh and retry.'
+        );
+      }
+    } else {
+      await this.prisma.alert.update({ where: { id, tenantId }, data: updateData });
+    }
+
+    // Re-fetch with full includes after update
+    const updatedAlert = await this.findOne(id, tenantId);
 
     // Emitir evento WebSocket para notificar atualização
     this.alertsGateway.emitAlertUpdate(tenantId, updatedAlert);

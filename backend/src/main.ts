@@ -16,7 +16,25 @@ import { PrismaExceptionFilter } from './common/filters/prisma-exception.filter'
 
 const logger = new Logger('Bootstrap');
 
+/** Crash loudly in production when required env vars are missing. */
+function validateEnv() {
+  const isProduction = process.env.NODE_ENV === 'production';
+  if (!isProduction) {
+    return;
+  }
+
+  const required = ['DATABASE_URL', 'JWT_SECRET', 'ENCRYPTION_KEY', 'REDIS_URL', 'FRONTEND_URL'];
+  const missing = required.filter((key) => !process.env[key]);
+  if (missing.length > 0) {
+    throw new Error(
+      `Missing required environment variables for production: ${missing.join(', ')}`
+    );
+  }
+}
+
 async function bootstrap() {
+  validateEnv();
+
   // Verificar se deve usar HTTPS
   const useHttps = process.env.USE_HTTPS === 'true';
   // Certificados estão na raiz do projeto
@@ -76,6 +94,8 @@ async function bootstrap() {
   const allowedOrigins = [
     'http://localhost:3000',
     'https://localhost:3000',
+    'http://127.0.0.1:3000',
+    'https://127.0.0.1:3000',
     'http://frontend:3000',
     'https://frontend:3000',
     frontendUrl,

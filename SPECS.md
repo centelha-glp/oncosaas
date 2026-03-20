@@ -1195,7 +1195,7 @@ Copiar e configurar:
 ```bash
 cp .env.example .env
 cp .env.example backend/.env
-cp .env.example frontend/.env.local
+cp .env.example frontend/.env
 ```
 
 ### 19.1 Variáveis Principais

@@ -52,7 +52,7 @@ if exist ".husky\pre-commit" (
 )
 
 REM Verificar ESLint Frontend
-if exist "frontend\.eslintrc.json" (
+if exist "frontend\eslint.config.mjs" (
     echo ✓ ESLint (Frontend) configurado
 ) else (
     echo ✗ ESLint (Frontend) não configurado

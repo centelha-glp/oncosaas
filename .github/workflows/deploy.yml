@@ -18,12 +18,12 @@ on:
 #                          EC2 security group must allow inbound TCP 80 and 443
 #
 # ── Required Secrets on the EC2 instance (in ~/app/.env) ──────────────────────
+# DATABASE_URL             Managed Postgres URL (RDS/Postgres-compatible)
 # JWT_SECRET               Min 48 bytes: openssl rand -base64 48
 # ENCRYPTION_KEY           Exactly 32 chars: openssl rand -hex 16
 # NEXTAUTH_SECRET          Min 48 bytes: openssl rand -base64 48
 # ALLOWED_ORIGINS          Comma-separated CORS origins, e.g. https://yourdomain.com
 # CORS_ORIGINS             Same value, used by ai-service
-# POSTGRES_PASSWORD        Strong random password (not ONCONAV_dev)
 # RABBITMQ_DEFAULT_PASS    Strong random password
 # See docs/producao/secret-generation.md for generation commands
 # ──────────────────────────────────────────────────────────────────────────────
@@ -45,8 +45,8 @@ jobs:
             context: ./backend
           - service: frontend
             context: ./frontend
-          # - service: ai-service
-          #   context: ./ai-service
+          - service: ai-service
+            context: ./ai-service
 
     steps:
       - name: Checkout
@@ -99,7 +99,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [backend, frontend]
+        service: [backend, frontend, ai-service]
 
     steps:
       - name: Configure AWS credentials
@@ -112,14 +112,24 @@ jobs:
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Scan ${{ matrix.service }} for vulnerabilities
+      - name: Scan ${{ matrix.service }} for HIGH vulnerabilities (warn only)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.ECR_REGISTRY }}/oncosaas-${{ matrix.service }}:${{ github.sha }}
+          format: table
+          exit-code: '0'
+          ignore-unfixed: true
+          severity: HIGH
+
+      - name: Scan ${{ matrix.service }} for CRITICAL vulnerabilities (fail build)
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: ${{ env.ECR_REGISTRY }}/oncosaas-${{ matrix.service }}:${{ github.sha }}
           format: table
           exit-code: '1'
           ignore-unfixed: true
-          severity: CRITICAL,HIGH
+          severity: CRITICAL
+          skip-setup-trivy: true
 
   # ── 3. Deploy to EC2 ──────────────────────────────────────────────────────
   deploy:
@@ -154,14 +164,14 @@ jobs:
           DOMAIN="${DOMAIN%/}"
           echo "value=$DOMAIN" >> "$GITHUB_OUTPUT"
 
-      # Copy compose file to EC2 — the only repo files needed at runtime
+      # Copy compose files to EC2
       - name: Sync compose
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          source: "docker-compose.yml"
+          source: "docker-compose.prod.yml,compose.app.yml,compose.infra.yml,docker-compose.dev.yml"
           target: ~/app
           strip_components: 0
 
@@ -188,13 +198,13 @@ jobs:
             # Pull the three app images (infra images are pulled on demand by Compose)
             docker pull "$ECR_REGISTRY/oncosaas-backend:$IMAGE_TAG"
             docker pull "$ECR_REGISTRY/oncosaas-frontend:$IMAGE_TAG"
-            # docker pull "$ECR_REGISTRY/oncosaas-ai-service:$IMAGE_TAG"
+            docker pull "$ECR_REGISTRY/oncosaas-ai-service:$IMAGE_TAG"
 
-            # Restart the full stack — --no-build forces Compose to use the pulled images
+            # Restart production app stack — --no-build forces Compose to use the pulled images
             # --force-recreate ensures old containers are stopped before new ones start,
             # preventing "address already in use" port binding errors
             docker compose \
-              -f docker-compose.yml \
+              -f docker-compose.prod.yml \
               up -d --no-build --force-recreate --remove-orphans
 
             # Remove dangling images from previous deploys

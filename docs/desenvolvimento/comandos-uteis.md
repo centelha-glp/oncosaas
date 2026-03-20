@@ -207,11 +207,15 @@ cd ai-service && pip install --upgrade -r requirements.txt
 ## 🔐 Variáveis de Ambiente
 
 ```bash
-# Copiar exemplo
-cp .env.example .env
+# Copiar exemplos por serviço
+cp backend/.env.example backend/.env
+cp frontend/.env.example frontend/.env
+cp ai-service/.env.example ai-service/.env
 
 # Editar
-nano .env  # ou code .env
+nano backend/.env
+nano frontend/.env
+nano ai-service/.env
 ```
 
 ---

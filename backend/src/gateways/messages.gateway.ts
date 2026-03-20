@@ -11,6 +11,7 @@ import { Server, Socket } from 'socket.io';
 import { Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
+import { PrismaService } from '../prisma/prisma.service';
 
 interface AuthenticatedSocket extends Socket {
   userId?: string;
@@ -35,7 +36,8 @@ export class MessagesGateway
 
   constructor(
     private jwtService: JwtService,
-    private configService: ConfigService
+    private configService: ConfigService,
+    private prisma: PrismaService
   ) {}
 
   async handleConnection(client: AuthenticatedSocket) {
@@ -52,9 +54,20 @@ export class MessagesGateway
       }
 
       // Verificar e decodificar token
+      const jwtSecret = this.configService.get<string>('JWT_SECRET');
+      const isProduction =
+        this.configService.get<string>('NODE_ENV') === 'production';
+
+      if (isProduction && !jwtSecret) {
+        this.logger.error(
+          'JWT_SECRET must be configured in production environment'
+        );
+        client.disconnect();
+        return;
+      }
+
       const payload = this.jwtService.verify(token, {
-        secret:
-          this.configService.get<string>('JWT_SECRET') || 'your-secret-key',
+        secret: jwtSecret || 'your-secret-key',
       });
 
       // Adicionar informações do usuário ao socket
@@ -130,12 +143,20 @@ export class MessagesGateway
    * Cliente pode se inscrever para receber mensagens de um paciente específico
    */
   @SubscribeMessage('subscribe_patient_messages')
-  handleSubscribePatientMessages(
+  async handleSubscribePatientMessages(
     @ConnectedSocket() client: AuthenticatedSocket,
     @MessageBody() data: { patientId: string }
   ) {
     if (!client.tenantId) {
       return { error: 'Unauthorized' };
+    }
+
+    const patient = await this.prisma.patient.findFirst({
+      where: { id: data.patientId, tenantId: client.tenantId },
+      select: { id: true },
+    });
+    if (!patient) {
+      return { error: 'Forbidden' };
     }
 
     // Entrar na room do paciente (para mensagens específicas)

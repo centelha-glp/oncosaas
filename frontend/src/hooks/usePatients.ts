@@ -33,7 +33,6 @@ export const useCreatePatient = () => {
       toast.success('Paciente criado com sucesso!');
     },
     onError: (error: Error) => {
-      console.error('Erro ao criar paciente:', error);
       toast.error('Falha ao criar paciente.', {
         description: error.message || 'Verifique os dados e tente novamente.',
       });
@@ -53,7 +52,6 @@ export const useUpdatePatient = () => {
       toast.success('Paciente atualizado com sucesso!');
     },
     onError: (error: Error) => {
-      console.error('Erro ao atualizar paciente:', error);
       toast.error('Falha ao atualizar paciente.', {
         description: error.message || 'Verifique os dados e tente novamente.',
       });
@@ -71,7 +69,6 @@ export const useDeletePatient = () => {
       toast.success('Paciente removido com sucesso!');
     },
     onError: (error: Error) => {
-      console.error('Erro ao remover paciente:', error);
       toast.error('Falha ao remover paciente.', {
         description: error.message || 'Tente novamente mais tarde.',
       });

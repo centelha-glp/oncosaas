@@ -148,7 +148,10 @@ export const useMessagesSocket = (patientId?: string) => {
       socket.off('message_sent', handleMessageSent);
       socket.emit('unsubscribe_patient_messages', { patientId });
     };
-  }, [socketRef, isConnected, patientId, queryClient]);
+    // socketRef is a stable ref — its identity never changes, so it does not belong
+    // in the dependency array. isConnected is the correct signal to re-run this effect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isConnected, patientId, queryClient]);
 
   return {
     isConnected,

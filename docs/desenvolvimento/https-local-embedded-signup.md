@@ -67,7 +67,7 @@ O ngrok fornecerá uma URL HTTPS como: `https://abc123.ngrok-free.app`
 
 ### 6. Atualizar variáveis de ambiente
 
-**Frontend (`frontend/.env.local`):**
+**Frontend (`frontend/.env`):**
 
 ```env
 NEXT_PUBLIC_API_URL=https://abc123.ngrok-free.app:3002

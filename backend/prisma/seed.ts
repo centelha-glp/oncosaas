@@ -3,8 +3,8 @@ import * as bcrypt from 'bcrypt';
 import * as dotenv from 'dotenv';
 import { resolve } from 'path';
 
-// Carregar variáveis de ambiente do arquivo .env na raiz do projeto
-dotenv.config({ path: resolve(__dirname, '../../.env') });
+// Carregar variáveis de ambiente do backend/.env
+dotenv.config({ path: resolve(__dirname, '../.env') });
 
 const prisma = new PrismaClient();
 

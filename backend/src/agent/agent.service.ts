@@ -786,7 +786,7 @@ export class AgentService {
     }
 
     await this.prisma.treatment.update({
-      where: { id: treatmentId },
+      where: { id: treatmentId, tenantId },
       data: {
         status: newStatus,
         notes: reason
@@ -853,7 +853,7 @@ export class AgentService {
 
     // Escalate the conversation to nursing/specialist
     await this.prisma.conversation.update({
-      where: { id: conversationId },
+      where: { id: conversationId, tenantId },
       data: {
         handledBy: 'NURSING',
         status: 'WAITING',

@@ -152,8 +152,8 @@ export function PatientListConnected({
   const transformedPatients = sortedPatients.map((patient) => ({
     id: patient.id,
     name: patient.name,
-    cancerType: getPatientCancerType(patient),
-    stage: patient.stage,
+    cancerType: getPatientCancerType(patient) ?? '',
+    stage: patient.stage ?? '',
     priorityScore: patient.priorityScore,
     priorityCategory: mapPriorityToDisplay(
       patient.priorityCategory || 'MEDIUM'

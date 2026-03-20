@@ -70,17 +70,49 @@ describe('AuthService', () => {
       mockRedis.get.mockResolvedValueOnce('1'); // locked key exists
 
       await expect(
-        service.validateUser('test@example.com', 'password')
+        service.validateUser('test@example.com', 'password', 'tenant-1')
       ).rejects.toThrow(ForbiddenException);
     });
 
-    it('should throw UnauthorizedException when user not found', async () => {
+    it('should authenticate without tenantId (first login)', async () => {
+      const hashedPassword = await bcrypt.hash('correct-password', 10);
+
+      mockRedis.get.mockResolvedValue(null); // not locked
+      mockPrisma.user.findFirst.mockResolvedValue({
+        id: 'user-1',
+        email: 'test@example.com',
+        password: hashedPassword,
+        mfaEnabled: false,
+        tenantId: 'tenant-1',
+        role: 'NURSE',
+        tenant: { id: 'tenant-1', name: 'Test' },
+      });
+      mockRedis.del.mockResolvedValue(1);
+
+      const result = await service.validateUser(
+        'test@example.com',
+        'correct-password'
+      );
+
+      expect(result).toMatchObject({
+        id: 'user-1',
+        email: 'test@example.com',
+        tenantId: 'tenant-1',
+      });
+      expect(mockPrisma.user.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { email: 'test@example.com' },
+        })
+      );
+    });
+
+    it('should throw UnauthorizedException when user not found in tenant', async () => {
       mockRedis.get.mockResolvedValue(null); // not locked
       mockPrisma.user.findFirst.mockResolvedValue(null);
       mockRedis.increment.mockResolvedValue(1);
 
       await expect(
-        service.validateUser('unknown@example.com', 'password')
+        service.validateUser('unknown@example.com', 'password', 'tenant-1')
       ).rejects.toThrow(UnauthorizedException);
     });
 
@@ -100,7 +132,7 @@ describe('AuthService', () => {
       mockRedis.increment.mockResolvedValue(1);
 
       await expect(
-        service.validateUser('test@example.com', 'wrong-password')
+        service.validateUser('test@example.com', 'wrong-password', 'tenant-1')
       ).rejects.toThrow(UnauthorizedException);
     });
 
@@ -122,12 +154,27 @@ describe('AuthService', () => {
 
       const result = await service.validateUser(
         'test@example.com',
-        'correct-password'
+        'correct-password',
+        'tenant-1'
       );
 
       expect(result).not.toHaveProperty('password');
       expect(result.id).toBe('user-1');
       expect(result.email).toBe('test@example.com');
+    });
+
+    it('should not return user from a different tenant', async () => {
+      mockRedis.get.mockResolvedValue(null); // not locked
+      mockPrisma.user.findFirst.mockResolvedValue(null); // DB scopes query to tenantId
+      mockRedis.increment.mockResolvedValue(1);
+
+      await expect(
+        service.validateUser('test@example.com', 'correct-password', 'other-tenant')
+      ).rejects.toThrow(UnauthorizedException);
+
+      expect(mockPrisma.user.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ tenantId: 'other-tenant' }) })
+      );
     });
 
     it('should throw UnauthorizedException when MFA is enabled', async () => {
@@ -145,9 +192,10 @@ describe('AuthService', () => {
       });
 
       await expect(
-        service.validateUser('test@example.com', 'correct-password')
+        service.validateUser('test@example.com', 'correct-password', 'tenant-1')
       ).rejects.toThrow(UnauthorizedException);
     });
+
   });
 
   describe('login', () => {

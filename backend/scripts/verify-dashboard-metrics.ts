@@ -12,7 +12,7 @@ import { resolve } from 'path';
 import { DashboardService } from '../src/dashboard/dashboard.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 
-dotenv.config({ path: resolve(__dirname, '../../.env') });
+dotenv.config({ path: resolve(__dirname, '../.env') });
 
 const prisma = new PrismaClient();
 

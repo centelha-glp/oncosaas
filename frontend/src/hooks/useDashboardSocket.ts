@@ -22,7 +22,10 @@ export const useDashboardSocket = () => {
       queryClient.invalidateQueries({ queryKey: ['dashboard', 'metrics'] });
       queryClient.invalidateQueries({ queryKey: ['alerts'] });
       queryClient.invalidateQueries({ queryKey: ['alerts', 'open', 'count'] });
-      queryClient.invalidateQueries({ queryKey: ['patients'] });
+      // Invalidate only the specific patient affected, not the entire list.
+      if (alert.patientId) {
+        queryClient.invalidateQueries({ queryKey: ['patients', alert.patientId] });
+      }
 
       // Notificação do navegador (opcional)
       if ('Notification' in window && Notification.permission === 'granted') {
@@ -39,7 +42,6 @@ export const useDashboardSocket = () => {
       queryClient.invalidateQueries({ queryKey: ['dashboard', 'metrics'] });
       queryClient.invalidateQueries({ queryKey: ['alerts'] });
       queryClient.invalidateQueries({ queryKey: ['alerts', 'open', 'count'] });
-      queryClient.invalidateQueries({ queryKey: ['patients'] });
     };
 
     // Escutar novos alertas
@@ -47,14 +49,12 @@ export const useDashboardSocket = () => {
       queryClient.invalidateQueries({ queryKey: ['dashboard', 'metrics'] });
       queryClient.invalidateQueries({ queryKey: ['alerts'] });
       queryClient.invalidateQueries({ queryKey: ['alerts', 'open', 'count'] });
-      queryClient.invalidateQueries({ queryKey: ['patients'] });
     };
 
     // Escutar contagem de alertas abertos
     const handleOpenAlertsCount = () => {
       queryClient.invalidateQueries({ queryKey: ['dashboard', 'metrics'] });
       queryClient.invalidateQueries({ queryKey: ['alerts', 'open', 'count'] });
-      queryClient.invalidateQueries({ queryKey: ['patients'] });
     };
 
     // Registrar listeners

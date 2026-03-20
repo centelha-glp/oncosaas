@@ -7,6 +7,4 @@ coverage
 *.generated.ts
 *.generated.js
 prisma/migrations
-.env
-.env.local
-
+.env*

@@ -28,6 +28,16 @@ disable = ['C0111', 'missing-docstring', 'too-few-public-methods']
 [tool.pylint.format]
 max-line-length = 88
 
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+# E402: module-level imports not at top of file — intentional in main.py (dotenv must
+# load before importing modules that call os.getenv at construction time) and in tests
+# (sys.path manipulation before project imports).
+ignore = ["E402"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]

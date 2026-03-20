@@ -15,7 +15,7 @@ else:
 
 O método [llm_provider.has_any_llm_key](ai-service/src/agent/llm_provider.py) retorna `True` se existir `ANTHROPIC_API_KEY` ou `OPENAI_API_KEY` em `agent_config` **ou** no `.env` / variáveis de ambiente (mesma resolução usada nas chamadas à API).
 
-- **Com chaves no .env**: se `ANTHROPIC_API_KEY` ou `OPENAI_API_KEY` estiver definido no `.env` (raiz do projeto ou `ai-service/.env`), o multi-agente **roda** mesmo quando o backend não envia chaves no payload.
+- **Com chaves no .env**: se `ANTHROPIC_API_KEY` ou `OPENAI_API_KEY` estiver definido no `ai-service/.env`, o multi-agente **roda** mesmo quando o backend não envia chaves no payload.
 - **Backend com chaves por tenant**: se no futuro o backend enviar `anthropic_api_key` / `openai_api_key` no `agent_config`, elas têm prioridade (resolução explícita no provider).
 
 ---
@@ -161,7 +161,7 @@ Todas em [action_tools.py](ai-service/src/agent/prompts/action_tools.py). O orch
 
 ### Pré-requisito
 
-- `ANTHROPIC_API_KEY` ou `OPENAI_API_KEY` no `.env` (raiz do projeto ou `ai-service/.env`).
+- `ANTHROPIC_API_KEY` ou `OPENAI_API_KEY` no `ai-service/.env`.
 
 ---
 

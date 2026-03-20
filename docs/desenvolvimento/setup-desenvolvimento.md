@@ -20,8 +20,10 @@ cd ONCONAV
 ### 2. Configure variáveis de ambiente
 
 ```bash
-cp .env.example .env
-# Edite .env com suas configurações
+cp backend/.env.example backend/.env
+cp frontend/.env.example frontend/.env
+cp ai-service/.env.example ai-service/.env
+# Edite os arquivos de cada serviço com suas configurações
 ```
 
 ### 3. Inicie serviços com Docker Compose

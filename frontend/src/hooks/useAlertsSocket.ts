@@ -27,9 +27,12 @@ export const useAlertsSocket = () => {
     socket.on('critical_alert', handleCriticalAlert);
 
     return () => {
-      socket.off('critical_alert');
+      socket.off('critical_alert', handleCriticalAlert);
     };
-  }, [socketRef, isConnected]);
+    // socketRef is a stable ref — its identity never changes, so it does not belong
+    // in the dependency array. isConnected is the correct signal to re-run this effect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isConnected]);
 
   return { alerts, isConnected };
 };

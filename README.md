@@ -1,237 +1,194 @@
-# ONCONAV - Plataforma de Navegação Oncológica
+# ONCONAV (OncoSaaS)
 
-SaaS multi-tenant para navegação oncológica com agente de IA conversacional no WhatsApp, priorização inteligente de casos, sistema de alertas e dashboard para equipe de enfermagem.
+Plataforma de navegação oncológica com arquitetura de microsserviços:
 
-[![GitHub](https://img.shields.io/badge/GitHub-ONCONAV-blue)](https://github.com/luizfiorimr/OncoNav)
+- `frontend`: Next.js (dashboard e fluxos operacionais)
+- `backend`: NestJS + Prisma (API, regras de negócio, autenticação)
+- `ai-service`: FastAPI (agente conversacional, priorização e endpoints de IA)
 
-## 🚀 Status do Projeto
+## Funcionalidades principais
 
-- ✅ Estrutura inicial do projeto criada
-- ✅ Stack tecnológico definido (Next.js, NestJS, FastAPI)
-- ✅ Documentação completa criada
-- ✅ Setup de desenvolvimento configurado
-- ✅ **Sistema de Navegação Oncológica** implementado (câncer colorretal)
-- ✅ **Sistema de Alertas** automáticos para atrasos e etapas pendentes
-- ✅ **Dashboard para Enfermagem** com visualização de pacientes e priorização
-- ✅ **Agente de IA WhatsApp** estruturado para conversação com pacientes
-- ✅ **Modelos de Priorização** (XGBoost) para classificação de urgência
-- ✅ **Integração FHIR/HL7** para interoperabilidade
-- ⏳ Em desenvolvimento ativo
+- Visualização e navegação oncológica ponta a ponta (rastreio, diagnóstico, tratamento e seguimento).
+- Dashboard clínico para acompanhamento de pacientes, status de etapas e prioridades.
+- Priorização inteligente de casos com modelo de risco/urgência no AI Service.
+- Agente conversacional para interação com paciente e coleta estruturada de informações.
+- Sistema de alertas para atrasos, pendências e pontos críticos da jornada.
+- Estrutura preparada para integração com ecossistema hospitalar (ex.: FHIR/HL7 e WhatsApp).
 
-## 📋 Funcionalidades Principais
+## Arquitetura
 
-### 🧭 Navegação Oncológica
-
-- Coordenação completa da jornada do paciente (rastreio → diagnóstico → tratamento → seguimento)
-- Etapas automáticas baseadas no tipo de câncer
-- Detecção de atrasos e alertas proativos
-- Suporte para múltiplos tipos de câncer (colorretal, mama, pulmão, próstata, etc.)
-
-### 🤖 Agente de IA WhatsApp
-
-- Conversação natural com pacientes via WhatsApp Business API
-- Triagem inicial e coleta de informações
-- Orientação sobre exames e procedimentos
-- Integração com sistema de navegação oncológica
-
-### 📊 Dashboard e Priorização
-
-- Visualização consolidada de todos os pacientes
-- Priorização inteligente baseada em IA (XGBoost)
-- Alertas em tempo real via WebSocket
-- Filtros e buscas avançadas
-
-### 🚨 Sistema de Alertas
-
-- Alertas automáticos para etapas atrasadas
-- Notificações de exames pendentes
-- Alertas de estadiamento incompleto
-- Avisos de atraso no tratamento
-
-## Estrutura do Projeto
-
-```
-ONCONAV/
-├── frontend/              # Next.js 14 (React + TypeScript) - porta 3000
-├── backend/               # NestJS (Node.js + TypeScript) - porta 3002
-├── ai-service/            # Python FastAPI (IA/ML) - porta 8001
-├── docs/                  # Documentação completa
-└── docker-compose.yml     # Ambiente de desenvolvimento (PostgreSQL, Redis, RabbitMQ)
+```text
+.
+├── frontend/            # Next.js (porta 3000)
+├── backend/             # NestJS (porta 3002)
+├── ai-service/          # FastAPI (porta 8001)
+├── docs/                # documentação funcional e técnica
+├── docker-compose.dev.yml
+├── compose.infra.yml
+└── compose.app.yml
 ```
 
-## Stack Tecnológico
+## Stack
 
-- **Frontend**: Next.js 14 (React + TypeScript)
-- **Backend**: NestJS (Node.js + TypeScript)
-- **IA/ML**: Python (FastAPI), GPT-4/Claude, XGBoost
-- **Database**: PostgreSQL (multi-tenant)
-- **WhatsApp**: WhatsApp Business API
-- **Integração**: HL7/FHIR
+- Frontend: Next.js 15 + React 19 + TypeScript
+- Backend: NestJS 11 + Prisma + PostgreSQL
+- AI: FastAPI + scikit-learn/LightGBM + provedores LLM (OpenAI/Anthropic)
+- Infra local: PostgreSQL, Redis e RabbitMQ via Docker Compose
 
-## 📚 Documentação
+## Pré-requisitos
 
-Consulte a documentação completa em `docs/`:
-
-### Documentação Técnica
-
-- **Arquitetura**: Stack tecnológico, estrutura de dados, integrações HL7/FHIR
-- **IA e Machine Learning**: Modelos de priorização, agente WhatsApp, RAG
-- **Desenvolvimento**: Setup, comandos úteis, templates e exemplos
-- **Navegação Oncológica**: Implementação, regras por tipo de câncer, protocolos
-
-### Documentação de Produto
-
-- **Product Discovery**: Pesquisas, personas, jobs-to-be-done
-- **MVP Scope**: Features do MVP, roadmap
-- **Pitch Deck**: Apresentação para investidores
-- **Compliance**: Checklist LGPD, ANVISA, segurança
-
-### Guias de Desenvolvimento
-
-- **Regras de Desenvolvimento**: `.cursor/rules/desenvolvimento-modular.mdc`
-- **Padrões Frontend**: `.cursor/rules/frontend-padroes.mdc`
-- **Padrões Backend**: `.cursor/rules/backend-padroes.mdc`
-- **Navegação Oncológica**: `.cursor/rules/navegacao-oncologica.mdc`
-
-## Desenvolvimento
-
-### Pré-requisitos
-
-- Node.js 18+
+- Node.js 20+
 - Python 3.11+
-- PostgreSQL 15+
-- Docker e Docker Compose
+- Docker + Docker Compose
 
-### Setup Inicial
+## Configuração de ambiente
 
-```bash
-# 1. Dependências (raiz + cada serviço)
-npm install
-cd frontend && npm install && cd ..
-cd backend && npm install && cd ..
-cd ai-service && pip install -r requirements.txt && cd ..
-
-# 2. Variáveis de ambiente
-cp .env.example .env
-cp .env.example backend/.env
-cp .env.example frontend/.env.local
-# Edite os arquivos conforme necessário
-
-# 3. Infra local (PostgreSQL, Redis, RabbitMQ)
-npm run docker:up   # equivale a docker-compose up -d
-
-# 4. Aplicar migrations
-npm run db:migrate
-
-# 5. Popular banco com dados de teste (IMPORTANTE!)
-cd backend && npx prisma db seed && cd ..
-
-# 6. Ambiente de desenvolvimento (Frontend + Backend + AI Service)
-npm run dev
-```
-
-### 🔑 Credenciais de Teste
-
-Após executar o seed, use estas credenciais para acessar o sistema:
-
-| Usuário       | Email                           | Senha      | Perfil      |
-| ------------- | ------------------------------- | ---------- | ----------- |
-| Administrador | `admin@hospitalteste.com`       | `senha123` | ADMIN       |
-| Oncologista   | `oncologista@hospitalteste.com` | `senha123` | ONCOLOGIST  |
-| Enfermeira    | `enfermeira@hospitalteste.com`  | `senha123` | NURSE       |
-| Coordenador   | `coordenador@hospitalteste.com` | `senha123` | COORDINATOR |
-
-### 🌐 URLs dos Serviços
-
-| Serviço     | URL                          | Descrição               |
-| ----------- | ---------------------------- | ----------------------- |
-| Frontend    | http://localhost:3000        | Interface web (Next.js) |
-| Backend API | http://localhost:3002/api/v1 | API REST (NestJS)       |
-| AI Service  | http://localhost:8001        | Serviço de IA (FastAPI) |
-| PostgreSQL  | localhost:5432               | Banco de dados          |
-| Redis       | localhost:6379               | Cache                   |
-| RabbitMQ    | localhost:5672 / 15672       | Mensageria / Dashboard  |
-
-> `npm run dev` sobe os três serviços simultaneamente.  
-> Se `OPENAI_API_KEY`/`ANTHROPIC_API_KEY` não estiverem definidos, o AI Service responde com mensagens mockadas
-> (útil para desenvolvimento). Para trabalhar com WhatsApp Embedded Signup/Meta, use `npm run dev:https`.
-
-⚙️ **Husky**: após instalar as dependências, execute `npm run prepare` para reinstalar os Git hooks (pre-commit/pre-push).
-
-### 🧪 Interface interativa (paciente x agente)
-
-Para testar o agente manualmente como se você fosse o paciente (sem pytest), rode:
+1. Copie os templates de cada serviço:
 
 ```bash
-python ai-service/scripts/chat_patient_agent.py
+cp backend/.env.example backend/.env
+cp frontend/.env.example frontend/.env
+cp ai-service/.env.example ai-service/.env
 ```
 
-Comandos disponíveis no chat: `/state`, `/history`, `/reset`, `/exit`.
+2. Ajuste segredos e integrações por serviço (por exemplo: `backend/.env` para `JWT_SECRET` e `DATABASE_URL`; `ai-service/.env` para `OPENAI_API_KEY`/`ANTHROPIC_API_KEY`).
 
-> O script lê `OPENAI_API_KEY` e `ANTHROPIC_API_KEY` a partir do arquivo `.env` na raiz do repositório.
+## Subir com Docker (recomendado)
 
-📘 Guia completo (pré-requisitos, troubleshooting e deploy):  
-`docs/desenvolvimento/setup-e-deploy.md`
-
-### Deploy Local/Produção
+### Opção A: stack completa de desenvolvimento
 
 ```bash
-# 1. Build
-npm run build  # Next.js + NestJS
-
-# 2. Aplicar migrations em modo não-destrutivo
-cd backend && npx prisma migrate deploy
-
-# 3. Iniciar serviços em modo produção
-npm run start  # next start + nest start + uvicorn
+docker compose -f docker-compose.dev.yml up -d --build
 ```
 
-Para executar os processos em background em servidores, utilize um process manager (PM2, systemd, etc.).  
-O AI Service também pode ser iniciado isoladamente via `npm run ai:dev` caso precise depurar somente o modelo.
-
-### Ferramentas de Qualidade
-
-O projeto inclui configuração completa de:
-
-- ✅ **ESLint**: Linter para TypeScript/JavaScript
-- ✅ **Prettier**: Formatador automático de código
-- ✅ **Jest**: Framework de testes (Backend)
-- ✅ **Husky**: Git hooks (validação antes de commit/push)
-- ✅ **lint-staged**: Lint apenas arquivos modificados
-
-**Comandos principais:**
+### Opção B: somente infraestrutura (para rodar apps localmente)
 
 ```bash
-# Lint
-npm run lint              # Frontend
-cd backend && npm run lint # Backend
-
-# Formatação
-npm run format            # Formatar tudo
-npm run format:check      # Verificar sem modificar
-
-# Testes
-cd backend && npm test    # Rodar testes
-cd backend && npm run test:cov # Com cobertura
+docker compose -f compose.infra.yml up -d
 ```
 
-**Documentação completa:**
+### Opção C: composição modular (infra + app)
 
-- [Estado Atual e Próximos Passos](docs/desenvolvimento/estado-atual-proximos-passos.md) ⭐ **COMEÇE AQUI**
-- [Setup de Configuração](docs/desenvolvimento/setup-configuracao.md)
-- [Comandos Úteis](docs/desenvolvimento/comandos-uteis.md)
-- [Navegação Oncológica - Implementação](docs/desenvolvimento/navegacao-oncologica-implementacao.md)
-- [Navegação Oncológica - Câncer Colorretal](docs/desenvolvimento/navegacao-oncologica-colorretal.md)
-- [Regras Gerais de Desenvolvimento](.cursor/rules/desenvolvimento-modular.mdc)
-- [Padrões Frontend (Next.js)](.cursor/rules/frontend-padroes.mdc)
-- [Padrões Backend (NestJS)](.cursor/rules/backend-padroes.mdc)
-- [Atualizações em Tempo Real (WebSocket)](docs/arquitetura/realtime-updates.md)
+```bash
+docker compose -f compose.infra.yml -f compose.app.yml up -d --build
+```
 
-## 🔗 Links Úteis
+Para parar qualquer stack:
 
-- **Repositório GitHub**: [github.com/luizfiorimr/OncoNav](https://github.com/luizfiorimr/OncoNav)
-- **Documentação Completa**: Ver pasta `docs/`
+```bash
+docker compose -f docker-compose.dev.yml down
+```
 
-## 📝 Licença
+## Rodar localmente (sem app em Docker)
 
-Proprietário - Todos os direitos reservados
+Use esta opção quando quiser debug por serviço.
+
+1. Suba infra:
+
+```bash
+docker compose -f compose.infra.yml up -d
+```
+
+2. Instale dependências:
+
+```bash
+cd frontend && npm install
+cd ../backend && npm install
+cd ../ai-service && python3 -m pip install -r requirements.txt
+cd ..
+```
+
+3. Rode as aplicações em 3 terminais:
+
+```bash
+# terminal 1
+cd backend && npm run start:dev
+
+# terminal 2
+cd frontend && npm run dev
+
+# terminal 3
+cd ai-service && python3 -m uvicorn main:app --reload --host 0.0.0.0 --port 8001
+```
+
+## Banco de dados (Prisma)
+
+Com backend local (fora de Docker):
+
+```bash
+cd backend
+npx prisma migrate dev
+npx prisma db seed
+```
+
+Com backend em Docker, as migrations rodam automaticamente no startup (`prisma migrate deploy`) e o seed é executado quando o banco está vazio.
+
+## Credenciais de seed
+
+Após o seed inicial:
+
+- `admin@hospitalteste.com` / `senha123`
+- `oncologista@hospitalteste.com` / `senha123`
+- `enfermeira@hospitalteste.com` / `senha123`
+- `coordenador@hospitalteste.com` / `senha123`
+
+## URLs locais
+
+- Frontend: <http://localhost:3000>
+- Backend API: <http://localhost:3002/api/v1>
+- Backend health: <http://localhost:3002/api/v1/health>
+- AI service health: <http://localhost:8001/health>
+- RabbitMQ UI: <http://localhost:15672>
+
+## HTTPS local (Embedded Signup / Meta)
+
+1. Gere certificados:
+
+```bash
+node scripts/generate-ssl-certs.js
+```
+
+2. Rode frontend e backend com HTTPS:
+
+```bash
+cd frontend && npm run dev:https
+cd backend && npm run start:dev:https
+```
+
+Guia completo: [README-HTTPS.md](README-HTTPS.md)
+
+## Testes e qualidade
+
+Frontend:
+
+```bash
+cd frontend
+npm run lint
+npm run test
+```
+
+Backend:
+
+```bash
+cd backend
+npm run lint
+npm run test
+```
+
+AI Service:
+
+```bash
+cd ai-service
+pytest
+```
+
+## Documentação
+
+- [SPECS.md](SPECS.md)
+- [docs/](docs/)
+- [docs/desenvolvimento/setup-e-deploy.md](docs/desenvolvimento/setup-e-deploy.md)
+- [docs/desenvolvimento/comandos-uteis.md](docs/desenvolvimento/comandos-uteis.md)
+
+## Licença
+
+Este projeto está sob a licença definida em [LICENSE](LICENSE).

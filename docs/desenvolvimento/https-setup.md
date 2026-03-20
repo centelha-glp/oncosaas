@@ -86,17 +86,9 @@ npm run start:dev:https
 
 ### 4. Atualizar Variáveis de Ambiente
 
-Atualize os arquivos `.env` para usar HTTPS:
+Atualize os arquivos de ambiente por serviço para usar HTTPS:
 
-**`.env` (raiz):**
-
-```env
-# Frontend
-NEXT_PUBLIC_API_URL=https://localhost:3002
-NEXT_PUBLIC_WS_URL=wss://localhost:3002
-```
-
-**`frontend/.env.local`:**
+**`frontend/.env`:**
 
 ```env
 NEXT_PUBLIC_API_URL=https://localhost:3002

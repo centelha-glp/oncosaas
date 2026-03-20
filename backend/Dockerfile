@@ -1,28 +1,27 @@
-# ---- Builder ----
-FROM node:20-alpine AS builder
-
-RUN apk upgrade --no-cache
-
+# ---- deps ----
+FROM node:24.14.0-alpine3.23 AS deps
 WORKDIR /app
 
 COPY package*.json ./
 COPY prisma ./prisma
-
 RUN npm ci
 
-# Generate Prisma client from the schema (no DB needed — reads schema file only)
-RUN npx prisma generate
+# ---- builder ----
+FROM node:24.14.0-alpine3.23 AS builder
+WORKDIR /app
 
+COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
+RUN npx prisma generate
 RUN npm run build
+RUN npm prune --omit=dev
 
-# ---- Production ----
-FROM node:20-alpine AS production
-
-RUN apk upgrade --no-cache && npm install -g npm@latest
-
+# ---- production ----
+FROM node:24.14.0-alpine3.23 AS production
 WORKDIR /app
+
+ENV NODE_ENV=production
 
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
@@ -30,13 +29,10 @@ COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/package*.json ./
 COPY docker-entrypoint.sh ./docker-entrypoint.sh
 
-# Converte CRLF -> LF (evita "no such file or directory" no Alpine com arquivos do Windows)
-RUN sed -i 's/\r$//' ./docker-entrypoint.sh
-
-RUN chmod +x ./docker-entrypoint.sh && chown -R node:node /app
+RUN chmod +x ./docker-entrypoint.sh \
+    && chown -R node:node /app
 
 USER node
 
 EXPOSE 3002
-
 ENTRYPOINT ["./docker-entrypoint.sh"]

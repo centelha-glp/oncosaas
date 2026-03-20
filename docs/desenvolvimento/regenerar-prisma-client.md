@@ -146,7 +146,7 @@ ls -la backend/node_modules/.prisma/client/
 
 1. Verificar se `.env` existe em `backend/.env`
 2. Verificar se `DATABASE_URL` está definido
-3. Se não existir, copiar de `.env.example`
+3. Se não existir, copiar de `backend/.env.example`
 
 ### Erro: "Migration not found"
 

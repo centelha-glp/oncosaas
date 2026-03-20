@@ -8,7 +8,7 @@ const nextConfig: NextConfig = {
   output: 'standalone',
   env: {
     // URLs são detectadas automaticamente baseadas no protocolo da página
-    // Se necessário forçar uma URL específica, defina no .env.local
+    // Se necessário forçar uma URL específica, defina no .env
     NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || '',
     NEXT_PUBLIC_WS_URL: process.env.NEXT_PUBLIC_WS_URL || '',
     NEXT_PUBLIC_API_PORT: process.env.NEXT_PUBLIC_API_PORT || '3002',

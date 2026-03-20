@@ -15,7 +15,7 @@ export const useMessages = (patientId?: string) => {
 
 export const useMessage = (id: string) => {
   return useQuery({
-    queryKey: ['messages', id],
+    queryKey: ['messages', 'detail', id],
     queryFn: () => messagesApi.getById(id),
     enabled: !!id,
   });
