@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/select';
 import { Search, Filter } from 'lucide-react';
 import { JOURNEY_STAGE_LABELS } from '@/lib/utils/journey-stage';
+import { useEnabledCancerTypes } from '@/hooks/useEnabledCancerTypes';
 
 interface PatientFiltersProps {
   searchTerm: string;
@@ -36,6 +37,8 @@ export function PatientFilters({
   navigationStageFilter,
   onNavigationStageChange,
 }: PatientFiltersProps) {
+  const { labels: enabledLabels } = useEnabledCancerTypes();
+
   return (
     <div className="space-y-4">
       {/* Busca */}
@@ -58,14 +61,11 @@ export function PatientFilters({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Todos os tipos</SelectItem>
-            <SelectItem value="breast">Mama</SelectItem>
-            <SelectItem value="lung">Pulmão</SelectItem>
-            <SelectItem value="colorectal">Colorretal</SelectItem>
-            <SelectItem value="prostate">Próstata</SelectItem>
-            <SelectItem value="kidney">Rim</SelectItem>
-            <SelectItem value="bladder">Bexiga</SelectItem>
-            <SelectItem value="testicular">Testículo</SelectItem>
-            <SelectItem value="other">Outros</SelectItem>
+            {Object.entries(enabledLabels).map(([key, label]) => (
+              <SelectItem key={key} value={key}>
+                {label}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
 

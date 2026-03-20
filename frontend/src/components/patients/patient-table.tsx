@@ -8,22 +8,12 @@ import { ptBR } from 'date-fns/locale';
 import { Eye, Edit } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { JOURNEY_STAGE_LABELS } from '@/lib/utils/journey-stage';
+import { CANCER_TYPE_LABELS } from '@/lib/utils/patient-cancer-type';
 
 interface PatientTableProps {
   patients: Patient[];
   onPatientClick?: (patientId: string) => void;
 }
-
-const CANCER_TYPE_LABELS: Record<string, string> = {
-  breast: 'Mama',
-  lung: 'Pulmão',
-  colorectal: 'Colorretal',
-  prostate: 'Próstata',
-  kidney: 'Rim',
-  bladder: 'Bexiga',
-  testicular: 'Testículo',
-  other: 'Outros',
-};
 
 const PRIORITY_COLORS: Record<string, string> = {
   CRITICAL: 'bg-red-100 text-red-800 border-red-300',

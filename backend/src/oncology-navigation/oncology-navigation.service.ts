@@ -1189,6 +1189,34 @@ export class OncologyNavigationService {
       },
     });
 
+    // MIBC: QT adjuvante depende da cistectomia (T+42), não do laudo (T+30)
+    if (isMIBC) {
+      await this.prisma.navigationStep.updateMany({
+        where: {
+          patientId: completedStep.patientId,
+          tenantId,
+          stepKey: 'chemotherapy',
+          status: {
+            notIn: [
+              NavigationStepStatus.COMPLETED,
+              NavigationStepStatus.NOT_APPLICABLE,
+              NavigationStepStatus.CANCELLED,
+            ],
+          },
+        },
+        data: {
+          dependsOnStepKey: 'radical_cystectomy',
+          relativeDaysMin: 42,
+          relativeDaysMax: 56,
+          notes:
+            'QT adjuvante pós-cistectomia (MIBC): 6-8 semanas após cirurgia',
+        },
+      });
+      this.logger.log(
+        `Bifurcação bexiga MIBC: chemotherapy reatribuída → dependsOn=radical_cystectomy, T+42-56`,
+      );
+    }
+
     this.logger.log(
       `Bifurcação bexiga: ${isNMIBC ? 'NMIBC' : 'MIBC'} → ${stepsToDisable.join(', ')} marcados como NOT_APPLICABLE`
     );

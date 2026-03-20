@@ -13,6 +13,7 @@ import {
   useDeleteNavigationStep,
 } from '@/hooks/useOncologyNavigation';
 import { Patient } from '@/lib/api/patients';
+import { CANCER_TYPE_LABELS as BASE_CANCER_TYPE_LABELS } from '@/lib/utils/patient-cancer-type';
 import { NavigationStep } from '@/lib/api/oncology-navigation';
 import { navigationApi } from '@/lib/api/navigation';
 import { Button } from '@/components/ui/button';
@@ -59,15 +60,10 @@ interface FileMetadata {
 }
 
 const CANCER_TYPE_LABELS: Record<string, string> = {
-  breast: 'Câncer de Mama',
-  lung: 'Câncer de Pulmão',
-  colorectal: 'Câncer Colorretal',
-  prostate: 'Câncer de Próstata',
-  kidney: 'Câncer de Rim',
-  bladder: 'Câncer de Bexiga',
-  testicular: 'Câncer de Testículo',
-  palliative_care: '💜 Tratamento Paliativo',
-  other: 'Outros',
+  ...Object.fromEntries(
+    Object.entries(BASE_CANCER_TYPE_LABELS).map(([k, v]) => [k, `Câncer de ${v}`])
+  ),
+  palliative_care: 'Tratamento Paliativo',
 };
 
 /** Normaliza tipo de câncer para a chave canônica (ex.: pulmão → lung) para agrupamento e label. */

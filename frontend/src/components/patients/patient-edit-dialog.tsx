@@ -36,6 +36,7 @@ import {
 import { usePatientUpdate } from '@/hooks/use-patient-update';
 import { toast } from 'sonner';
 import { JOURNEY_STAGE_LABELS } from '@/lib/utils/journey-stage';
+import { useEnabledCancerTypes } from '@/hooks/useEnabledCancerTypes';
 
 const patientQuickEditSchema = z.object({
   name: z.string().min(2, 'Nome deve ter pelo menos 2 caracteres'),
@@ -75,16 +76,7 @@ const CURRENT_STAGE_OPTIONS: {
 /** Valor usado no Select para "nenhum tipo"; Radix não permite value="" em SelectItem */
 const CANCER_TYPE_NONE_VALUE = '__none__';
 
-const CANCER_TYPE_OPTIONS: { value: string; label: string }[] = [
-  { value: 'breast', label: 'Mama' },
-  { value: 'lung', label: 'Pulmão' },
-  { value: 'colorectal', label: 'Colorretal' },
-  { value: 'prostate', label: 'Próstata' },
-  { value: 'kidney', label: 'Rim' },
-  { value: 'bladder', label: 'Bexiga' },
-  { value: 'testicular', label: 'Testículo' },
-  { value: 'other', label: 'Outro' },
-];
+// CANCER_TYPE_OPTIONS agora é dinâmico, gerado dentro do componente via useEnabledCancerTypes
 
 function formatBirthDateForInput(dateStr: string | null | undefined): string {
   if (!dateStr) return '';
@@ -106,6 +98,11 @@ export function PatientEditDialog({
   patient,
   onSuccess,
 }: PatientEditDialogProps) {
+  const { labels: enabledLabels } = useEnabledCancerTypes();
+  const cancerTypeOptions = Object.entries(enabledLabels).map(([value, label]) => ({
+    value,
+    label,
+  }));
   const updateMutation = usePatientUpdate();
 
   const form = useForm<PatientQuickEditFormData>({
@@ -290,7 +287,7 @@ export function PatientEditDialog({
                       <SelectItem value={CANCER_TYPE_NONE_VALUE}>
                         Nenhum / Em rastreio
                       </SelectItem>
-                      {CANCER_TYPE_OPTIONS.map((opt) => (
+                      {cancerTypeOptions.map((opt) => (
                         <SelectItem key={opt.value} value={opt.value}>
                           {opt.label}
                         </SelectItem>
