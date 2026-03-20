@@ -387,7 +387,8 @@ Ao preencher o formulário, use para cada **Atividade** os campos: **Nome da Ati
 ### Campo: Constituição da equipe executora (um único texto, 500 caracteres)
 
 **Perguntas do formulário:**  
-1. A equipe executora domina plenamente as tecnologias necessárias para o desenvolvimento da solução?  
+
+1. A equipe executora domina plenamente as tecnologias necessárias para o desenvolvimento da solução?
 2. Descreva como está constituída a equipe que atua ou atuará no projeto. Descreva o time de sócios e colaboradores em ordem de relevância para o negócio. Considere a equipe atual do projeto, parcerias para a execução da proposta e demais atores envolvidos com a execução do projeto.
 
 ### Texto para colar (≤500 caracteres)
