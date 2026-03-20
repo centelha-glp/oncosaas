@@ -192,8 +192,8 @@ export class OncologyNavigationController {
     };
 
     // Adicionar arquivo ao metadata existente
-    const existingMetadata = step.metadata || {};
-    const files = (existingMetadata.files || []) as any[];
+    const existingMetadata = (step.metadata || {}) as Record<string, unknown>;
+    const files = (existingMetadata.files || []) as unknown[];
     files.push(fileMetadata);
 
     // Atualizar a etapa com o novo arquivo

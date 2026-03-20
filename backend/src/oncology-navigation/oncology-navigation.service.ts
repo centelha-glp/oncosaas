@@ -9,8 +9,10 @@ import { CreateNavigationStepDto } from './dto/create-navigation-step.dto';
 import { UpdateNavigationStepDto } from './dto/update-navigation-step.dto';
 import {
   JourneyStage,
+  NavigationStep,
   NavigationStepStatus,
   PatientStatus,
+  Prisma,
 } from '@prisma/client';
 import { AlertsService } from '../alerts/alerts.service';
 import { AlertType, AlertSeverity } from '@prisma/client';
@@ -53,7 +55,7 @@ export class OncologyNavigationService {
   async getPatientNavigationSteps(
     patientId: string,
     tenantId: string
-  ): Promise<any[]> {
+  ): Promise<NavigationStep[]> {
     const steps = await this.prisma.navigationStep.findMany({
       where: {
         patientId,
@@ -66,11 +68,7 @@ export class OncologyNavigationService {
       ],
     });
 
-    // Garantir que journeyStage seja retornado como string (Prisma pode retornar como enum)
-    return steps.map((step) => ({
-      ...step,
-      journeyStage: String(step.journeyStage),
-    }));
+    return steps;
   }
 
   /**
@@ -80,7 +78,7 @@ export class OncologyNavigationService {
     patientId: string,
     tenantId: string,
     journeyStage: JourneyStage
-  ): Promise<any[]> {
+  ): Promise<NavigationStep[]> {
     return this.prisma.navigationStep.findMany({
       where: {
         patientId,
@@ -98,7 +96,7 @@ export class OncologyNavigationService {
   /**
    * Obtém uma etapa específica por ID
    */
-  async getStepById(stepId: string, tenantId: string): Promise<any> {
+  async getStepById(stepId: string, tenantId: string): Promise<NavigationStep> {
     const step = await this.prisma.navigationStep.findFirst({
       where: {
         id: stepId,
@@ -119,7 +117,7 @@ export class OncologyNavigationService {
   async createStep(
     createDto: CreateNavigationStepDto,
     tenantId: string
-  ): Promise<any> {
+  ): Promise<NavigationStep> {
     // Verificar se paciente existe
     const patient = await this.prisma.patient.findFirst({
       where: {
@@ -180,7 +178,7 @@ export class OncologyNavigationService {
     stepId: string,
     updateDto: UpdateNavigationStepDto,
     tenantId: string
-  ): Promise<any> {
+  ): Promise<NavigationStep> {
     const existingStep = await this.prisma.navigationStep.findFirst({
       where: {
         id: stepId,
@@ -192,7 +190,7 @@ export class OncologyNavigationService {
       throw new NotFoundException('Navigation step not found');
     }
 
-    const updateData: any = { ...updateDto };
+    const updateData: Prisma.NavigationStepUpdateInput = { ...updateDto };
 
     // Se marcando como completa, atualizar campos relacionados
     if (updateDto.isCompleted !== undefined) {
@@ -456,7 +454,7 @@ export class OncologyNavigationService {
     for (const stepConfig of steps) {
       try {
         const isRootStep = stepConfig.dependsOnStepKey === null;
-        const step = await this.prisma.navigationStep.create({
+        await this.prisma.navigationStep.create({
           data: {
             tenantId,
             patientId,
@@ -630,7 +628,7 @@ export class OncologyNavigationService {
     const missingSteps = expectedSteps.filter(
       (step) =>
         !existingStepKeys.has(step.stepKey) &&
-        (onlyStepKey == null || step.stepKey === onlyStepKey)
+        (onlyStepKey === null || step.stepKey === onlyStepKey)
     );
 
     if (missingSteps.length === 0) {
@@ -914,16 +912,15 @@ export class OncologyNavigationService {
    * Método auxiliar usado ao criar/atualizar etapas
    */
   private async checkAndCreateAlertForStep(
-    step: any,
+    step: NavigationStep,
     tenantId: string
   ): Promise<boolean> {
     if (!step.dueDate || step.isCompleted) {
       return false;
     }
 
-    const now = new Date();
     // Comparar apenas data (sem hora) para evitar problemas de timezone
-    const stepDueDate = new Date(step.dueDate);
+    const stepDueDate = new Date(step.dueDate!);
     stepDueDate.setHours(0, 0, 0, 0);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -1043,7 +1040,7 @@ export class OncologyNavigationService {
    * MIBC (músculo-invasivo) → Cistectomia radical (BCG NOT_APPLICABLE)
    */
   private async applyBladderCancerBifurcation(
-    completedStep: any,
+    completedStep: NavigationStep,
     tenantId: string
   ): Promise<void> {
     if (
@@ -1143,7 +1140,7 @@ export class OncologyNavigationService {
    * Cria alertas quando prazos são excedidos ou estão próximos de expirar.
    */
   private async checkLegalCheckpoints(
-    completedStep: any,
+    completedStep: NavigationStep,
     tenantId: string
   ): Promise<void> {
     // Lei 30 dias: ao concluir o laudo (diagnóstico confirmado)
@@ -2774,7 +2771,7 @@ export class OncologyNavigationService {
    * Ex: completar um step de SCREENING → cria steps de DIAGNOSIS para o cascade funcionar.
    */
   private async maybeCreateNextStageSteps(
-    completedStep: any,
+    completedStep: NavigationStep,
     tenantId: string
   ): Promise<void> {
     const STAGE_PROGRESSION: Partial<Record<JourneyStage, JourneyStage>> = {
@@ -2785,7 +2782,7 @@ export class OncologyNavigationService {
 
     const nextStage =
       STAGE_PROGRESSION[completedStep.journeyStage as JourneyStage];
-    if (!nextStage) return;
+    if (!nextStage) { return; }
 
     const existingCount = await this.prisma.navigationStep.count({
       where: {
@@ -2818,7 +2815,7 @@ export class OncologyNavigationService {
    * Chamado após marcar uma etapa como completa.
    */
   private async cascadeDependentStepDates(
-    completedStep: any,
+    completedStep: NavigationStep,
     tenantId: string
   ): Promise<void> {
     const actualDate =
@@ -2841,15 +2838,15 @@ export class OncologyNavigationService {
     });
 
     for (const dep of dependentSteps) {
-      const updateData: any = {};
+      const updateData: Prisma.NavigationStepUpdateInput = {};
 
-      if (dep.relativeDaysMin != null) {
+      if (dep.relativeDaysMin !== null) {
         updateData.expectedDate = this.addDays(
           new Date(actualDate),
           dep.relativeDaysMin
         );
       }
-      if (dep.relativeDaysMax != null) {
+      if (dep.relativeDaysMax !== null) {
         updateData.dueDate = this.addDays(
           new Date(actualDate),
           dep.relativeDaysMax
@@ -2865,7 +2862,7 @@ export class OncologyNavigationService {
           data: updateData,
         });
         this.logger.log(
-          `Cascade: etapa ${dep.stepKey} → expectedDate=${updateData.expectedDate?.toISOString()?.slice(0, 10)}, dueDate=${updateData.dueDate?.toISOString()?.slice(0, 10)}`
+          `Cascade: etapa ${dep.stepKey} → expectedDate=${(updateData.expectedDate as Date | undefined)?.toISOString()?.slice(0, 10)}, dueDate=${(updateData.dueDate as Date | undefined)?.toISOString()?.slice(0, 10)}`
         );
       }
     }
@@ -2944,7 +2941,7 @@ export class OncologyNavigationService {
    * atualiza datas usando a etapa realmente concluída como referência.
    */
   private async cascadeFollowUpFromAlternative(
-    completedStep: any,
+    completedStep: NavigationStep,
     tenantId: string,
     alternativeStepKey: string,
     actualDate: Date | string
@@ -2978,14 +2975,14 @@ export class OncologyNavigationService {
     });
 
     for (const dep of dependentSteps) {
-      const updateData: any = {};
-      if (dep.relativeDaysMin != null) {
+      const updateData: Prisma.NavigationStepUpdateInput = {};
+      if (dep.relativeDaysMin !== null) {
         updateData.expectedDate = this.addDays(
           new Date(actualDate),
           dep.relativeDaysMin
         );
       }
-      if (dep.relativeDaysMax != null) {
+      if (dep.relativeDaysMax !== null) {
         updateData.dueDate = this.addDays(
           new Date(actualDate),
           dep.relativeDaysMax
@@ -3007,7 +3004,7 @@ export class OncologyNavigationService {
    * Reseta datas de etapas dependentes quando uma etapa é desmarcada como concluída.
    */
   private async resetDependentStepDates(
-    uncompletedStep: any,
+    uncompletedStep: NavigationStep,
     tenantId: string
   ): Promise<void> {
     const dependentSteps = await this.prisma.navigationStep.findMany({
@@ -3058,7 +3055,7 @@ export class OncologyNavigationService {
             expectedDate: null,
             dueDate: null,
             status: NavigationStepStatus.PENDING,
-            metadata: Object.keys(restMeta).length > 0 ? (restMeta as any) : null,
+            metadata: Object.keys(restMeta).length > 0 ? (restMeta as Prisma.JsonObject) : null,
           },
         });
       }
@@ -3068,7 +3065,7 @@ export class OncologyNavigationService {
   /**
    * Determina severidade do alerta baseado na etapa
    */
-  private getSeverityForStep(step: any): AlertSeverity {
+  private getSeverityForStep(step: NavigationStep): AlertSeverity {
     // Etapas críticas de diagnóstico, tratamento e paliativos são HIGH ou CRITICAL
     if (
       step.journeyStage === JourneyStage.DIAGNOSIS ||
