@@ -20,6 +20,7 @@ import { UpdatePatientDto } from './dto/update-patient.dto';
 import { UpdatePriorityDto } from './dto/update-priority.dto';
 import { CreateCancerDiagnosisDto } from './dto/create-cancer-diagnosis.dto';
 import { UpdateCancerDiagnosisDto } from './dto/update-cancer-diagnosis.dto';
+import { ImportSpreadsheetDto } from './dto/import-spreadsheet.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { TenantGuard } from '../auth/guards/tenant.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -108,6 +109,23 @@ export class PatientsController {
         `Erro ao processar arquivo CSV: ${error instanceof Error ? error.message : 'Erro desconhecido'}`
       );
     }
+  }
+
+  @Post('import-spreadsheet')
+  @Roles(UserRole.ADMIN, UserRole.ONCOLOGIST, UserRole.COORDINATOR)
+  async importSpreadsheet(
+    @Body() dto: ImportSpreadsheetDto,
+    @CurrentUser() user: any
+  ) {
+    const result = await this.patientsService.importFromSpreadsheet(
+      dto.rows,
+      user.tenantId
+    );
+
+    return {
+      message: `Importação concluída: ${result.created} pacientes criados, ${result.updated} atualizados, ${result.surgeries} cirurgias registradas, ${result.errors.length} erros`,
+      ...result,
+    };
   }
 
   @Get(':id/detail')
