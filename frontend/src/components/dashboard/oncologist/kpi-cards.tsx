@@ -14,6 +14,7 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { MetricInfoTooltip } from '@/components/shared/metric-info-tooltip';
 
 interface KPICardsProps {
   metrics: DashboardMetrics | undefined;
@@ -50,6 +51,7 @@ export function KPICards({ metrics, isLoading, onCardClick }: KPICardsProps) {
       clickable: true,
       filterType: 'priority',
       filterValue: 'CRITICAL',
+      tooltip: { description: 'Pacientes classificados com prioridade CRITICAL.', calculation: 'Contagem de pacientes ativos com priorityCategory = CRITICAL.' },
     },
     {
       title: 'Total de Pacientes',
@@ -59,6 +61,7 @@ export function KPICards({ metrics, isLoading, onCardClick }: KPICardsProps) {
       bgColor: 'bg-blue-50',
       borderColor: 'border-blue-200',
       clickable: false,
+      tooltip: { description: 'Total de pacientes ativos no tenant.', calculation: 'Contagem de pacientes com status ACTIVE.' },
     },
     {
       title: 'Alertas Pendentes',
@@ -77,6 +80,7 @@ export function KPICards({ metrics, isLoading, onCardClick }: KPICardsProps) {
       clickable: true,
       filterType: 'alerts',
       filterValue: { hasAlerts: true },
+      tooltip: { description: 'Alertas com status PENDING ou ACKNOWLEDGED, agrupados por severidade.', calculation: 'Soma de alertas não resolvidos, divididos em Crítico, Alto, Médio e Baixo.' },
     },
     {
       title: 'Tempo Médio de Resposta',
@@ -88,6 +92,7 @@ export function KPICards({ metrics, isLoading, onCardClick }: KPICardsProps) {
       bgColor: 'bg-purple-50',
       borderColor: 'border-purple-200',
       clickable: false,
+      tooltip: { description: 'Tempo médio entre a primeira mensagem INBOUND e a primeira intervenção.', calculation: 'Média da diferença (em minutos) entre createdAt da mensagem e createdAt da intervenção, últimos 90 dias.' },
     },
     {
       title: 'Mensagens Não Assumidas',
@@ -100,6 +105,7 @@ export function KPICards({ metrics, isLoading, onCardClick }: KPICardsProps) {
       clickable: true,
       filterType: 'messages',
       filterValue: { hasUnassumedMessages: true },
+      tooltip: { description: 'Mensagens recebidas (INBOUND) não assumidas por nenhum profissional.', calculation: 'Contagem de mensagens com direction=INBOUND e assumedByUserId=null.' },
     },
     {
       title: 'Etapas Atrasadas',
@@ -112,6 +118,7 @@ export function KPICards({ metrics, isLoading, onCardClick }: KPICardsProps) {
       clickable: true,
       filterType: 'overdueSteps',
       filterValue: { hasOverdueSteps: true },
+      tooltip: { description: 'Etapas de navegação oncológica com prazo vencido.', calculation: 'Etapas com status OVERDUE, ou PENDING/IN_PROGRESS com dueDate < hoje.' },
     },
     {
       title: 'Time-to-Treatment',
@@ -153,6 +160,7 @@ export function KPICards({ metrics, isLoading, onCardClick }: KPICardsProps) {
         metrics.averageTimeToTreatmentDays !== null &&
         metrics.averageTimeToTreatmentDays > 30,
       clickable: false,
+      tooltip: { description: 'Tempo médio entre o diagnóstico e o início do tratamento.', calculation: 'Média de dias entre a data do diagnóstico e a data de início do tratamento.' },
     },
     {
       title: 'Time-to-Diagnosis',
@@ -194,6 +202,7 @@ export function KPICards({ metrics, isLoading, onCardClick }: KPICardsProps) {
         metrics.averageTimeToDiagnosisDays !== null &&
         metrics.averageTimeToDiagnosisDays > 60,
       clickable: false,
+      tooltip: { description: 'Tempo médio entre a suspeita clínica e a confirmação diagnóstica.', calculation: 'Média de dias entre a data de suspeita e a data do diagnóstico confirmado.' },
     },
     {
       title: 'Biomarcadores Pendentes',
@@ -207,6 +216,7 @@ export function KPICards({ metrics, isLoading, onCardClick }: KPICardsProps) {
       clickable: true,
       filterType: 'biomarkers',
       filterValue: { hasPendingBiomarkers: true },
+      tooltip: { description: 'Pacientes com etapas de biomarcadores em status pendente.', calculation: 'Contagem de etapas PENDING/IN_PROGRESS com stepKey de biomarcadores.' },
     },
     {
       title: 'Taxa de Adesão',
@@ -233,6 +243,7 @@ export function KPICards({ metrics, isLoading, onCardClick }: KPICardsProps) {
             : 'border-red-200',
       badge: metrics.treatmentAdherencePercentage < 60,
       clickable: false,
+      tooltip: { description: 'Percentual de pacientes cujo tratamento está conforme planejado.', calculation: 'Pacientes com etapas de tratamento COMPLETED / total × 100.' },
     },
   ];
 
@@ -264,7 +275,12 @@ export function KPICards({ metrics, isLoading, onCardClick }: KPICardsProps) {
               </div>
             </div>
             <div className="mt-2">
-              <p className="text-sm text-gray-600 mb-1">{card.title}</p>
+              <span className="flex items-center gap-1 text-sm text-gray-600 mb-1">
+                {card.title}
+                {card.tooltip && (
+                  <MetricInfoTooltip title={card.title} description={card.tooltip.description} calculation={card.tooltip.calculation} />
+                )}
+              </span>
               <p className="text-2xl font-bold text-gray-900">{card.value}</p>
               {card.subtitle && (
                 <p className="text-xs text-gray-500 mt-1">{card.subtitle}</p>

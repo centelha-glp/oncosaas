@@ -409,13 +409,13 @@ export function ChartDrillDownModal({
                     tabIndex={0}
                     onClick={() => {
                       onOpenChange(false);
-                      router.push(`/dashboard?patient=${alert.patientId}`);
+                      router.push(`/patients/${alert.patientId}`);
                     }}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault();
                         onOpenChange(false);
-                        router.push(`/dashboard?patient=${alert.patientId}`);
+                        router.push(`/patients/${alert.patientId}`);
                       }
                     }}
                     className="p-4 border rounded-lg hover:bg-gray-50 transition-colors cursor-pointer"
@@ -471,13 +471,13 @@ export function ChartDrillDownModal({
                     tabIndex={0}
                     onClick={() => {
                       onOpenChange(false);
-                      router.push(`/dashboard?patient=${p.patientId}`);
+                      router.push(`/patients/${p.patientId}`);
                     }}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault();
                         onOpenChange(false);
-                        router.push(`/dashboard?patient=${p.patientId}`);
+                        router.push(`/patients/${p.patientId}`);
                       }
                     }}
                     className="p-4 border rounded-lg hover:bg-gray-50 transition-colors cursor-pointer"
@@ -551,13 +551,13 @@ export function ChartDrillDownModal({
                   tabIndex={0}
                   onClick={() => {
                     onOpenChange(false);
-                    router.push(`/dashboard?patient=${patient.id}`);
+                    router.push(`/patients/${patient.id}`);
                   }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault();
                       onOpenChange(false);
-                      router.push(`/dashboard?patient=${patient.id}`);
+                      router.push(`/patients/${patient.id}`);
                     }
                   }}
                   className="p-4 border rounded-lg hover:bg-gray-50 transition-colors cursor-pointer"

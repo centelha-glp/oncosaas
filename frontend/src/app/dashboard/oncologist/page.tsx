@@ -58,7 +58,7 @@ export default function OncologistDashboardPage() {
   const handlePatientClick = (patientId: string) => {
     setSelectedPatient(patientId);
     // Redirecionar para o dashboard de enfermagem com o paciente selecionado
-    router.push(`/dashboard?patient=${patientId}`);
+    router.push(`/patients/${patientId}`);
   };
 
   const handleAlertSelect = (alert: Alert) => {

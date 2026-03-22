@@ -3,6 +3,7 @@
 import { DashboardMetrics, DashboardStatistics } from '@/lib/api/dashboard';
 import { Clock, CheckCircle2, Users, TrendingUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { MetricInfoTooltip } from '@/components/shared/metric-info-tooltip';
 
 interface TeamPerformanceProps {
   metrics: DashboardMetrics;
@@ -75,6 +76,7 @@ export function TeamPerformance({
       bgColor: 'bg-blue-50',
       borderColor: 'border-blue-200',
       trend: avgResponseTime < (metrics.averageResponseTimeMinutes || Infinity),
+      tooltip: { description: 'Tempo médio de resposta da equipe nos últimos 7 dias.', calculation: 'Média dos tempos de resposta diários.' },
     },
     {
       title: 'Taxa de Resolução (7 dias)',
@@ -84,6 +86,7 @@ export function TeamPerformance({
       bgColor: 'bg-green-50',
       borderColor: 'border-green-200',
       trend: resolutionRate7d >= 80,
+      tooltip: { description: 'Percentual de alertas resolvidos nos últimos 7 dias.', calculation: 'Alertas resolvidos / (resolvidos + pendentes) × 100.' },
     },
     {
       title: 'Resolução em 24h',
@@ -93,6 +96,7 @@ export function TeamPerformance({
       bgColor: 'bg-purple-50',
       borderColor: 'border-purple-200',
       trend: resolutionRate24h >= 60,
+      tooltip: { description: 'Dias com tempo de resposta < 24h.', calculation: 'Dias com avgResponseTime ≤ 24h / total de dias × 100.' },
     },
     {
       title: 'Carga de Trabalho',
@@ -102,6 +106,7 @@ export function TeamPerformance({
       bgColor: 'bg-orange-50',
       borderColor: 'border-orange-200',
       subtitle: 'por profissional',
+      tooltip: { description: 'Total de pacientes ativos por profissional.', calculation: 'Total de pacientes ativos no tenant.' },
     },
   ];
 
@@ -138,7 +143,10 @@ export function TeamPerformance({
                 )}
               </div>
               <div>
-                <p className="text-sm text-gray-600 mb-1">{card.title}</p>
+                <span className="flex items-center gap-1 text-sm text-gray-600 mb-1">
+                  {card.title}
+                  {card.tooltip && <MetricInfoTooltip title={card.title} description={card.tooltip.description} calculation={card.tooltip.calculation} />}
+                </span>
                 <p className="text-2xl font-bold text-gray-900">{card.value}</p>
                 {card.subtitle && (
                   <p className="text-xs text-gray-500 mt-1">{card.subtitle}</p>

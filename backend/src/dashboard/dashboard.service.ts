@@ -100,13 +100,15 @@ export class DashboardService {
       },
     });
 
-    // Tempo médio de resposta a alertas (em minutos)
+    // Tempo médio de resposta a alertas (em minutos) — últimos 90 dias
+    const ninetyDaysAgo = new Date();
+    ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
     const resolvedAlerts = await this.prisma.alert.findMany({
       where: {
         tenantId,
         status: 'RESOLVED',
-        resolvedAt: { not: null }, // resolvedAt é nullable, então podemos filtrar por not null
-        // createdAt não é nullable no schema, então não precisa verificar
+        resolvedAt: { not: null },
+        createdAt: { gte: ninetyDaysAgo },
       },
       select: {
         createdAt: true,
@@ -225,13 +227,19 @@ export class DashboardService {
           : 0,
     }));
 
-    // Contar etapas de navegação atrasadas (OVERDUE)
+    // Contar etapas de navegação atrasadas (OVERDUE ou com dueDate vencido)
     const now = new Date();
     const overdueStepsCount = await this.prisma.navigationStep.count({
       where: {
         tenantId,
-        status: 'OVERDUE',
         isCompleted: false,
+        OR: [
+          { status: 'OVERDUE' },
+          {
+            status: { in: ['PENDING', 'IN_PROGRESS'] },
+            dueDate: { lt: now },
+          },
+        ],
       },
     });
 
@@ -639,13 +647,16 @@ export class DashboardService {
       },
     });
 
-    // Tempo médio de resposta do enfermeiro (em minutos)
+    // Tempo médio de resposta do enfermeiro (em minutos) — últimos 90 dias
+    const ninetyDaysAgoNurse = new Date();
+    ninetyDaysAgoNurse.setDate(ninetyDaysAgoNurse.getDate() - 90);
     const resolvedAlerts = await this.prisma.alert.findMany({
       where: {
         tenantId,
         status: 'RESOLVED',
         resolvedBy: userId,
         resolvedAt: { not: null },
+        createdAt: { gte: ninetyDaysAgoNurse },
       },
       select: {
         createdAt: true,
@@ -1814,5 +1825,134 @@ export class DashboardService {
         },
       };
     }
+  }
+
+  /**
+   * Lista alertas pendentes para drill-down do KPI "Alertas Pendentes".
+   */
+  async getPendingAlerts(tenantId: string, maxResults: number = 100) {
+    const alerts = await this.prisma.alert.findMany({
+      where: {
+        tenantId,
+        status: { in: ['PENDING', 'ACKNOWLEDGED'] },
+      },
+      include: {
+        patient: {
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+          },
+        },
+      },
+      orderBy: [{ severity: 'desc' }, { createdAt: 'desc' }],
+      take: maxResults,
+    });
+
+    return alerts.map((alert) => ({
+      id: alert.id,
+      type: alert.type,
+      severity: alert.severity,
+      message: alert.message,
+      status: alert.status,
+      createdAt: alert.createdAt,
+      patientId: alert.patientId,
+      patient: {
+        id: alert.patient.id,
+        name: alert.patient.name,
+        phone: alert.patient.phone,
+      },
+    }));
+  }
+
+  /**
+   * Lista pacientes filtrados por indicador (mensagens não assumidas, biomarcadores pendentes).
+   */
+  async getPatientsByIndicator(
+    tenantId: string,
+    indicator: 'messages' | 'biomarkers',
+    maxResults: number = 100,
+  ) {
+    if (indicator === 'messages') {
+      // Pacientes com mensagens não assumidas
+      const messagesWithPatients = await this.prisma.message.findMany({
+        where: {
+          tenantId,
+          direction: 'INBOUND',
+          assumedBy: null,
+        },
+        select: {
+          patientId: true,
+        },
+        distinct: ['patientId'],
+        take: maxResults,
+      });
+
+      const patientIds = messagesWithPatients.map((m) => m.patientId);
+      if (patientIds.length === 0) return [];
+
+      return this.prisma.patient.findMany({
+        where: {
+          id: { in: patientIds },
+          tenantId,
+        },
+        select: {
+          id: true,
+          name: true,
+          phone: true,
+          priorityScore: true,
+          priorityCategory: true,
+          currentStage: true,
+          cancerType: true,
+          status: true,
+        },
+        take: maxResults,
+      });
+    }
+
+    if (indicator === 'biomarkers') {
+      // Pacientes com biomarcadores pendentes
+      const biomarkerStepKeys = [
+        'her2_test', 'egfr_test', 'pdl1_test', 'msi_test',
+        'kras_test', 'braf_test', 'alk_test',
+        'biomarker_her2', 'biomarker_egfr', 'biomarker_pdl1',
+        'biomarker_msi', 'biomarker_kras', 'biomarker_braf', 'biomarker_alk',
+      ];
+
+      const pendingSteps = await this.prisma.navigationStep.findMany({
+        where: {
+          tenantId,
+          stepKey: { in: biomarkerStepKeys },
+          isCompleted: false,
+          status: { in: ['PENDING', 'IN_PROGRESS', 'OVERDUE'] },
+        },
+        select: { patientId: true },
+        distinct: ['patientId'],
+        take: maxResults,
+      });
+
+      const patientIds = pendingSteps.map((s) => s.patientId);
+      if (patientIds.length === 0) return [];
+
+      return this.prisma.patient.findMany({
+        where: {
+          id: { in: patientIds },
+          tenantId,
+        },
+        select: {
+          id: true,
+          name: true,
+          phone: true,
+          priorityScore: true,
+          priorityCategory: true,
+          currentStage: true,
+          cancerType: true,
+          status: true,
+        },
+        take: maxResults,
+      });
+    }
+
+    return [];
   }
 }
