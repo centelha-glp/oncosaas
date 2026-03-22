@@ -165,6 +165,67 @@ export const oncologyNavigationApi = {
   },
 
   /**
+   * Retorna todos os templates de etapas para uma fase, com contagem de instâncias existentes
+   */
+  getStepTemplates: async (
+    patientId: string,
+    journeyStage: string
+  ): Promise<
+    {
+      stepKey: string;
+      stepName: string;
+      stepDescription?: string;
+      journeyStage: string;
+      isRequired: boolean;
+      existingCount: number;
+    }[]
+  > => {
+    const data = await apiClient.get<
+      {
+        stepKey: string;
+        stepName: string;
+        stepDescription?: string;
+        journeyStage: string;
+        isRequired: boolean;
+        existingCount: number;
+      }[]
+    >(
+      `/oncology-navigation/patients/${patientId}/step-templates/${journeyStage}`
+    );
+    return data ?? [];
+  },
+
+  /**
+   * Cria uma instância de um step a partir de um template (primeira ou adicional)
+   */
+  createStepFromTemplate: async (
+    patientId: string,
+    journeyStage: string,
+    stepKey: string
+  ): Promise<NavigationStep> => {
+    return apiClient.post<NavigationStep>(
+      `/oncology-navigation/patients/${patientId}/stages/${journeyStage}/create-from-template`,
+      { stepKey }
+    );
+  },
+
+  /**
+   * Cria etapas faltantes para uma fase
+   */
+  createMissingStepsForStage: async (
+    patientId: string,
+    journeyStage: string
+  ): Promise<{ created: number; skipped: number; message: string }> => {
+    return apiClient.post<{
+      created: number;
+      skipped: number;
+      message: string;
+    }>(
+      `/oncology-navigation/patients/${patientId}/stages/${journeyStage}/create-missing`
+    );
+  },
+
+  /**
    * Faz upload de arquivo para uma etapa
    */
   uploadFile: async (stepId: string, file: File): Promise<NavigationStep> => {

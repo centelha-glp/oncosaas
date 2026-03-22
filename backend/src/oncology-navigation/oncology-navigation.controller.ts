@@ -245,6 +245,39 @@ export class OncologyNavigationController {
     );
   }
 
+  @Get('patients/:patientId/step-templates/:journeyStage')
+  async getStepTemplates(
+    @Param('patientId', ParseUUIDPipe) patientId: string,
+    @Param('journeyStage') journeyStage: JourneyStage,
+    @Request() req: any
+  ) {
+    return this.navigationService.getAvailableStepTemplates(
+      patientId,
+      req.user.tenantId,
+      journeyStage
+    );
+  }
+
+  @Post('patients/:patientId/stages/:journeyStage/create-from-template')
+  @Roles(UserRole.ADMIN, UserRole.COORDINATOR, UserRole.ONCOLOGIST)
+  async createStepFromTemplate(
+    @Param('patientId', ParseUUIDPipe) patientId: string,
+    @Param('journeyStage') journeyStage: JourneyStage,
+    @Body('stepKey') stepKey: string,
+    @Request() req: any
+  ) {
+    if (!stepKey) {
+      throw new BadRequestException('stepKey is required');
+    }
+    const step = await this.navigationService.createStepFromTemplate(
+      patientId,
+      req.user.tenantId,
+      journeyStage,
+      stepKey
+    );
+    return step;
+  }
+
   @Post('patients/:patientId/stages/:journeyStage/create-missing')
   @Roles(UserRole.ADMIN, UserRole.COORDINATOR, UserRole.ONCOLOGIST)
   async createMissingStepsForStage(

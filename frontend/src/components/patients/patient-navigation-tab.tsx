@@ -227,38 +227,106 @@ export function PatientNavigationTab({
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle>Etapas de Navegação</CardTitle>
-            <Popover open={addStepPopoverOpen} onOpenChange={setAddStepPopoverOpen}>
+            <Popover open={addStepPopoverOpen} onOpenChange={(open) => {
+              setAddStepPopoverOpen(open);
+              if (!open) { setWizardStage(null); setWizardTemplates([]); }
+            }}>
               <PopoverTrigger asChild>
                 <Button size="sm">
                   <Plus className="h-4 w-4 mr-2" />
                   Adicionar etapa
                 </Button>
               </PopoverTrigger>
-              <PopoverContent align="end" className="w-56 p-2">
-                <p className="text-sm font-medium text-muted-foreground px-2 py-1 mb-1">
-                  Tipo de câncer e fase
-                </p>
-                {cancerTypes.map((typeKey) => (
-                  <div key={typeKey} className="mb-2 last:mb-0">
-                    <p className="text-xs font-medium text-muted-foreground px-2 py-1">
-                      {CANCER_TYPE_LABELS[typeKey] ?? typeKey}
+              <PopoverContent align="end" className="w-64 p-2">
+                {!wizardStage ? (
+                  <>
+                    <p className="text-sm font-medium text-muted-foreground px-2 py-1 mb-1">
+                      Selecione a fase
                     </p>
-                    {JOURNEY_STAGE_ORDER.map((stage) => (
-                      <Button
-                        key={`${typeKey}-${stage}`}
-                        variant="ghost"
-                        className="w-full justify-start"
-                        size="sm"
-                        onClick={() => {
-                          setCreateStage({ cancerType: typeKey, journeyStage: stage });
-                          setAddStepPopoverOpen(false);
-                        }}
-                      >
-                        {JOURNEY_STAGE_LABELS[stage] ?? stage}
-                      </Button>
+                    {cancerTypes.map((typeKey) => (
+                      <div key={typeKey} className="mb-2 last:mb-0">
+                        <p className="text-xs font-medium text-muted-foreground px-2 py-1">
+                          {CANCER_TYPE_LABELS[typeKey] ?? typeKey}
+                        </p>
+                        {JOURNEY_STAGE_ORDER.map((stage) => (
+                          <Button
+                            key={`${typeKey}-${stage}`}
+                            variant="ghost"
+                            className="w-full justify-start"
+                            size="sm"
+                            onClick={() => handleWizardSelectStage(typeKey, stage)}
+                          >
+                            {JOURNEY_STAGE_LABELS[stage] ?? stage}
+                          </Button>
+                        ))}
+                      </div>
                     ))}
-                  </div>
-                ))}
+                  </>
+                ) : (
+                  <>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="w-full justify-start text-muted-foreground mb-1"
+                      onClick={() => { setWizardStage(null); setWizardTemplates([]); }}
+                    >
+                      <ChevronLeft className="h-4 w-4 mr-1" />
+                      {JOURNEY_STAGE_LABELS[wizardStage.stage] ?? wizardStage.stage}
+                    </Button>
+                    {wizardLoading ? (
+                      <p className="text-xs text-muted-foreground px-2 py-2">Carregando...</p>
+                    ) : (
+                      <>
+                        {wizardTemplates.some((t) => t.existingCount === 0) && (
+                          <Button
+                            variant="ghost"
+                            className="w-full justify-start text-blue-600"
+                            size="sm"
+                            onClick={() => handleWizardSelectStep(null)}
+                          >
+                            Criar todas as etapas faltantes
+                          </Button>
+                        )}
+                        <Button
+                          variant="ghost"
+                          className="w-full justify-start text-muted-foreground"
+                          size="sm"
+                          onClick={() => handleWizardSelectStep('__custom__')}
+                        >
+                          + Etapa personalizada...
+                        </Button>
+                        <div className="border-t my-1" />
+                        {wizardTemplates.map((t) => (
+                          <Button
+                            key={t.stepKey}
+                            variant="ghost"
+                            className="w-full justify-start"
+                            size="sm"
+                            onClick={() => handleWizardSelectStep(t.stepKey)}
+                            title={t.stepDescription ?? undefined}
+                          >
+                            <span className="truncate">{t.stepName}</span>
+                            <span className="ml-auto flex items-center gap-1 shrink-0">
+                              {t.existingCount > 0 && (
+                                <span className="text-xs text-muted-foreground">
+                                  ({t.existingCount})
+                                </span>
+                              )}
+                              {t.isRequired && (
+                                <span className="text-xs text-purple-600">obr.</span>
+                              )}
+                            </span>
+                          </Button>
+                        ))}
+                        {wizardTemplates.length === 0 && (
+                          <p className="text-xs text-muted-foreground px-2 py-1">
+                            Nenhum template disponível para esta fase.
+                          </p>
+                        )}
+                      </>
+                    )}
+                  </>
+                )}
               </PopoverContent>
             </Popover>
           </div>

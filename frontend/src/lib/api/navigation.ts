@@ -109,6 +109,51 @@ export const navigationApi = {
   },
 
   /**
+   * Retorna todos os templates de etapas para uma fase, com contagem de instâncias existentes
+   */
+  getStepTemplates: async (
+    patientId: string,
+    journeyStage: string
+  ): Promise<
+    {
+      stepKey: string;
+      stepName: string;
+      stepDescription?: string;
+      journeyStage: string;
+      isRequired: boolean;
+      existingCount: number;
+    }[]
+  > => {
+    const data = await apiClient.get<
+      {
+        stepKey: string;
+        stepName: string;
+        stepDescription?: string;
+        journeyStage: string;
+        isRequired: boolean;
+        existingCount: number;
+      }[]
+    >(
+      `/oncology-navigation/patients/${patientId}/step-templates/${journeyStage}`
+    );
+    return data ?? [];
+  },
+
+  /**
+   * Cria uma instância de um step a partir de um template (primeira ou adicional)
+   */
+  createStepFromTemplate: async (
+    patientId: string,
+    journeyStage: string,
+    stepKey: string
+  ): Promise<NavigationStep> => {
+    return apiClient.post<NavigationStep>(
+      `/oncology-navigation/patients/${patientId}/stages/${journeyStage}/create-from-template`,
+      { stepKey }
+    );
+  },
+
+  /**
    * Cria apenas as etapas faltantes para um estágio específico da jornada
    */
   createMissingStepsForStage: async (
