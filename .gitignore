@@ -81,6 +81,16 @@ certs/openssl.conf
 *.pub
 *.sh
 !scripts/supervisor/*.sh
+*.csv
+
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+backend.hcl
+*.tfvars
+tfplan
 
 # Claude local settings
 .claude/settings.local.json

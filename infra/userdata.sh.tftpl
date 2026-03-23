@@ -1,0 +1,401 @@
+#!/usr/bin/env bash
+set -euxo pipefail
+
+export DEBIAN_FRONTEND=noninteractive
+
+PROJECT="${project}"
+ENVIRONMENT="${environment}"
+AWS_REGION="${aws_region}"
+APP_URL="${app_url}"
+ECR_REGISTRY="${ecr_registry}"
+APP_DIR="/opt/${project}"
+RUNTIME_PREFIX="/${project}/${environment}"
+DB_USER="${db_username}"
+DB_NAME="${db_name}"
+DB_HOST="${db_host}"
+DB_PASSWORD_PATH="${db_password_path}"
+
+apt-get update -y
+apt-get upgrade -y
+
+# Default packages
+apt-get install -y ca-certificates curl jq unzip gnupg openssl nginx docker.io docker-compose-v2 awscli amazon-cloudwatch-agent unattended-upgrades
+
+# Time sync + UTC
+timedatectl set-timezone UTC || true
+systemctl enable --now systemd-timesyncd || true
+
+# Automatic security upgrades (reboots acceptable)
+cat >/etc/apt/apt.conf.d/20auto-upgrades <<'EOF'
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Unattended-Upgrade "1";
+EOF
+systemctl enable --now unattended-upgrades || true
+
+# Nginx: self-signed TLS (IP-only). Replace with real cert once you have a domain.
+mkdir -p /etc/nginx/tls
+if [ ! -f /etc/nginx/tls/selfsigned.crt ]; then
+  openssl req -x509 -nodes -newkey rsa:2048 -days 30 \
+    -keyout /etc/nginx/tls/selfsigned.key \
+    -out /etc/nginx/tls/selfsigned.crt \
+    -subj "/CN=ec2-ip"
+fi
+
+cat >/etc/nginx/snippets/self-signed.conf <<'EOF'
+ssl_certificate /etc/nginx/tls/selfsigned.crt;
+ssl_certificate_key /etc/nginx/tls/selfsigned.key;
+EOF
+
+cat >/etc/nginx/sites-available/app <<'EOF'
+server {
+  listen 80;
+  server_name _;
+  return 301 https://$host$request_uri;
+}
+
+server {
+  listen 443 ssl;
+  listen [::]:443 ssl;
+  server_name _;
+
+  add_header X-Content-Type-Options nosniff always;
+  add_header X-Frame-Options DENY always;
+  add_header Referrer-Policy no-referrer always;
+  client_max_body_size 25m;
+  include snippets/self-signed.conf;
+
+  # Frontend (Next.js)
+  location / {
+    proxy_pass         http://127.0.0.1:3000;
+    proxy_http_version 1.1;
+    proxy_set_header   Host              $host;
+    proxy_set_header   X-Real-IP         $remote_addr;
+    proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header   X-Forwarded-Proto $scheme;
+  }
+
+  # Backend REST API
+  location /api/ {
+    proxy_pass         http://127.0.0.1:3002;
+    proxy_http_version 1.1;
+    proxy_set_header   Host              $host;
+    proxy_set_header   X-Real-IP         $remote_addr;
+    proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header   X-Forwarded-Proto $scheme;
+  }
+
+  # Backend static uploads
+  location /uploads/ {
+    proxy_pass         http://127.0.0.1:3002;
+    proxy_http_version 1.1;
+    proxy_set_header   Host              $host;
+    proxy_set_header   X-Real-IP         $remote_addr;
+    proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header   X-Forwarded-Proto $scheme;
+  }
+
+  # WebSocket / Socket.IO
+  location /socket.io/ {
+    proxy_pass         http://127.0.0.1:3002;
+    proxy_http_version 1.1;
+    proxy_set_header   Upgrade           $http_upgrade;
+    proxy_set_header   Connection        "upgrade";
+    proxy_set_header   Host              $host;
+    proxy_set_header   X-Real-IP         $remote_addr;
+    proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header   X-Forwarded-Proto $scheme;
+    proxy_read_timeout 86400;
+  }
+}
+EOF
+
+rm -f /etc/nginx/sites-enabled/default
+ln -sf /etc/nginx/sites-available/app /etc/nginx/sites-enabled/app
+nginx -t
+systemctl enable --now nginx
+
+# Docker
+systemctl enable --now docker
+usermod -aG docker ubuntu || true
+
+# Prevent containers from hitting IMDS (defense-in-depth)
+iptables -I DOCKER-USER -d 169.254.169.254/32 -j DROP || true
+
+mkdir -p "$APP_DIR/scripts" "$APP_DIR/current/backend" "$APP_DIR/current/frontend" "$APP_DIR/current/ai-service"
+chown -R ubuntu:ubuntu "$APP_DIR"
+
+cat >/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<CWAGENT
+{
+  "agent": {
+    "metrics_collection_interval": 60,
+    "run_as_user": "root"
+  },
+  "metrics": {
+    "namespace": "CWAgent",
+    "append_dimensions": {
+      "InstanceId": "$${aws:InstanceId}"
+    },
+    "metrics_collected": {
+      "disk": {
+        "measurement": ["used_percent"],
+        "metrics_collection_interval": 60,
+        "resources": ["/"]
+      }
+    }
+  }
+}
+CWAGENT
+
+/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+  -a fetch-config -m ec2 \
+  -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json \
+  -s
+
+cat >"$APP_DIR/current/docker-compose.prod.yml" <<'COMPOSE'
+services:
+  backend:
+    image: ${ECR_REGISTRY}/oncosaas-backend:${IMAGE_TAG}
+    container_name: backend
+    restart: on-failure
+    ports:
+      - '127.0.0.1:3002:3002'
+    env_file:
+      - ./backend/.env
+    environment:
+      NODE_ENV: production
+      PORT: '3002'
+      AI_SERVICE_URL: http://ai-service:8001
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          node -e "require('http').get('http://backend:3002/api/v1/health',function(r){process.exit(r.statusCode===200?0:1)}).on('error',function(){process.exit(1)})"
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  frontend:
+    image: ${ECR_REGISTRY}/oncosaas-frontend:${IMAGE_TAG}
+    container_name: frontend
+    restart: on-failure
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - '127.0.0.1:3000:3000'
+    env_file:
+      - ./frontend/.env
+    environment:
+      NODE_ENV: production
+
+  ai-service:
+    image: ${ECR_REGISTRY}/oncosaas-ai-service:${IMAGE_TAG}
+    container_name: ai-service
+    restart: on-failure
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - '127.0.0.1:8001:8001'
+    env_file:
+      - ./ai-service/.env
+    environment:
+      BACKEND_URL: http://backend:3002
+    healthcheck:
+      test: ['CMD-SHELL', 'python -c "import urllib.request; urllib.request.urlopen(\"http://localhost:8001/health\")"']
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+COMPOSE
+
+cat >"$APP_DIR/scripts/sync-runtime-env.sh" <<'SYNCENV'
+#!/usr/bin/env bash
+set -euo pipefail
+
+PROJECT="${project}"
+ENVIRONMENT="${environment}"
+AWS_REGION="${aws_region}"
+APP_URL="${app_url}"
+APP_DIR="/opt/${project}"
+RUNTIME_PREFIX="/${project}/${environment}"
+DB_USER="${db_username}"
+DB_NAME="${db_name}"
+DB_HOST="${db_host}"
+DB_PASSWORD_PATH="${db_password_path}"
+
+get_ssm() {
+  aws ssm get-parameter \
+    --region "$AWS_REGION" \
+    --name "$1" \
+    --with-decryption \
+    --query 'Parameter.Value' \
+    --output text
+}
+
+DB_PASSWORD="$(get_ssm "$DB_PASSWORD_PATH")"
+DB_PASSWORD_ENCODED="$(printf '%s' "$DB_PASSWORD" | jq -sRr @uri)"
+JWT_SECRET="$(get_ssm "$RUNTIME_PREFIX/backend/JWT_SECRET")"
+ENCRYPTION_KEY="$(get_ssm "$RUNTIME_PREFIX/backend/ENCRYPTION_KEY")"
+NEXTAUTH_SECRET="$(get_ssm "$RUNTIME_PREFIX/frontend/NEXTAUTH_SECRET")"
+BACKEND_SERVICE_TOKEN="$(get_ssm "$RUNTIME_PREFIX/shared/BACKEND_SERVICE_TOKEN")"
+
+DATABASE_URL="postgresql://$DB_USER:$DB_PASSWORD_ENCODED@$DB_HOST:5432/$DB_NAME?sslmode=require"
+WS_URL="$(echo "$APP_URL" | sed -e 's#^https://#wss://#' -e 's#^http://#ws://#')"
+
+cat >"$APP_DIR/current/backend/.env" <<EOF_BACKEND
+NODE_ENV=production
+PORT=3002
+FRONTEND_URL=$APP_URL
+DATABASE_URL=$DATABASE_URL
+REDIS_URL=redis://redis:6379
+RABBITMQ_URL=amqp://ONCONAV:ONCONAV_dev@rabbitmq:5672
+AI_SERVICE_URL=http://ai-service:8001
+JWT_SECRET=$JWT_SECRET
+ENCRYPTION_KEY=$ENCRYPTION_KEY
+BACKEND_SERVICE_TOKEN=$BACKEND_SERVICE_TOKEN
+EOF_BACKEND
+
+cat >"$APP_DIR/current/frontend/.env" <<EOF_FRONTEND
+NODE_ENV=production
+NEXTAUTH_URL=$APP_URL
+NEXTAUTH_SECRET=$NEXTAUTH_SECRET
+NEXT_PUBLIC_API_URL=$APP_URL
+NEXT_PUBLIC_WS_URL=$WS_URL
+EOF_FRONTEND
+
+cat >"$APP_DIR/current/ai-service/.env" <<EOF_AI
+BACKEND_URL=http://backend:3002
+BACKEND_SERVICE_TOKEN=$BACKEND_SERVICE_TOKEN
+EOF_AI
+
+chmod 600 "$APP_DIR/current/backend/.env" "$APP_DIR/current/frontend/.env" "$APP_DIR/current/ai-service/.env"
+SYNCENV
+
+cat >"$APP_DIR/scripts/deploy.sh" <<'DEPLOY'
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [ $# -ne 2 ]; then
+  echo "usage: deploy.sh <ecr-registry> <image-tag>" >&2
+  exit 1
+fi
+
+ECR_REGISTRY="$1"
+IMAGE_TAG="$2"
+PROJECT="${project}"
+ENVIRONMENT="${environment}"
+AWS_REGION="${aws_region}"
+APP_DIR="/opt/${project}"
+CURRENT_DIR="$APP_DIR/current"
+RUNTIME_PREFIX="/${project}/${environment}"
+CUR_PARAM="$RUNTIME_PREFIX/deploy/current"
+LKG_PARAM="$RUNTIME_PREFIX/deploy/last_known_good"
+
+metric() {
+  aws cloudwatch put-metric-data \
+    --region "$AWS_REGION" \
+    --namespace "OncoSaaS/Deploy" \
+    --metric-name "$1" \
+    --value "$2" >/dev/null 2>&1 || true
+}
+
+preflight() {
+  command -v docker >/dev/null
+  docker compose version >/dev/null
+
+  local avail_kb
+  local mem_mb
+  avail_kb=$(df -Pk / | awk 'NR==2 {print $4}')
+  mem_mb=$(free -m | awk '/Mem:/ {print $7}')
+
+  if [ "$avail_kb" -lt 2097152 ]; then
+    echo "Not enough disk space (<2GB free)" >&2
+    exit 1
+  fi
+
+  if [ "$mem_mb" -lt 512 ]; then
+    echo "Not enough available memory (<512MB free)" >&2
+    exit 1
+  fi
+
+  docker compose -f "$CURRENT_DIR/docker-compose.prod.yml" config >/dev/null
+}
+
+check_health() {
+  curl -fsS http://127.0.0.1:3002/api/v1/health >/dev/null
+  curl -fsS http://127.0.0.1:8001/health >/dev/null
+  curl -fsS http://127.0.0.1:3000 >/dev/null
+}
+
+rollback() {
+  local lkg
+  lkg="$(aws ssm get-parameter --region "$AWS_REGION" --name "$LKG_PARAM" --query 'Parameter.Value' --output text 2>/dev/null || true)"
+
+  if [ -z "$lkg" ] || [ "$lkg" = "None" ] || [ "$lkg" = "bootstrap" ]; then
+    echo "No valid last known good release found" >&2
+    metric "RollbackTriggered" 1
+    exit 1
+  fi
+
+  echo "Rolling back to image tag: $lkg"
+  IMAGE_TAG="$lkg"
+  export ECR_REGISTRY IMAGE_TAG
+
+  docker pull "$ECR_REGISTRY/oncosaas-backend:$IMAGE_TAG"
+  docker pull "$ECR_REGISTRY/oncosaas-frontend:$IMAGE_TAG"
+  docker pull "$ECR_REGISTRY/oncosaas-ai-service:$IMAGE_TAG"
+
+  docker compose -f "$CURRENT_DIR/docker-compose.prod.yml" up -d --no-build --force-recreate --remove-orphans
+  metric "RollbackTriggered" 1
+}
+
+main() {
+  "$APP_DIR/scripts/sync-runtime-env.sh"
+
+  cd "$CURRENT_DIR"
+  export ECR_REGISTRY IMAGE_TAG
+  preflight
+
+  aws ecr get-login-password --region "$AWS_REGION" \
+    | docker login --username AWS --password-stdin "$ECR_REGISTRY"
+
+  local current
+  current="$(aws ssm get-parameter --region "$AWS_REGION" --name "$CUR_PARAM" --query 'Parameter.Value' --output text 2>/dev/null || true)"
+  if [ -n "$current" ] && [ "$current" != "None" ]; then
+    aws ssm put-parameter --region "$AWS_REGION" --name "$LKG_PARAM" --value "$current" --type String --overwrite >/dev/null
+  fi
+
+  docker pull "$ECR_REGISTRY/oncosaas-backend:$IMAGE_TAG"
+  docker pull "$ECR_REGISTRY/oncosaas-frontend:$IMAGE_TAG"
+  docker pull "$ECR_REGISTRY/oncosaas-ai-service:$IMAGE_TAG"
+
+  docker compose -f "$CURRENT_DIR/docker-compose.prod.yml" up -d --no-build --force-recreate --remove-orphans
+
+  sleep 20
+  if ! check_health; then
+    metric "HealthCheckFailed" 1
+    rollback
+    exit 1
+  fi
+
+  local restarts
+  restarts=$(docker ps --format '{{.Names}} {{.Status}}' | awk '/Restarting/{count++} END {print count+0}')
+  if [ "$restarts" -gt 0 ]; then
+    metric "ContainerRestartLoopDetected" 1
+    rollback
+    exit 1
+  fi
+
+  aws ssm put-parameter --region "$AWS_REGION" --name "$CUR_PARAM" --value "$IMAGE_TAG" --type String --overwrite >/dev/null
+  metric "DeploySucceeded" 1
+
+  docker image prune -f >/dev/null
+}
+
+main
+DEPLOY
+
+chmod +x "$APP_DIR/scripts/sync-runtime-env.sh" "$APP_DIR/scripts/deploy.sh"
+chown -R ubuntu:ubuntu "$APP_DIR"
