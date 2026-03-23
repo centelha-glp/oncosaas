@@ -551,13 +551,21 @@ export function ChartDrillDownModal({
                   tabIndex={0}
                   onClick={() => {
                     onOpenChange(false);
-                    router.push(`/patients/${patient.id}`);
+                    router.push(
+                      filterType === 'messages'
+                        ? `/chat?patient=${patient.id}`
+                        : `/patients/${patient.id}`
+                    );
                   }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault();
                       onOpenChange(false);
-                      router.push(`/patients/${patient.id}`);
+                      router.push(
+                        filterType === 'messages'
+                          ? `/chat?patient=${patient.id}`
+                          : `/patients/${patient.id}`
+                      );
                     }
                   }}
                   className="p-4 border rounded-lg hover:bg-gray-50 transition-colors cursor-pointer"
@@ -619,6 +627,11 @@ export function ChartDrillDownModal({
                       <div className="text-sm font-semibold text-gray-900">
                         Score: {patient.priorityScore}
                       </div>
+                      {patient.unassumedMessagesCount != null && patient.unassumedMessagesCount > 0 && (
+                        <div className="text-xs text-yellow-600 mt-1 font-medium">
+                          {patient.unassumedMessagesCount} {patient.unassumedMessagesCount === 1 ? 'mensagem' : 'mensagens'}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -634,6 +647,10 @@ export function ChartDrillDownModal({
             {isAlertsFilter
               ? `alerta${listCount !== 1 ? 's' : ''} encontrado${listCount !== 1 ? 's' : ''}`
               : `paciente${listCount !== 1 ? 's' : ''} encontrado${listCount !== 1 ? 's' : ''}`}
+            {filterType === 'messages' && patientListToShow.length > 0 && (() => {
+              const totalMsgs = patientListToShow.reduce((sum: number, p: Record<string, unknown>) => sum + ((p.unassumedMessagesCount as number) || 0), 0);
+              return totalMsgs > 0 ? ` (${totalMsgs} mensagen${totalMsgs !== 1 ? 's' : ''} no total)` : '';
+            })()}
           </span>
           <Button
             variant="outline"
