@@ -24,7 +24,6 @@ jobs:
   build-and-push:
     name: Build & push - ${{ matrix.service }}
     runs-on: ubuntu-latest
-    environment: production
 
     strategy:
       fail-fast: false
@@ -80,7 +79,6 @@ jobs:
     name: Scan - ${{ matrix.service }}
     needs: build-and-push
     runs-on: ubuntu-latest
-    environment: production
 
     strategy:
       fail-fast: false
@@ -120,7 +118,6 @@ jobs:
     name: Deploy to EC2 via SSM
     needs: scan
     runs-on: ubuntu-latest
-    environment: production
 
     steps:
       - name: Configure AWS credentials (OIDC)
