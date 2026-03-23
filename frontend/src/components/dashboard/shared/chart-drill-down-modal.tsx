@@ -648,7 +648,10 @@ export function ChartDrillDownModal({
               ? `alerta${listCount !== 1 ? 's' : ''} encontrado${listCount !== 1 ? 's' : ''}`
               : `paciente${listCount !== 1 ? 's' : ''} encontrado${listCount !== 1 ? 's' : ''}`}
             {filterType === 'messages' && patientListToShow.length > 0 && (() => {
-              const totalMsgs = patientListToShow.reduce((sum: number, p: Record<string, unknown>) => sum + ((p.unassumedMessagesCount as number) || 0), 0);
+              const totalMsgs = patientListToShow.reduce<number>(
+                (sum, p) => sum + (p.unassumedMessagesCount ?? 0),
+                0
+              );
               return totalMsgs > 0 ? ` (${totalMsgs} mensagen${totalMsgs !== 1 ? 's' : ''} no total)` : '';
             })()}
           </span>

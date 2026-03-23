@@ -310,6 +310,7 @@ export interface Patient {
     observations: number;
   };
   pendingAlertsCount?: number;
+  unassumedMessagesCount?: number;
 }
 
 export interface CreatePatientDto {
