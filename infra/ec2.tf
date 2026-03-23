@@ -4,7 +4,7 @@ data "aws_ami" "ubuntu" {
 
   filter {
     name   = "name"
-    values = ["ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*"]
+    values = ["ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-arm64-server-*"]
   }
 
   filter {
@@ -38,6 +38,7 @@ resource "aws_instance" "app" {
   key_name                    = var.key_name
   iam_instance_profile        = aws_iam_instance_profile.ec2.name
   user_data                   = local.user_data
+  user_data_replace_on_change = true
 
   metadata_options {
     http_tokens                 = "required"

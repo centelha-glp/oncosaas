@@ -65,6 +65,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: ${{ matrix.context }}
+          platforms: linux/arm64
           push: true
           tags: |
             ${{ env.ECR_REGISTRY }}/oncosaas-${{ matrix.service }}:${{ github.sha }}

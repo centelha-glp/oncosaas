@@ -19,7 +19,18 @@ apt-get update -y
 apt-get upgrade -y
 
 # Default packages
-apt-get install -y ca-certificates curl jq unzip gnupg openssl nginx docker.io docker-compose-v2 awscli amazon-cloudwatch-agent unattended-upgrades
+apt-get install -y ca-certificates curl jq unzip gnupg openssl nginx docker.io docker-compose-v2 unattended-upgrades
+
+# Aws CLI v2
+curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" \
+  -o /tmp/awscliv2.zip
+unzip -q /tmp/awscliv2.zip -d /tmp
+/tmp/aws/install --update
+
+# CloudWatch Agent (optional)
+curl -fsSL "https://amazoncloudwatch-agent.s3.amazonaws.com/ubuntu/arm64/latest/amazon-cloudwatch-agent.deb" \
+  -o /tmp/amazon-cloudwatch-agent.deb
+dpkg -i /tmp/amazon-cloudwatch-agent.deb || apt-get -f install -y
 
 # Time sync + UTC
 timedatectl set-timezone UTC || true
@@ -154,7 +165,7 @@ CWAGENT
 cat >"$APP_DIR/current/docker-compose.prod.yml" <<'COMPOSE'
 services:
   backend:
-    image: ${ECR_REGISTRY}/oncosaas-backend:${IMAGE_TAG}
+    image: $${ECR_REGISTRY}/oncosaas-backend:$${IMAGE_TAG}
     container_name: backend
     restart: on-failure
     ports:
@@ -176,7 +187,7 @@ services:
       start_period: 60s
 
   frontend:
-    image: ${ECR_REGISTRY}/oncosaas-frontend:${IMAGE_TAG}
+    image: $${ECR_REGISTRY}/oncosaas-frontend:$${IMAGE_TAG}
     container_name: frontend
     restart: on-failure
     depends_on:
@@ -190,7 +201,7 @@ services:
       NODE_ENV: production
 
   ai-service:
-    image: ${ECR_REGISTRY}/oncosaas-ai-service:${IMAGE_TAG}
+    image: $${ECR_REGISTRY}/oncosaas-ai-service:$${IMAGE_TAG}
     container_name: ai-service
     restart: on-failure
     depends_on:
@@ -292,6 +303,8 @@ CURRENT_DIR="$APP_DIR/current"
 RUNTIME_PREFIX="/${project}/${environment}"
 CUR_PARAM="$RUNTIME_PREFIX/deploy/current"
 LKG_PARAM="$RUNTIME_PREFIX/deploy/last_known_good"
+ROLLBACK_ON_ERROR=0
+IN_ROLLBACK=0
 
 metric() {
   aws cloudwatch put-metric-data \
@@ -300,6 +313,18 @@ metric() {
     --metric-name "$1" \
     --value "$2" >/dev/null 2>&1 || true
 }
+
+on_exit() {
+  local rc=$?
+  if [ "$rc" -ne 0 ] && [ "$ROLLBACK_ON_ERROR" -eq 1 ] && [ "$IN_ROLLBACK" -eq 0 ]; then
+    echo "Deployment failed (exit $rc). Attempting automatic rollback..."
+    IN_ROLLBACK=1
+    rollback || true
+  fi
+  exit "$rc"
+}
+
+trap on_exit EXIT
 
 preflight() {
   command -v docker >/dev/null
@@ -367,6 +392,8 @@ main() {
     aws ssm put-parameter --region "$AWS_REGION" --name "$LKG_PARAM" --value "$current" --type String --overwrite >/dev/null
   fi
 
+  ROLLBACK_ON_ERROR=1
+
   docker pull "$ECR_REGISTRY/oncosaas-backend:$IMAGE_TAG"
   docker pull "$ECR_REGISTRY/oncosaas-frontend:$IMAGE_TAG"
   docker pull "$ECR_REGISTRY/oncosaas-ai-service:$IMAGE_TAG"
@@ -376,7 +403,6 @@ main() {
   sleep 20
   if ! check_health; then
     metric "HealthCheckFailed" 1
-    rollback
     exit 1
   fi
 
@@ -384,7 +410,6 @@ main() {
   restarts=$(docker ps --format '{{.Names}} {{.Status}}' | awk '/Restarting/{count++} END {print count+0}')
   if [ "$restarts" -gt 0 ]; then
     metric "ContainerRestartLoopDetected" 1
-    rollback
     exit 1
   fi
 
@@ -392,6 +417,7 @@ main() {
   metric "DeploySucceeded" 1
 
   docker image prune -f >/dev/null
+  ROLLBACK_ON_ERROR=0
 }
 
 main
