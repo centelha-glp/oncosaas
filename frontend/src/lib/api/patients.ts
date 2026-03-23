@@ -483,6 +483,42 @@ export interface ImportCsvResult {
   created: Patient[];
 }
 
+export interface ImportSpreadsheetRow {
+  name: string;
+  medicalRecordNumber?: string;
+  birthDate?: string;
+  gender?: string;
+  occupation?: string;
+  smokingHistory?: string;
+  cpf?: string;
+  phone?: string;
+  surgeryDate?: string;
+  surgeryType?: string;
+  admissionDate?: string;
+  dischargeDate?: string;
+  aihEmissionDate?: string;
+  isReadmission?: boolean;
+  readmissionReason?: string;
+  isReoperation?: boolean;
+  hadNeoadjuvantChemo?: boolean;
+  neoadjuvantChemoDetail?: string;
+  hadUrinaryDiversion?: boolean;
+  intraoperativeMortality?: boolean;
+  mortality30Days?: boolean;
+  mortality90Days?: boolean;
+  mortality90DaysDetail?: string;
+  diagnosis?: string;
+  referenceDate?: string;
+}
+
+export interface ImportSpreadsheetResult {
+  message: string;
+  created: number;
+  updated: number;
+  surgeries: number;
+  errors: Array<{ row: number; errors: string[] }>;
+}
+
 export const patientsApi = {
   async getAll(): Promise<Patient[]> {
     const data = await apiClient.get<Patient[] | null>('/patients');
@@ -539,6 +575,16 @@ export const patientsApi = {
     );
 
     return response.data;
+  },
+
+  async importSpreadsheet(
+    rows: ImportSpreadsheetRow[]
+  ): Promise<ImportSpreadsheetResult> {
+    const response = await apiClient.post<ImportSpreadsheetResult>(
+      '/patients/import-spreadsheet',
+      { rows }
+    );
+    return response;
   },
 
   // Cancer Diagnosis APIs
