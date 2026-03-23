@@ -1888,7 +1888,9 @@ export class DashboardService {
       });
 
       const patientIds = messageCounts.map((m) => m.patientId);
-      if (patientIds.length === 0) return [];
+      if (patientIds.length === 0) {
+        return [];
+      }
 
       const patients = await this.prisma.patient.findMany({
         where: {
@@ -1937,7 +1939,9 @@ export class DashboardService {
       });
 
       const patientIds = pendingSteps.map((s) => s.patientId);
-      if (patientIds.length === 0) return [];
+      if (patientIds.length === 0) {
+        return [];
+      }
 
       return this.prisma.patient.findMany({
         where: {
