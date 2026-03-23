@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -18,10 +18,19 @@ import {
   Download,
   Info,
   FileSpreadsheet,
+  ChevronDown,
+  X,
 } from 'lucide-react';
 import Papa from 'papaparse';
 import { csvRowSchema, CsvRow } from '@/lib/validations/import-csv';
-import { parseXlsxFile, ParsedSheet } from '@/lib/utils/xlsx-parser';
+import {
+  parseXlsxFile,
+  buildRowsFromMapping,
+  downloadXlsxTemplate,
+  FIELD_LABELS,
+  MAPPABLE_FIELDS,
+} from '@/lib/utils/xlsx-parser';
+import type { ParsedSheet, MappedHeader } from '@/lib/utils/xlsx-parser';
 import type { ImportSpreadsheetRow } from '@/lib/api/patients';
 
 interface PatientImportDialogProps {
@@ -36,6 +45,49 @@ interface ValidationError {
 }
 
 type ImportMode = 'csv' | 'xlsx';
+
+// Campos booleanos que devem ser exibidos como Sim/Não
+const BOOLEAN_FIELDS = new Set<keyof ImportSpreadsheetRow>([
+  'isReadmission',
+  'isReoperation',
+  'hadNeoadjuvantChemo',
+  'hadUrinaryDiversion',
+  'intraoperativeMortality',
+  'mortality30Days',
+  'mortality90Days',
+]);
+
+// Campos "detalhe" que são exibidos junto com o booleano pai
+const DETAIL_FIELDS = new Set<keyof ImportSpreadsheetRow>([
+  'readmissionReason',
+  'neoadjuvantChemoDetail',
+  'mortality90DaysDetail',
+]);
+
+function formatCellValue(
+  row: ImportSpreadsheetRow,
+  field: keyof ImportSpreadsheetRow,
+): string {
+  const value = row[field];
+  if (value == null || value === '') return '-';
+
+  if (BOOLEAN_FIELDS.has(field)) {
+    const flag = value as boolean;
+    // Verificar se tem campo detalhe associado
+    if (field === 'hadNeoadjuvantChemo' && row.neoadjuvantChemoDetail) {
+      return flag ? row.neoadjuvantChemoDetail : 'Não';
+    }
+    if (field === 'isReadmission' && row.readmissionReason) {
+      return flag ? row.readmissionReason : 'Não';
+    }
+    if (field === 'mortality90Days' && row.mortality90DaysDetail) {
+      return flag ? row.mortality90DaysDetail : 'Não';
+    }
+    return flag ? 'Sim' : 'Não';
+  }
+
+  return String(value);
+}
 
 export function PatientImportDialog({
   open,
@@ -53,6 +105,9 @@ export function PatientImportDialog({
   // XLSX state
   const [xlsxSheets, setXlsxSheets] = useState<ParsedSheet[]>([]);
   const [selectedSheetIndex, setSelectedSheetIndex] = useState(0);
+  const [customMappings, setCustomMappings] = useState<
+    Record<number, MappedHeader[]>
+  >({});
 
   const [showInstructions, setShowInstructions] = useState(false);
   const { mutate: importCsv, isPending: isCsvPending } = usePatientImport();
@@ -67,51 +122,72 @@ export function PatientImportDialog({
     setCsvValidationErrors([]);
     setXlsxSheets([]);
     setSelectedSheetIndex(0);
+    setCustomMappings({});
   };
 
+  const selectedSheet = xlsxSheets[selectedSheetIndex];
+
+  // Mapeamento efetivo: custom se existir, senão auto-detectado
+  const effectiveMappings = useMemo(
+    () =>
+      customMappings[selectedSheetIndex] ||
+      selectedSheet?.mappedHeaders ||
+      [],
+    [customMappings, selectedSheetIndex, selectedSheet],
+  );
+
+  // Reconstruir rows quando mapeamento muda
+  const { rows: xlsxRows, skippedEmpty: xlsxSkippedEmpty } = useMemo(() => {
+    if (!selectedSheet) return { rows: [], skippedEmpty: 0 };
+    return buildRowsFromMapping(
+      selectedSheet.rawData,
+      selectedSheet.headerRowIdx,
+      effectiveMappings,
+    );
+  }, [selectedSheet, effectiveMappings]);
+
+  // Colunas visíveis no preview — somente campos mapeados (excluindo campos "detalhe")
+  const visibleColumns = useMemo(() => {
+    const mapped = effectiveMappings
+      .filter((h) => h.mapped && !DETAIL_FIELDS.has(h.mapped))
+      .map((h) => h.mapped!);
+    // Deduplica mantendo ordem
+    return [...new Set(mapped)];
+  }, [effectiveMappings]);
+
+  // Campos já usados em alguma coluna (para evitar mapeamento duplicado)
+  const usedFields = useMemo(() => {
+    const set = new Set<keyof ImportSpreadsheetRow>();
+    for (const h of effectiveMappings) {
+      if (h.mapped) set.add(h.mapped);
+    }
+    return set;
+  }, [effectiveMappings]);
+
+  const handleColumnRemap = useCallback(
+    (colIndex: number, newField: keyof ImportSpreadsheetRow | '') => {
+      const base =
+        customMappings[selectedSheetIndex] ||
+        selectedSheet?.mappedHeaders ||
+        [];
+      const updated = base.map((h, i) => {
+        if (i !== colIndex) return h;
+        return { ...h, mapped: newField || null };
+      });
+      setCustomMappings((prev) => ({
+        ...prev,
+        [selectedSheetIndex]: updated,
+      }));
+    },
+    [customMappings, selectedSheetIndex, selectedSheet],
+  );
+
   const downloadTemplate = () => {
-    const headers = [
-      'name',
-      'cpf',
-      'dataNascimento',
-      'sexo',
-      'telefone',
-      'email',
-      'tipoCancer',
-      'dataDiagnostico',
-      'estagio',
-      'oncologistaResponsavel',
-    ];
-    const exampleRow = [
-      'Maria Silva',
-      '12345678900',
-      '1980-05-15',
-      'female',
-      '27987654321',
-      'maria@email.com',
-      'bladder',
-      '2024-01-10',
-      'II',
-      'Dr. Carlos Santos',
-    ];
-    const csvContent = [
-      headers.join(','),
-      exampleRow.map((cell) => `"${cell}"`).join(','),
-    ].join('\n');
-    const blob = new Blob(['\ufeff' + csvContent], {
-      type: 'text/csv;charset=utf-8;',
-    });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = 'template_importacao_pacientes.csv';
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    downloadXlsxTemplate();
   };
 
   const handleFileSelect = async (
-    event: React.ChangeEvent<HTMLInputElement>
+    event: React.ChangeEvent<HTMLInputElement>,
   ) => {
     const selectedFile = event.target.files?.[0];
     if (!selectedFile) return;
@@ -157,8 +233,9 @@ export function PatientImportDialog({
       // Auto-selecionar a sheet com mais dados
       if (sheets.length > 0) {
         const bestIdx = sheets.reduce(
-          (best, s, i) => (s.rows.length > sheets[best].rows.length ? i : best),
-          0
+          (best, s, i) =>
+            s.rows.length > sheets[best].rows.length ? i : best,
+          0,
         );
         setSelectedSheetIndex(bestIdx);
       }
@@ -177,9 +254,8 @@ export function PatientImportDialog({
         },
       });
     } else if (importMode === 'xlsx') {
-      const selectedSheet = xlsxSheets[selectedSheetIndex];
-      if (!selectedSheet) return;
-      importSpreadsheet(selectedSheet.rows, {
+      if (xlsxRows.length === 0) return;
+      importSpreadsheet(xlsxRows, {
         onSuccess: () => {
           resetState();
           onOpenChange(false);
@@ -188,8 +264,6 @@ export function PatientImportDialog({
     }
   };
 
-  const selectedSheet = xlsxSheets[selectedSheetIndex];
-  const xlsxRows = selectedSheet?.rows || [];
   const totalImportable =
     importMode === 'csv' ? csvPreviewData.length : xlsxRows.length;
 
@@ -201,7 +275,7 @@ export function PatientImportDialog({
         onOpenChange(v);
       }}
     >
-      <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Importar Pacientes</DialogTitle>
           <DialogDescription>
@@ -230,7 +304,9 @@ export function PatientImportDialog({
                 <Upload className="h-8 w-8 text-muted-foreground" />
               )}
               <span className="text-sm font-medium">
-                {file ? file.name : 'Clique para selecionar arquivo CSV ou Excel'}
+                {file
+                  ? file.name
+                  : 'Clique para selecionar arquivo CSV ou Excel'}
               </span>
               <span className="text-xs text-muted-foreground">
                 Formatos aceitos: .csv, .xlsx, .xls
@@ -255,7 +331,7 @@ export function PatientImportDialog({
                 onClick={downloadTemplate}
               >
                 <Download className="h-4 w-4 mr-2" />
-                Baixar Template CSV
+                Baixar Template XLSX
               </Button>
             </div>
           )}
@@ -281,7 +357,7 @@ export function PatientImportDialog({
             </div>
           )}
 
-          {/* XLSX: Mapeamento de colunas */}
+          {/* XLSX: Mapeamento de colunas editável */}
           {importMode === 'xlsx' && selectedSheet && (
             <div className="space-y-2">
               <div className="flex items-center justify-between">
@@ -289,34 +365,29 @@ export function PatientImportDialog({
                   Mapeamento de Colunas
                 </h3>
                 <span className="text-xs text-muted-foreground">
-                  {selectedSheet.mappedHeaders.filter((h) => h.mapped).length}/
+                  {effectiveMappings.filter((h) => h.mapped).length}/
                   {selectedSheet.rawHeaders.length} colunas mapeadas
+                  {' · '}
+                  <span className="text-muted-foreground/70">
+                    clique para remapear
+                  </span>
                 </span>
               </div>
               <div className="flex flex-wrap gap-2">
-                {selectedSheet.mappedHeaders.map((h) => (
-                  <span
-                    key={h.raw}
-                    className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs ${
-                      h.mapped
-                        ? 'bg-green-100 text-green-800'
-                        : 'bg-gray-100 text-gray-500'
-                    }`}
-                  >
-                    <span className="font-medium">{h.raw}</span>
-                    {h.mapped && (
-                      <>
-                        <span className="text-green-500">&#8594;</span>
-                        <span>{h.mapped}</span>
-                      </>
-                    )}
-                  </span>
+                {effectiveMappings.map((h, colIdx) => (
+                  <ColumnMappingBadge
+                    key={`${selectedSheetIndex}-${colIdx}`}
+                    header={h}
+                    colIndex={colIdx}
+                    usedFields={usedFields}
+                    onRemap={handleColumnRemap}
+                  />
                 ))}
               </div>
             </div>
           )}
 
-          {/* XLSX: Preview */}
+          {/* XLSX: Preview com todos os campos */}
           {importMode === 'xlsx' && xlsxRows.length > 0 && (
             <div className="space-y-2">
               <div className="flex items-center justify-between">
@@ -326,9 +397,9 @@ export function PatientImportDialog({
                     <CheckCircle2 className="h-4 w-4" />
                     {xlsxRows.length} paciente(s)
                   </div>
-                  {selectedSheet && selectedSheet.skippedEmpty > 0 && (
+                  {xlsxSkippedEmpty > 0 && (
                     <span className="text-xs text-muted-foreground">
-                      ({selectedSheet.skippedEmpty} linhas vazias ignoradas)
+                      ({xlsxSkippedEmpty} linhas vazias ignoradas)
                     </span>
                   )}
                 </div>
@@ -339,51 +410,31 @@ export function PatientImportDialog({
                   <table className="w-full text-sm">
                     <thead className="bg-muted sticky top-0">
                       <tr>
-                        <th className="px-3 py-2 text-left whitespace-nowrap">
-                          Nome
-                        </th>
-                        <th className="px-3 py-2 text-left whitespace-nowrap">
-                          Prontuario
-                        </th>
-                        <th className="px-3 py-2 text-left whitespace-nowrap">
-                          Sexo
-                        </th>
-                        <th className="px-3 py-2 text-left whitespace-nowrap">
-                          Nascimento
-                        </th>
-                        <th className="px-3 py-2 text-left whitespace-nowrap">
-                          Cirurgia
-                        </th>
-                        <th className="px-3 py-2 text-left whitespace-nowrap">
-                          Tipo Cirurgia
-                        </th>
-                        <th className="px-3 py-2 text-left whitespace-nowrap">
-                          QT Neo
-                        </th>
+                        {visibleColumns.map((field) => (
+                          <th
+                            key={field}
+                            className="px-3 py-2 text-left whitespace-nowrap text-xs"
+                          >
+                            {FIELD_LABELS[field]}
+                          </th>
+                        ))}
                       </tr>
                     </thead>
                     <tbody className="divide-y">
                       {xlsxRows.slice(0, 15).map((row, index) => (
                         <tr key={index} className="hover:bg-muted/50">
-                          <td className="px-3 py-2 whitespace-nowrap">
-                            {row.name}
-                          </td>
-                          <td className="px-3 py-2 font-mono text-xs">
-                            {row.medicalRecordNumber || '-'}
-                          </td>
-                          <td className="px-3 py-2">{row.gender || '-'}</td>
-                          <td className="px-3 py-2">{row.birthDate || '-'}</td>
-                          <td className="px-3 py-2">
-                            {row.surgeryDate || '-'}
-                          </td>
-                          <td className="px-3 py-2">
-                            {row.surgeryType || '-'}
-                          </td>
-                          <td className="px-3 py-2">
-                            {row.hadNeoadjuvantChemo
-                              ? row.neoadjuvantChemoDetail || 'Sim'
-                              : '-'}
-                          </td>
+                          {visibleColumns.map((field) => (
+                            <td
+                              key={field}
+                              className={`px-3 py-2 whitespace-nowrap ${
+                                field === 'medicalRecordNumber'
+                                  ? 'font-mono text-xs'
+                                  : ''
+                              }`}
+                            >
+                              {formatCellValue(row, field)}
+                            </td>
+                          ))}
                         </tr>
                       ))}
                     </tbody>
@@ -514,6 +565,108 @@ export function PatientImportDialog({
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * Badge de mapeamento de coluna com dropdown para remapeamento manual.
+ */
+function ColumnMappingBadge({
+  header,
+  colIndex,
+  usedFields,
+  onRemap,
+}: {
+  header: MappedHeader;
+  colIndex: number;
+  usedFields: Set<keyof ImportSpreadsheetRow>;
+  onRemap: (colIndex: number, field: keyof ImportSpreadsheetRow | '') => void;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs cursor-pointer transition-colors ${
+          header.mapped
+            ? 'bg-green-100 text-green-800 hover:bg-green-200'
+            : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+        }`}
+      >
+        <span className="font-medium">{header.raw}</span>
+        {header.mapped ? (
+          <>
+            <span className="text-green-500">&#8594;</span>
+            <span>{FIELD_LABELS[header.mapped]}</span>
+          </>
+        ) : null}
+        <ChevronDown className="h-3 w-3 ml-0.5 opacity-50" />
+      </button>
+
+      {isOpen && (
+        <>
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 z-40"
+            onClick={() => setIsOpen(false)}
+          />
+          {/* Dropdown */}
+          <div className="absolute top-full left-0 mt-1 z-50 bg-white border rounded-lg shadow-lg py-1 w-52 max-h-64 overflow-y-auto">
+            {/* Opção: ignorar */}
+            <button
+              type="button"
+              className={`w-full text-left px-3 py-1.5 text-xs hover:bg-gray-100 flex items-center gap-2 ${
+                !header.mapped ? 'bg-gray-50 font-medium' : ''
+              }`}
+              onClick={() => {
+                onRemap(colIndex, '');
+                setIsOpen(false);
+              }}
+            >
+              <X className="h-3 w-3 text-gray-400" />
+              <span className="text-gray-500 italic">Ignorar coluna</span>
+            </button>
+            <div className="border-t my-1" />
+            {/* Campos disponíveis */}
+            {MAPPABLE_FIELDS.map((field) => {
+              const isCurrentMapping = header.mapped === field;
+              const isUsedElsewhere =
+                usedFields.has(field) && !isCurrentMapping;
+              return (
+                <button
+                  key={field}
+                  type="button"
+                  disabled={isUsedElsewhere}
+                  className={`w-full text-left px-3 py-1.5 text-xs flex items-center justify-between ${
+                    isCurrentMapping
+                      ? 'bg-green-50 text-green-800 font-medium'
+                      : isUsedElsewhere
+                        ? 'text-gray-300 cursor-not-allowed'
+                        : 'hover:bg-gray-100 text-gray-700'
+                  }`}
+                  onClick={() => {
+                    if (!isUsedElsewhere) {
+                      onRemap(colIndex, field);
+                      setIsOpen(false);
+                    }
+                  }}
+                >
+                  <span>{FIELD_LABELS[field]}</span>
+                  {isCurrentMapping && (
+                    <CheckCircle2 className="h-3 w-3 text-green-600" />
+                  )}
+                  {isUsedElsewhere && (
+                    <span className="text-[10px] text-gray-400">em uso</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 
