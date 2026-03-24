@@ -83,6 +83,7 @@ const JOURNEY_STAGE_LABELS: Record<string, string> = {
   DIAGNOSIS: 'Diagnóstico',
   TREATMENT: 'Tratamento',
   FOLLOW_UP: 'Seguimento',
+  PALLIATIVE: 'Cuidados Paliativos',
 };
 
 const JOURNEY_STAGE_ORDER: string[] = [
@@ -90,6 +91,7 @@ const JOURNEY_STAGE_ORDER: string[] = [
   'DIAGNOSIS',
   'TREATMENT',
   'FOLLOW_UP',
+  'PALLIATIVE',
 ];
 
 export function PatientNavigationTab({

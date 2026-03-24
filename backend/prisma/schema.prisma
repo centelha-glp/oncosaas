@@ -56,7 +56,7 @@ model Patient {
   cpf       String? // Criptografado (LGPD)
   birthDate DateTime
   gender    String? // male, female, other
-  phone     String // WhatsApp - Criptografado (LGPD)
+  phone     String? // WhatsApp - Criptografado (LGPD); opcional para dados legados/importação
   phoneHash String? // Hash SHA-256 do telefone normalizado para busca eficiente (indexado)
   email     String?
 
@@ -132,10 +132,10 @@ model Patient {
 
 enum JourneyStage {
   SCREENING // Rastreio
-  NAVIGATION // Navegação entre especialidades
   DIAGNOSIS // Diagnóstico
   TREATMENT // Tratamento
   FOLLOW_UP // Seguimento
+  PALLIATIVE // Cuidados paliativos (estágio explícito na jornada)
 }
 
 enum PriorityCategory {

@@ -18,10 +18,10 @@ import { AlertType, AlertSeverity } from '@prisma/client';
 /** Ordem dos estágios da jornada (para comparar "fase atual" vs "fase futura") */
 const JOURNEY_STAGE_ORDER: Record<JourneyStage, number> = {
   [JourneyStage.SCREENING]: 0,
-  [JourneyStage.NAVIGATION]: 1,
-  [JourneyStage.DIAGNOSIS]: 2,
-  [JourneyStage.TREATMENT]: 3,
-  [JourneyStage.FOLLOW_UP]: 4,
+  [JourneyStage.DIAGNOSIS]: 1,
+  [JourneyStage.TREATMENT]: 2,
+  [JourneyStage.FOLLOW_UP]: 3,
+  [JourneyStage.PALLIATIVE]: 4,
 };
 
 @Injectable()
@@ -59,6 +59,7 @@ export class OncologyNavigationService {
       JourneyStage.DIAGNOSIS,
       JourneyStage.TREATMENT,
       JourneyStage.FOLLOW_UP,
+      JourneyStage.PALLIATIVE,
     ];
 
     const stagesWithSteps = new Set(steps.map((step) => step.journeyStage));
@@ -762,6 +763,7 @@ export class OncologyNavigationService {
           JourneyStage.DIAGNOSIS,
           JourneyStage.TREATMENT,
           JourneyStage.FOLLOW_UP,
+          JourneyStage.PALLIATIVE,
         ];
 
         // Buscar todas as etapas do paciente (não apenas uma)
@@ -1061,6 +1063,7 @@ export class OncologyNavigationService {
         JourneyStage.DIAGNOSIS,
         JourneyStage.TREATMENT,
         JourneyStage.FOLLOW_UP,
+        JourneyStage.PALLIATIVE,
       ];
       const allSteps: Array<{
         journeyStage: JourneyStage;
@@ -1073,7 +1076,13 @@ export class OncologyNavigationService {
       }> = [];
 
       allStages.forEach((stage) => {
-        const steps = this.getPalliativeCareSteps(stage);
+        let steps = this.getPalliativeCareSteps(stage);
+        if (stage === JourneyStage.PALLIATIVE) {
+          steps = steps.map((s) => ({
+            ...s,
+            journeyStage: JourneyStage.PALLIATIVE,
+          }));
+        }
         allSteps.push(...steps);
       });
 
@@ -1086,6 +1095,7 @@ export class OncologyNavigationService {
       JourneyStage.DIAGNOSIS,
       JourneyStage.TREATMENT,
       JourneyStage.FOLLOW_UP,
+      JourneyStage.PALLIATIVE,
     ];
 
     const allSteps: Array<{
@@ -1110,30 +1120,39 @@ export class OncologyNavigationService {
         dueDate?: Date;
       }> = [];
 
-      switch (type) {
-        case 'colorectal':
-          steps = this.getColorectalCancerSteps(stage);
-          break;
-        case 'breast':
-          steps = this.getBreastCancerSteps(stage);
-          break;
-        case 'lung':
-          steps = this.getLungCancerSteps(stage);
-          break;
-        case 'prostate':
-          steps = this.getProstateCancerSteps(stage);
-          break;
-        case 'kidney':
-          steps = this.getKidneyCancerSteps(stage);
-          break;
-        case 'bladder':
-          steps = this.getBladderCancerSteps(stage);
-          break;
-        case 'testicular':
-          steps = this.getTesticularCancerSteps(stage);
-          break;
-        default:
-          steps = this.getGenericCancerSteps(stage);
+      if (stage === JourneyStage.PALLIATIVE) {
+        steps = this.getPalliativeCareSteps(JourneyStage.FOLLOW_UP).map(
+          (s) => ({
+            ...s,
+            journeyStage: JourneyStage.PALLIATIVE,
+          })
+        );
+      } else {
+        switch (type) {
+          case 'colorectal':
+            steps = this.getColorectalCancerSteps(stage);
+            break;
+          case 'breast':
+            steps = this.getBreastCancerSteps(stage);
+            break;
+          case 'lung':
+            steps = this.getLungCancerSteps(stage);
+            break;
+          case 'prostate':
+            steps = this.getProstateCancerSteps(stage);
+            break;
+          case 'kidney':
+            steps = this.getKidneyCancerSteps(stage);
+            break;
+          case 'bladder':
+            steps = this.getBladderCancerSteps(stage);
+            break;
+          case 'testicular':
+            steps = this.getTesticularCancerSteps(stage);
+            break;
+          default:
+            steps = this.getGenericCancerSteps(stage);
+        }
       }
 
       allSteps.push(...steps);
