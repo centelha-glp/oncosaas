@@ -1,4 +1,5 @@
 import re
+import json
 from typing import Dict, List, Optional, Any
 import logging
 from .llm_provider import llm_provider
@@ -396,8 +397,25 @@ class SymptomAnalyzer:
 
             # Extract tool call results
             for tc in result.get("tool_calls", []):
-                if tc.get("name") == "analyze_symptoms":
-                    return tc.get("input", {})
+                tool_name = tc.get("name") or tc.get("function", {}).get("name")
+                if tool_name != "analyze_symptoms":
+                    continue
+
+                # run_agentic_loop format
+                if isinstance(tc.get("input"), dict):
+                    return tc["input"]
+
+                # generate_with_tools format
+                args_raw = tc.get("function", {}).get("arguments", {})
+                if isinstance(args_raw, dict):
+                    return args_raw
+                if isinstance(args_raw, str):
+                    try:
+                        parsed = json.loads(args_raw)
+                        if isinstance(parsed, dict):
+                            return parsed
+                    except json.JSONDecodeError:
+                        logger.warning("Invalid analyze_symptoms tool arguments: %r", args_raw[:120])
 
             return None
         except Exception as e:

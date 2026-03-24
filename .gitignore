@@ -42,6 +42,9 @@ next-env.d.ts
 
 # Python
 __pycache__
+.pycache
+.pytest_cache
+.ruff_cache
 *.py[cod]
 *$py.class
 *.so

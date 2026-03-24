@@ -250,9 +250,7 @@ class IntentClassifier:
         if confidence >= CONFIDENCE_THRESHOLD_LLM:
             return regex_result
 
-        has_llm_keys = bool(
-            agent_config.get("anthropic_api_key") or agent_config.get("openai_api_key")
-        )
+        has_llm_keys = llm_provider.has_any_llm_key(agent_config)
         use_llm = agent_config.get("use_llm_intent_classifier", True) and has_llm_keys
 
         if not use_llm:

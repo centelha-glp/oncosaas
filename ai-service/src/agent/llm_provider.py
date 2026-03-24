@@ -36,17 +36,12 @@ class LLMProvider:
 
     def _read_dotenv_key(self, key_name: str) -> Optional[str]:
         """
-        Resolve API keys from local files first to avoid stale OS env overrides.
-        Priority:
-        1) ai-service/.env
-        2) project root ../.env
+        Resolve API keys from ai-service/.env to avoid stale OS overrides.
         """
         service_root = Path(__file__).resolve().parents[2]  # ai-service/
-        project_root = service_root.parent                  # repo root
 
-        for env_path in (service_root / ".env", project_root / ".env"):
-            if not env_path.exists():
-                continue
+        env_path = service_root / ".env"
+        if env_path.exists():
             values = dotenv_values(env_path)
             value = values.get(key_name)
             if value and not self._looks_like_placeholder(value):
@@ -600,7 +595,13 @@ class LLMProvider:
                         })
                     working_messages.append({"role": "user", "content": tool_results})
 
-                result = {"response": final_text, "tool_calls": all_tool_calls, "iterations": iterations}
+                result = {
+                    "response": final_text,
+                    "tool_calls": all_tool_calls,
+                    "iterations": iterations,
+                    "provider": "anthropic",
+                    "model": model,
+                }
                 if result["response"]:
                     return result
             except Exception as e:
@@ -618,6 +619,8 @@ class LLMProvider:
                     max_iterations=max_iterations,
                 )
                 if result.get("response"):
+                    result["provider"] = "openai"
+                    result["model"] = config.get("llm_fallback_model") or config.get("llm_model") or "gpt-4o"
                     logger.info("run_agentic_loop: using OpenAI fallback")
                     return result
             except Exception as e:
@@ -625,6 +628,8 @@ class LLMProvider:
 
         if not result.get("response"):
             result["response"] = self._fallback_response()
+        result.setdefault("provider", "none")
+        result.setdefault("model", "")
         return result
 
     @staticmethod

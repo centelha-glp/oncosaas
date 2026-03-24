@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
-from src.api.routes import router
+from src.routes import router
 
 """
 AI Service - Plataforma Oncológica
@@ -14,22 +14,16 @@ Serviço de IA para priorização de casos e agente conversacional
 """
 
 # Load environment variables early, before importing modules that may read os.getenv.
-# Priority order:
-# 1) Project root .env (../.env) for shared local dev config
-# 2) ai-service/.env for service-specific overrides
+# Source of truth: ai-service/.env only.
 BASE_DIR = Path(__file__).resolve().parent
-ROOT_ENV_PATH = BASE_DIR.parent / ".env"
 LOCAL_ENV_PATH = BASE_DIR / ".env"
 
 _env_loaded = []
-if ROOT_ENV_PATH.exists():
-    load_dotenv(ROOT_ENV_PATH, override=True)
-    _env_loaded.append(str(ROOT_ENV_PATH))
-else:
-    _env_loaded.append(f"(root not found: {ROOT_ENV_PATH})")
 if LOCAL_ENV_PATH.exists():
     load_dotenv(LOCAL_ENV_PATH, override=True)
     _env_loaded.append(str(LOCAL_ENV_PATH))
+else:
+    _env_loaded.append(f"(not found: {LOCAL_ENV_PATH})")
 
 
 class _JsonFormatter(logging.Formatter):
@@ -65,7 +59,7 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:3000,http://localhost:3002"
 
     class Config:
-        env_file = ".env"
+        env_file = str(LOCAL_ENV_PATH)
 
 
 settings = Settings()

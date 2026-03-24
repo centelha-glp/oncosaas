@@ -1,15 +1,10 @@
 import pytest
 import numpy as np
 import pandas as pd
-import sys
-import os
 
 """
 Tests for the OncologyPriorityModel class.
 """
-
-# Add the ai-service root to path so imports work
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from src.models.priority_model import OncologyPriorityModel, FEATURE_COLUMNS, DISPOSITION_CLASSES
 

@@ -14,6 +14,7 @@ O processo que executa o ai-service deve ter acesso a:
 | `BACKEND_SERVICE_TOKEN` | Sim (produção) | Token para autenticação backend → ai-service. |
 
 O backend **não** envia chaves de LLM no `agent_config`; o ai-service usa apenas `os.getenv("OPENAI_API_KEY")` e `os.getenv("ANTHROPIC_API_KEY")`. Garanta que no ambiente onde o ai-service roda (ex.: terminal, systemd, Docker) pelo menos uma dessas chaves esteja definida para respostas geradas por IA.
+Para desenvolvimento local neste serviço, o arquivo carregado é somente `ai-service/.env` (não há fallback para `.env` no diretório pai).
 
 ## Mensagem de fallback do agente
 
@@ -27,3 +28,22 @@ isso indica um dos casos abaixo:
 2. **Falha no loop do agente** – As chaves existem, mas a chamada ao LLM falhou (ex.: provedor indisponível, exceção no `run_agentic_loop`). Verifique logs do ai-service e conectividade com as APIs.
 
 A priorização (`POST /prioritize`) é independente: pode retornar 200 com score heurístico mesmo sem LLM; o texto da resposta do chat vem sempre do `/agent/process`.
+
+## Organização de Rotas
+
+As rotas FastAPI estão em `src/routes/` (não mais em `src/api/routes.py`), e o app
+importa o router central de `src.routes`.
+
+## Testes
+
+Execute todos os testes com:
+
+- `python3 -m pytest -q`
+
+Estrutura atual da suíte:
+
+- `tests/agent/` — agente, regras clínicas, provedor LLM
+- `tests/models/` — modelo de prioridade
+- `tests/services/` — integração com backend client
+- `tests/system/` — smoke/import checks
+- `tests/fixtures/` — payloads de apoio
