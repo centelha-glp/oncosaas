@@ -34,7 +34,7 @@ export class PerformanceStatusService {
 
     // Sync Patient.performanceStatus with the latest value
     await this.prisma.patient.update({
-      where: { id: patientId },
+      where: { id: patientId, tenantId },
       data: { performanceStatus: dto.ecogScore },
     });
 

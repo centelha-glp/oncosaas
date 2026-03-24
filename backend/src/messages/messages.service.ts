@@ -112,7 +112,7 @@ export class MessagesService {
 
     // Manter metadados da conversa atualizados para listas/ordenação
     await this.prisma.conversation.update({
-      where: { id: conversationId },
+      where: { id: conversationId, tenantId },
       data: {
         lastMessageAt: new Date(),
         messageCount: { increment: 1 },
@@ -166,7 +166,7 @@ export class MessagesService {
     }
 
     const updatedMessage = await this.prisma.message.update({
-      where: { id },
+      where: { id, tenantId },
       data: updateMessageDto,
       include: {
         patient: {
@@ -199,7 +199,7 @@ export class MessagesService {
     }
 
     const updatedMessage = await this.prisma.message.update({
-      where: { id },
+      where: { id, tenantId },
       data: {
         assumedBy: userId,
         assumedAt: new Date(),
@@ -249,6 +249,7 @@ export class MessagesService {
     await this.prisma.message.updateMany({
       where: {
         id: { in: unassumedMessages.map((m) => m.id) },
+        tenantId,
       },
       data: {
         assumedBy: userId,

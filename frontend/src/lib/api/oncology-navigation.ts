@@ -10,7 +10,8 @@ export interface NavigationStep {
     | 'SCREENING'
     | 'DIAGNOSIS'
     | 'TREATMENT'
-    | 'FOLLOW_UP';
+    | 'FOLLOW_UP'
+    | 'PALLIATIVE';
   stepKey: string;
   stepName: string;
   stepDescription?: string;
@@ -44,7 +45,8 @@ export interface CreateNavigationStepDto {
     | 'SCREENING'
     | 'DIAGNOSIS'
     | 'TREATMENT'
-    | 'FOLLOW_UP';
+    | 'FOLLOW_UP'
+    | 'PALLIATIVE';
   stepKey: string;
   stepName: string;
   stepDescription?: string;
@@ -223,6 +225,57 @@ export const oncologyNavigationApi = {
     }>(
       `/oncology-navigation/patients/${patientId}/stages/${journeyStage}/create-missing`
     );
+  },
+
+  /**
+   * Faz upload de arquivo para uma etapa
+   */
+  /**
+   * Retorna templates de etapas disponíveis (não criadas) para uma fase
+   */
+  getStepTemplates: async (
+    patientId: string,
+    journeyStage: string
+  ): Promise<
+    {
+      stepKey: string;
+      stepName: string;
+      stepDescription?: string;
+      journeyStage: string;
+      isRequired: boolean;
+    }[]
+  > => {
+    const data = await apiClient.get<
+      {
+        stepKey: string;
+        stepName: string;
+        stepDescription?: string;
+        journeyStage: string;
+        isRequired: boolean;
+      }[]
+    >(`/oncology-navigation/patients/${patientId}/step-templates/${journeyStage}`);
+    return data ?? [];
+  },
+
+  /**
+   * Cria etapas faltantes para uma fase (opcionalmente apenas uma pelo stepKey)
+   */
+  createMissingStepsForStage: async (
+    patientId: string,
+    journeyStage: string,
+    stepKey?: string
+  ): Promise<{ created: number; skipped: number }> => {
+    return apiClient.post<{ created: number; skipped: number }>(
+      `/oncology-navigation/patients/${patientId}/stages/${journeyStage}/create-missing`,
+      stepKey ? { stepKey } : {}
+    );
+  },
+
+  /**
+   * Exclui uma etapa de navegação
+   */
+  deleteStep: async (stepId: string): Promise<void> => {
+    await apiClient.delete(`/oncology-navigation/steps/${stepId}`);
   },
 
   /**

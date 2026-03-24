@@ -1,24 +1,23 @@
+from __future__ import annotations
+
 import argparse
 import json
 import logging
 import sys
 import pandas as pd
 import numpy as np
-from pathlib import Path
-from src.models.train_priority import generate_synthetic_dataset, MODEL_PATH
-from src.models.priority_model import FEATURE_COLUMNS, DISPOSITION_CLASSES, DISPOSITION_TO_IDX, priority_model
+from src.models.train_priority import generate_synthetic_dataset
+from src.models.priority_model import FEATURE_COLUMNS, DISPOSITION_CLASSES, DISPOSITION_TO_IDX, priority_model, MODEL_PATH
 from sklearn.metrics import classification_report, confusion_matrix
 
 """
 CLI script to train or retrain the oncology priority ordinal classifier.
 Usage:
-  python scripts/train_model.py                    # Train from synthetic data
-  python scripts/train_model.py --real data.json   # Blend synthetic + real feedback data
-  python scripts/train_model.py --eval              # Evaluate current model
+  python -m scripts.train_model                    # Train from synthetic data
+  python -m scripts.train_model --real data.json   # Blend synthetic + real feedback data
+  python -m scripts.train_model --eval              # Evaluate current model
 """
 
-# Add parent to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s — %(message)s",
@@ -27,7 +26,7 @@ logger = logging.getLogger("train_model")
 
 
 def train(real_data_path: str | None = None, n_synthetic: int = 5000):
-    #Train the model, optionally blending in real feedback data.
+    # Train the model, optionally blending in real feedback data.
     logger.info("Generating %d synthetic training samples...", n_synthetic)
     df_synthetic = generate_synthetic_dataset(n_samples=n_synthetic)
     logger.info("Synthetic data class distribution: %s", df_synthetic["label"].value_counts().to_dict())

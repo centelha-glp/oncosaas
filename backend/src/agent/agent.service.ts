@@ -1435,10 +1435,10 @@ export class AgentService {
     return this.configService.get<string>('AI_SERVICE_URL') || 'http://localhost:8001';
   }
 
-  async getObservabilityTraces(limit = 50): Promise<any> {
+  async getObservabilityTraces(tenantId: string, limit = 50): Promise<any> {
     try {
       const url = `${this.getAiServiceUrl()}/api/v1/observability/traces?limit=${limit}`;
-      const response = await fetch(url);
+      const response = await fetch(url, { headers: { 'X-Tenant-Id': tenantId } });
       return response.json();
     } catch (error) {
       this.logger.error(`Failed to fetch observability traces: ${error.message}`);
@@ -1446,10 +1446,10 @@ export class AgentService {
     }
   }
 
-  async getObservabilityStats(): Promise<any> {
+  async getObservabilityStats(tenantId: string): Promise<any> {
     try {
       const url = `${this.getAiServiceUrl()}/api/v1/observability/stats`;
-      const response = await fetch(url);
+      const response = await fetch(url, { headers: { 'X-Tenant-Id': tenantId } });
       return response.json();
     } catch (error) {
       this.logger.error(`Failed to fetch observability stats: ${error.message}`);
@@ -1457,10 +1457,13 @@ export class AgentService {
     }
   }
 
-  async clearObservabilityTraces(): Promise<any> {
+  async clearObservabilityTraces(tenantId: string): Promise<any> {
     try {
       const url = `${this.getAiServiceUrl()}/api/v1/observability/traces`;
-      const response = await fetch(url, { method: 'DELETE' });
+      const response = await fetch(url, {
+        method: 'DELETE',
+        headers: { 'X-Tenant-Id': tenantId },
+      });
       return response.json();
     } catch (error) {
       this.logger.error(`Failed to clear observability traces: ${error.message}`);

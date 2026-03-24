@@ -155,17 +155,20 @@ export const navigationApi = {
 
   /**
    * Cria apenas as etapas faltantes para um estágio específico da jornada
+   * Se stepKey for informado, cria apenas aquela etapa.
    */
   createMissingStepsForStage: async (
     patientId: string,
-    journeyStage: string
+    journeyStage: string,
+    stepKey?: string
   ): Promise<{ created: number; skipped: number; message: string }> => {
     return apiClient.post<{
       created: number;
       skipped: number;
       message: string;
     }>(
-      `/oncology-navigation/patients/${patientId}/stages/${journeyStage}/create-missing`
+      `/oncology-navigation/patients/${patientId}/stages/${journeyStage}/create-missing`,
+      stepKey ? { stepKey } : {}
     );
   },
 };

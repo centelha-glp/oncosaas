@@ -134,3 +134,33 @@ export function getPatientAllCancerTypes(patient: {
   }
   return patient.cancerType ? [patient.cancerType] : [];
 }
+
+/** Default MVP: apenas bexiga habilitada */
+const DEFAULT_ENABLED_CANCER_TYPES = ['bladder'];
+
+/**
+ * Filtra CANCER_TYPE_LABELS para retornar apenas os tipos habilitados pelo tenant.
+ * Se `enabledTypes` for vazio/null, usa default MVP (['bladder']).
+ */
+export function getEnabledCancerTypeLabels(
+  enabledTypes?: string[] | null,
+): Record<string, string> {
+  const enabled = enabledTypes?.length
+    ? enabledTypes.map((t) => t.toLowerCase())
+    : DEFAULT_ENABLED_CANCER_TYPES;
+
+  return Object.fromEntries(
+    Object.entries(CANCER_TYPE_LABELS).filter(([key]) =>
+      enabled.includes(key),
+    ),
+  );
+}
+
+/**
+ * Retorna as chaves dos tipos de câncer habilitados como array.
+ */
+export function getEnabledCancerTypeKeys(
+  enabledTypes?: string[] | null,
+): string[] {
+  return Object.keys(getEnabledCancerTypeLabels(enabledTypes));
+}

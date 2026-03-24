@@ -1,7 +1,6 @@
 import json
 import logging
 from typing import Dict, List, Optional, Any
-import httpx
 from anthropic import AsyncAnthropic
 from openai import AsyncOpenAI
 import os
@@ -37,7 +36,7 @@ class LLMProvider:
 
     def _read_dotenv_key(self, key_name: str) -> Optional[str]:
         """
-        Resolve API keys from ai-service/.env first to avoid stale OS env overrides.
+        Resolve API keys from ai-service/.env to avoid stale OS overrides.
         """
         service_root = Path(__file__).resolve().parents[2]  # ai-service/
 
@@ -91,20 +90,14 @@ class LLMProvider:
         key = self._resolve_api_key("ANTHROPIC_API_KEY", api_key)
         if not key:
             return None
-        return AsyncAnthropic(
-            api_key=key,
-            timeout=httpx.Timeout(connect=5.0, read=90.0, write=10.0, pool=5.0),
-        )
+        return AsyncAnthropic(api_key=key)
 
     def _get_openai_client(self, api_key: Optional[str] = None) -> Optional[AsyncOpenAI]:
         """Get or create OpenAI client."""
         key = self._resolve_api_key("OPENAI_API_KEY", api_key)
         if not key:
             return None
-        return AsyncOpenAI(
-            api_key=key,
-            timeout=httpx.Timeout(connect=5.0, read=90.0, write=10.0, pool=5.0),
-        )
+        return AsyncOpenAI(api_key=key)
 
     async def generate(
         self,
@@ -224,7 +217,7 @@ class LLMProvider:
 
         response = await client.messages.create(
             model=model,
-            max_tokens=config.get("max_tokens", 1024),
+            max_tokens=1024,
             system=system_prompt,
             messages=anthropic_messages,
         )
@@ -254,7 +247,7 @@ class LLMProvider:
             model=model,
             messages=openai_messages,
             temperature=0.7,
-            max_tokens=config.get("max_tokens", 1024),
+            max_tokens=1024,
         )
 
         return response.choices[0].message.content or ""
@@ -305,7 +298,7 @@ class LLMProvider:
 
         response = await client.messages.create(
             model=model,
-            max_tokens=config.get("max_tokens", 1024),
+            max_tokens=1024,
             system=system_prompt,
             messages=anthropic_messages,
             tools=anthropic_tools,
@@ -368,7 +361,7 @@ class LLMProvider:
             messages=openai_messages,
             tools=openai_tools if openai_tools else None,
             temperature=0.7,
-            max_tokens=config.get("max_tokens", 1024),
+            max_tokens=1024,
         )
 
         choice = response.choices[0]
@@ -602,7 +595,13 @@ class LLMProvider:
                         })
                     working_messages.append({"role": "user", "content": tool_results})
 
-                result = {"response": final_text, "tool_calls": all_tool_calls, "iterations": iterations}
+                result = {
+                    "response": final_text,
+                    "tool_calls": all_tool_calls,
+                    "iterations": iterations,
+                    "provider": "anthropic",
+                    "model": model,
+                }
                 if result["response"]:
                     return result
             except Exception as e:
@@ -620,6 +619,8 @@ class LLMProvider:
                     max_iterations=max_iterations,
                 )
                 if result.get("response"):
+                    result["provider"] = "openai"
+                    result["model"] = config.get("llm_fallback_model") or config.get("llm_model") or "gpt-4o"
                     logger.info("run_agentic_loop: using OpenAI fallback")
                     return result
             except Exception as e:
@@ -627,6 +628,8 @@ class LLMProvider:
 
         if not result.get("response"):
             result["response"] = self._fallback_response()
+        result.setdefault("provider", "none")
+        result.setdefault("model", "")
         return result
 
     @staticmethod

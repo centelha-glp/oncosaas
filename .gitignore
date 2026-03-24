@@ -42,6 +42,9 @@ next-env.d.ts
 
 # Python
 __pycache__
+.pycache
+.pytest_cache
+.ruff_cache
 *.py[cod]
 *$py.class
 *.so
@@ -81,6 +84,16 @@ certs/openssl.conf
 *.pub
 *.sh
 !scripts/supervisor/*.sh
+*.csv
+
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+backend.hcl
+*.tfvars
+tfplan
 
 # Claude local settings
 .claude/settings.local.json

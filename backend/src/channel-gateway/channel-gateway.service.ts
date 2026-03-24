@@ -130,7 +130,7 @@ export class ChannelGatewayService {
 
     // 4. Update conversation metadata
     await this.prisma.conversation.update({
-      where: { id: conversation.id },
+      where: { id: conversation.id, tenantId },
       data: {
         lastMessageAt: new Date(),
         messageCount: { increment: 1 },
@@ -261,7 +261,7 @@ export class ChannelGatewayService {
     // Update conversation
     if (conversationId) {
       await this.prisma.conversation.update({
-        where: { id: conversationId },
+        where: { id: conversationId, tenantId },
         data: {
           lastMessageAt: new Date(),
           messageCount: { increment: 1 },

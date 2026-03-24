@@ -78,7 +78,7 @@ export class FHIRSyncService {
 
       // Atualizar observação com fhirResourceId
       const updated = await this.prisma.observation.update({
-        where: { id: observationId },
+        where: { id: observationId, tenantId: config.tenantId },
         data: {
           fhirResourceId: createdObservation.id,
           syncedToEHR: true,
@@ -130,7 +130,7 @@ export class FHIRSyncService {
 
       // Atualizar paciente com ehrPatientId
       await this.prisma.patient.update({
-        where: { id: patientId },
+        where: { id: patientId, tenantId: config.tenantId },
         data: {
           ehrPatientId: createdPatient.id,
         },

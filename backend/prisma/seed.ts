@@ -21,6 +21,7 @@ async function main() {
       settings: {
         timezone: 'America/Sao_Paulo',
         language: 'pt-BR',
+        enabledCancerTypes: ['bladder'], // MVP: apenas câncer de bexiga
       },
     },
   });

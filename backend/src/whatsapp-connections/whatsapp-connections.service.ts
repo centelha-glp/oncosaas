@@ -161,12 +161,16 @@ export class WhatsAppConnectionsService {
     }
 
     if (new Date() > oauthState.expiresAt) {
-      await this.prisma.oAuthState.delete({ where: { state } });
+      await this.prisma.oAuthState.delete({
+        where: { state, tenantId: oauthState.tenantId },
+      });
       throw new BadRequestException('State token expired');
     }
 
     // Limpar state usado
-    await this.prisma.oAuthState.delete({ where: { state } });
+    await this.prisma.oAuthState.delete({
+      where: { state, tenantId: oauthState.tenantId },
+    });
 
     return oauthState.tenantId;
   }
@@ -516,7 +520,7 @@ export class WhatsAppConnectionsService {
           if (existing) {
             // Atualizar conexão existente
             const updated = await this.prisma.whatsAppConnection.update({
-              where: { id: existing.id },
+              where: { id: existing.id, tenantId },
               data: {
                 phoneNumberId: phoneNumber.id,
                 whatsappBusinessAccountId: account.id,
@@ -775,7 +779,7 @@ export class WhatsAppConnectionsService {
     }
 
     return this.prisma.whatsAppConnection.update({
-      where: { id },
+      where: { id, tenantId },
       data: updateData,
     });
   }
@@ -785,7 +789,7 @@ export class WhatsAppConnectionsService {
    */
   async remove(id: string, tenantId: string): Promise<void> {
     const connection = await this.findOne(id, tenantId);
-    await this.prisma.whatsAppConnection.delete({ where: { id } });
+    await this.prisma.whatsAppConnection.delete({ where: { id, tenantId } });
   }
 
   /**
@@ -839,7 +843,7 @@ export class WhatsAppConnectionsService {
 
       // Atualizar última sincronização
       await this.prisma.whatsAppConnection.update({
-        where: { id },
+        where: { id, tenantId },
         data: {
           lastSyncAt: new Date(),
           lastError: null,
@@ -856,7 +860,7 @@ export class WhatsAppConnectionsService {
 
       // Atualizar último erro
       await this.prisma.whatsAppConnection.update({
-        where: { id },
+        where: { id, tenantId },
         data: {
           lastError: errorMessage,
           status: WhatsAppConnectionStatus.ERROR,
@@ -1180,7 +1184,7 @@ export class WhatsAppConnectionsService {
 
           if (existing) {
             const updated = await this.prisma.whatsAppConnection.update({
-              where: { id: existing.id },
+              where: { id: existing.id, tenantId },
               data: {
                 ...connectionData,
                 isDefault: isFirst && !existing.isDefault,
@@ -1490,7 +1494,7 @@ export class WhatsAppConnectionsService {
 
     // Marcar esta como padrão
     return this.prisma.whatsAppConnection.update({
-      where: { id },
+      where: { id, tenantId },
       data: { isDefault: true },
     });
   }

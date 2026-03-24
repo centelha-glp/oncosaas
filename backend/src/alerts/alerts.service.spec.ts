@@ -4,9 +4,9 @@ import {
   ConflictException,
   NotFoundException,
 } from '@nestjs/common';
-import { AlertsService } from './alerts.service';
-import { PrismaService } from '../prisma/prisma.service';
-import { AlertsGateway } from '../gateways/alerts.gateway';
+import { AlertsService } from '@/alerts/alerts.service';
+import { PrismaService } from '@/prisma/prisma.service';
+import { AlertsGateway } from '@/gateways/alerts.gateway';
 
 const mockPrisma = {
   patient: { findFirst: jest.fn() },

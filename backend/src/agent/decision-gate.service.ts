@@ -157,7 +157,7 @@ export class DecisionGateService {
       throw new Error(`Decision ${decisionId} has already been approved`);
     }
     return this.prisma.agentDecisionLog.update({
-      where: { id: decisionId },
+      where: { id: decisionId, tenantId },
       data: {
         approvedBy: userId,
         approvedAt: new Date(),
@@ -188,7 +188,7 @@ export class DecisionGateService {
       throw new Error(`Decision ${decisionId} has already been rejected`);
     }
     return this.prisma.agentDecisionLog.update({
-      where: { id: decisionId },
+      where: { id: decisionId, tenantId },
       data: {
         approvedBy: userId,
         approvedAt: new Date(),

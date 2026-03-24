@@ -29,9 +29,11 @@ import {
   type ComorbiditySeverity,
 } from '@/lib/api/patients';
 import { getTreatmentOptionsForCancerType } from '@/lib/utils/patient-cancer-type';
+import { useEnabledCancerTypes } from '@/hooks/useEnabledCancerTypes';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { JOURNEY_STAGE_LABELS } from '@/lib/utils/journey-stage';
 import { ComorbiditiesForm } from './comorbidities-form';
 import { CurrentMedicationsForm } from './current-medications-form';
 import { FamilyHistoryForm } from './family-history-form';
@@ -53,6 +55,7 @@ export function PatientCreateDialog({
 }: PatientCreateDialogProps) {
   const [currentStep, setCurrentStep] = useState(1);
   const queryClient = useQueryClient();
+  const { labels: enabledCancerLabels } = useEnabledCancerTypes();
 
   const {
     register,
@@ -337,10 +340,11 @@ export function PatientCreateDialog({
                     <SelectValue placeholder="Selecione o estágio" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="SCREENING">Rastreio</SelectItem>
-                    <SelectItem value="DIAGNOSIS">Diagnóstico</SelectItem>
-                    <SelectItem value="TREATMENT">Tratamento</SelectItem>
-                    <SelectItem value="FOLLOW_UP">Seguimento</SelectItem>
+                    <SelectItem value="SCREENING">{JOURNEY_STAGE_LABELS['SCREENING']}</SelectItem>
+                    <SelectItem value="DIAGNOSIS">{JOURNEY_STAGE_LABELS['DIAGNOSIS']}</SelectItem>
+                    <SelectItem value="TREATMENT">{JOURNEY_STAGE_LABELS['TREATMENT']}</SelectItem>
+                    <SelectItem value="FOLLOW_UP">{JOURNEY_STAGE_LABELS['FOLLOW_UP']}</SelectItem>
+                    <SelectItem value="PALLIATIVE">{JOURNEY_STAGE_LABELS['PALLIATIVE']}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -364,14 +368,11 @@ export function PatientCreateDialog({
                     <SelectValue placeholder="Selecione o tipo de câncer" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="breast">Mama</SelectItem>
-                    <SelectItem value="lung">Pulmão</SelectItem>
-                    <SelectItem value="colorectal">Colorretal</SelectItem>
-                    <SelectItem value="prostate">Próstata</SelectItem>
-                    <SelectItem value="kidney">Rim</SelectItem>
-                    <SelectItem value="bladder">Bexiga</SelectItem>
-                    <SelectItem value="testicular">Testículo</SelectItem>
-                    <SelectItem value="other">Outros</SelectItem>
+                    {Object.entries(enabledCancerLabels).map(([key, label]) => (
+                      <SelectItem key={key} value={key}>
+                        {label}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
                 {errors.cancerType && (

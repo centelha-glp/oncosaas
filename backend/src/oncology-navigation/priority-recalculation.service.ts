@@ -159,7 +159,7 @@ export class PriorityRecalculationService {
       };
 
       await this.prisma.patient.update({
-        where: { id: patientId },
+        where: { id: patientId, tenantId },
         data: {
           priorityScore: Math.round(data.priority_score),
           priorityCategory: (categoryMap[data.priority_category] ||

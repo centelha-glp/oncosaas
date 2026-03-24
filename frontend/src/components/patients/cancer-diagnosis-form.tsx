@@ -44,9 +44,9 @@ import { ptBR } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
 import { CancerDiagnosis } from '@/lib/api/patients';
 import {
-  CANCER_TYPE_LABELS,
   getCancerTypeKey,
 } from '@/lib/utils/patient-cancer-type';
+import { useEnabledCancerTypes } from '@/hooks/useEnabledCancerTypes';
 import {
   ICD10_OPTIONS,
   HISTOLOGICAL_TYPE_OPTIONS,
@@ -68,6 +68,7 @@ export function CancerDiagnosisForm({
   onSubmit,
   onCancel,
 }: CancerDiagnosisFormProps) {
+  const { labels: CANCER_TYPE_LABELS } = useEnabledCancerTypes();
   const isMetastaticForm = !!primaryDiagnosisId && !diagnosis;
 
   const form = useForm<CancerDiagnosisFormData>({
@@ -136,7 +137,10 @@ export function CancerDiagnosisForm({
     }
   }, [primaryDiagnosisId, diagnosis, form]);
 
-  const cancerType = useWatch({ control: form.control, name: 'cancerType' });
+  const cancerType = useWatch({
+    control: form.control,
+    name: 'cancerType',
+  });
   const isBreastCancer =
     cancerType?.toLowerCase().includes('mama') || cancerType === 'breast';
   const isLungCancer =

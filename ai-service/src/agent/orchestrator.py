@@ -9,7 +9,6 @@ from .symptom_analyzer import symptom_analyzer
 from .protocol_engine import protocol_engine
 from .questionnaire_engine import questionnaire_engine
 from .intent_classifier import intent_classifier, INTENT_GREETING, INTENT_EMERGENCY, INTENT_APPOINTMENT_QUERY, INTENT_EMOTIONAL_SUPPORT
-from .prompts.system_prompt import build_system_prompt
 from .prompts.orchestrator_prompt import build_orchestrator_prompt, ORCHESTRATOR_ROUTING_TOOLS
 from .subagents import SymptomAgent, NavigationAgent, QuestionnaireAgent, EmotionalSupportAgent
 from .clinical_rules import clinical_rules_engine, ER_IMMEDIATE
@@ -204,18 +203,6 @@ class AgentOrchestrator:
         span_rag.finish()
 
         # 5. Build protocol context string
-        protocol_context = None
-        if protocol:
-            protocol_context = context_builder._format_protocol_context(protocol)
-
-        # 6. Build system prompt
-        language = agent_config.get("agent_language", "pt-BR")
-        build_system_prompt(
-            clinical_context=rag_context,
-            protocol_context=protocol_context,
-            language=language,
-        )
-
         # 7. Multi-agent pipeline: orchestrator (Opus) routes to specialized subagents
         llm_actions = []
         llm_decisions = []
@@ -232,7 +219,7 @@ class AgentOrchestrator:
         if has_llm_keys:
             span_llm = tracer.start_span(trace, "multi_agent_pipeline")
             llm_start = time.monotonic()
-            response_text, all_tool_calls = await self._run_multi_agent_pipeline(
+            response_text, all_tool_calls, llm_meta = await self._run_multi_agent_pipeline(
                 message=final_message,
                 rag_context=rag_context,
                 conversation_history=conversation_history,
@@ -241,8 +228,13 @@ class AgentOrchestrator:
             )
             llm_dur = (time.monotonic() - llm_start) * 1000
             span_llm.finish(tool_calls=len(all_tool_calls))
-            model = agent_config.get("orchestrator_model", "claude-opus-4-6")
-            tracer.record_llm_call(trace, "orchestrator", "anthropic", model, llm_dur)
+            tracer.record_llm_call(
+                trace,
+                "orchestrator",
+                llm_meta.get("provider", "unknown"),
+                llm_meta.get("model", agent_config.get("orchestrator_model", "")),
+                llm_dur,
+            )
             if all_tool_calls:
                 llm_actions, llm_decisions = self._parse_tool_calls_to_actions(all_tool_calls)
                 logger.info(
@@ -433,7 +425,10 @@ class AgentOrchestrator:
         3. Orchestrator generates the final patient-facing response
 
         Returns:
-            Tuple of (response_text: str, all_tool_calls: List[Dict])
+            Tuple of:
+            - response_text: str
+            - all_tool_calls: List[Dict]
+            - llm_meta: Dict[str, str] with provider/model
         """
         orch_config = {
             **agent_config,
@@ -518,8 +513,13 @@ class AgentOrchestrator:
                 "Multi-agent pipeline failed: %s (type=%s)", e, type(e).__name__, exc_info=True
             )
             response_text = llm_provider._fallback_response()
+            orch_result = {}
 
-        return response_text, all_tool_calls
+        llm_meta = {
+            "provider": orch_result.get("provider", "unknown") if isinstance(orch_result, dict) else "unknown",
+            "model": orch_result.get("model", orch_config.get("llm_model", "")) if isinstance(orch_result, dict) else orch_config.get("llm_model", ""),
+        }
+        return response_text, all_tool_calls, llm_meta
 
     def _build_emergency_response(
         self,
@@ -602,13 +602,6 @@ class AgentOrchestrator:
             "response": response,
             "actions": actions,
             "symptom_analysis": symptom_analysis,
-            # Emergency path always escalates to ER_IMMEDIATE — populated so the
-            # backend can update the patient record and display triage to nurses.
-            "clinical_disposition": ER_IMMEDIATE,
-            "clinical_disposition_reason": (
-                "Intent classifier detected emergency message — ER_IMMEDIATE escalation."
-            ),
-            "clinical_rules_findings": [],
             "new_state": agent_state,
             "decisions": decisions,
         }
@@ -670,7 +663,8 @@ class AgentOrchestrator:
 
         if upcoming:
             steps_text = "\n".join(
-                f"• {s.get('name', 'Etapa')}: {s.get('scheduledDate', 'data a confirmar')}"
+                f"• {s.get('stepName', s.get('name', 'Etapa'))}: "
+                f"{s.get('dueDate', s.get('scheduledDate', 'data a confirmar'))}"
                 for s in upcoming[:5]
             )
             response = (
@@ -955,15 +949,51 @@ class AgentOrchestrator:
         merged = list(llm_actions)
         llm_keys = set()
         for a in llm_actions:
-            key = (a["type"], a.get("payload", {}).get("code", a.get("payload", {}).get("type", "")))
+            key = self._action_dedupe_key(a)
             llm_keys.add(key)
 
         for a in rule_actions:
-            key = (a["type"], a.get("payload", {}).get("code", a.get("payload", {}).get("type", "")))
+            key = self._action_dedupe_key(a)
             if key not in llm_keys:
                 merged.append(a)
 
         return merged
+
+    def _action_dedupe_key(self, action: Dict[str, Any]) -> tuple:
+        action_type = action.get("type", "")
+        payload = action.get("payload", {}) or {}
+
+        if action_type == "RECORD_SYMPTOM":
+            identifier = payload.get("code") or payload.get("display", "")
+        elif action_type == "START_QUESTIONNAIRE":
+            identifier = payload.get("questionnaireType") or payload.get("type", "")
+        elif action_type == "UPDATE_NAVIGATION_STEP":
+            identifier = payload.get("stepKey", "")
+        elif action_type == "SEND_REMINDER":
+            identifier = (
+                payload.get("actionType", ""),
+                payload.get("daysFromNow", ""),
+                payload.get("message", ""),
+            )
+        elif action_type == "SCHEDULE_CHECK_IN":
+            identifier = (
+                payload.get("days", ""),
+                payload.get("frequency", ""),
+                payload.get("reason", ""),
+            )
+        elif "ALERT" in action_type:
+            identifier = (
+                payload.get("type", ""),
+                payload.get("severity", ""),
+                payload.get("message", ""),
+            )
+        else:
+            try:
+                identifier = json.dumps(payload, sort_keys=True, ensure_ascii=False)
+            except TypeError:
+                identifier = str(payload)
+
+        return (action_type, identifier)
 
     def _compile_actions(
         self,

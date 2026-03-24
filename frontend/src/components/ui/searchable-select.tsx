@@ -78,29 +78,30 @@ export function SearchableSelect({
     [options, inputValue]
   );
 
-  // Derive the display label for the current value — recomputed synchronously.
-  const labelForValue = selectedOption?.label ?? value ?? '';
+  const getInputValueFromProp = useCallback(() => {
+    if (selectedOption) return selectedOption.label;
+    if (value) return value;
+    return '';
+  }, [value, selectedOption]);
 
-  // "setState during render" — React will discard the render and re-render once
-  // synchronously when value/selectedOption changes, avoiding a cascading effect.
-  const [prevValue, setPrevValue] = React.useState(value);
-  const [prevSelectedLabel, setPrevSelectedLabel] = React.useState(labelForValue);
-  if (prevValue !== value || prevSelectedLabel !== labelForValue) {
-    setPrevValue(value);
-    setPrevSelectedLabel(labelForValue);
-    setInputValue(labelForValue);
-  }
-
-  const syncInputFromValue = useCallback(() => {
-    setInputValue(labelForValue);
-  }, [labelForValue]);
-
-  // DOM side-effect only: focus the input when the popover opens.
   useEffect(() => {
     if (open) {
+      const synced = getInputValueFromProp();
+      // Batch state updates - React 18+ batches these automatically
+      queueMicrotask(() => {
+        setInputValue(synced);
+        setHighlightedIndex(0);
+      });
       setTimeout(() => inputRef.current?.focus(), 0);
     }
-  }, [open]);
+  }, [open, getInputValueFromProp]);
+
+  useEffect(() => {
+    const synced = getInputValueFromProp();
+    queueMicrotask(() => {
+      setInputValue(synced);
+    });
+  }, [value, getInputValueFromProp]);
 
   const handleSelect = useCallback(
     (option: SearchableSelectOption) => {
@@ -161,7 +162,7 @@ export function SearchableSelect({
       case 'Escape':
         e.preventDefault();
         setOpen(false);
-        syncInputFromValue();
+        setInputValue(getInputValueFromProp());
         inputRef.current?.blur();
         break;
       default:
@@ -177,11 +178,8 @@ export function SearchableSelect({
   }, [highlightedIndex]);
 
   const handleOpenChange = (next: boolean) => {
-    if (next) {
-      syncInputFromValue();
-      setHighlightedIndex(0);
-    } else {
-      syncInputFromValue();
+    if (!next) {
+      setInputValue(getInputValueFromProp());
     }
     setOpen(next);
   };

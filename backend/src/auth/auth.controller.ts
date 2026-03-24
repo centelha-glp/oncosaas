@@ -8,6 +8,7 @@ import {
   HttpStatus,
   Headers,
   UnauthorizedException,
+  UseGuards,
   Request,
 } from '@nestjs/common';
 import {
@@ -16,12 +17,17 @@ import {
   IsEmail,
   MinLength,
   IsOptional,
+  IsArray,
+  ArrayMinSize,
 } from 'class-validator';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { RegisterInstitutionDto } from './dto/register-institution.dto';
 import { Public } from './decorators/public.decorator';
+import { Roles } from './decorators/roles.decorator';
+import { RolesGuard } from './guards/roles.guard';
+import { UserRole } from '@prisma/client';
 
 class RefreshDto {
   @IsString()
@@ -42,6 +48,13 @@ class ResetPasswordDto {
   @IsString()
   @MinLength(6)
   password: string;
+}
+
+class UpdateTenantSettingsDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @IsString({ each: true })
+  enabledCancerTypes: string[];
 }
 
 class UpdateProfileDto {
@@ -120,6 +133,19 @@ export class AuthController {
   @Patch('profile')
   async updateProfile(@Body() body: UpdateProfileDto, @Request() req) {
     return this.authService.updateProfile(req.user?.id ?? req.user?.sub, body);
+  }
+
+  @Patch('tenant-settings')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.ONCOLOGIST, UserRole.NURSE_CHIEF, UserRole.COORDINATOR)
+  async updateTenantSettings(
+    @Body() body: UpdateTenantSettingsDto,
+    @Request() req,
+  ) {
+    return this.authService.updateTenantSettings(
+      req.user?.tenantId,
+      body.enabledCancerTypes,
+    );
   }
 
   @Public()

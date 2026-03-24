@@ -3,8 +3,8 @@
 Export anonymized training data from the backend for ML retraining.
 
 Usage:
-  python scripts/export_training_data.py --token <admin_jwt> --out data.json
-  python scripts/export_training_data.py --token <admin_jwt> --out data.json --all
+  python -m scripts.export_training_data --token <admin_jwt> --out data.json
+  python -m scripts.export_training_data --token <admin_jwt> --out data.json --all
 """
 
 import argparse
@@ -57,7 +57,7 @@ def export(backend_url: str, token: str, output_path: str, all_tenants: bool = F
     print(f"\nExported {len(data)} training samples → {output}")
     print(f"Label distribution: {dict(sorted(dist.items()))}")
     print("\nTo retrain the model:")
-    print(f"  python scripts/train_model.py --real {output}")
+    print(f"  python -m scripts.train_model --real {output}")
 
 
 if __name__ == "__main__":

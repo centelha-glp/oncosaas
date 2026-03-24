@@ -47,6 +47,7 @@ import {
   GRADE_VALUES,
 } from '@/lib/validations/cancer-diagnosis';
 import { getCancerTypeKey } from '@/lib/utils/patient-cancer-type';
+import { useEnabledCancerTypes } from '@/hooks/useEnabledCancerTypes';
 
 /**
  * Calcula o campo stage a partir dos campos TNM estruturados
@@ -94,6 +95,7 @@ export function PatientEditPage({ patientId }: PatientEditPageProps) {
   const { data: patient, isLoading, error } = usePatientDetail(patientId);
   const updateMutation = usePatientUpdate();
   const router = useRouter();
+  const { labels: enabledCancerLabels } = useEnabledCancerTypes();
   const { user } = useAuthStore();
   const queryClient = useQueryClient();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -774,14 +776,11 @@ export function PatientEditPage({ patientId }: PatientEditPageProps) {
                     <SelectValue placeholder="Selecione o tipo" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="breast">Mama</SelectItem>
-                    <SelectItem value="lung">Pulmão</SelectItem>
-                    <SelectItem value="colorectal">Colorretal</SelectItem>
-                    <SelectItem value="prostate">Próstata</SelectItem>
-                    <SelectItem value="kidney">Rim</SelectItem>
-                    <SelectItem value="bladder">Bexiga</SelectItem>
-                    <SelectItem value="testicular">Testículo</SelectItem>
-                    <SelectItem value="other">Outros</SelectItem>
+                    {Object.entries(enabledCancerLabels).map(([key, label]) => (
+                      <SelectItem key={key} value={key}>
+                        {label}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
                 {errors.cancerType && (

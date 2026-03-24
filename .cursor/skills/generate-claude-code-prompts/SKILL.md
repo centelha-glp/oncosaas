@@ -18,6 +18,15 @@ Todo prompt gerado deve seguir esta estrutura:
 
 [1-2 frases descrevendo o cenário/projeto e onde a tarefa se encaixa]
 
+# Investigacao Antes de Executar (obrigatorio)
+
+Antes de escrever qualquer codigo, o Claude Code deve:
+
+1. Levantar o que precisa para executar com precisao (ler arquivos relevantes no repo, identificar padroes/convencoes e pontos de integracao).
+2. Confirmar onde a mudanca deve ser aplicada (arquivos/modulos/rotas/servicos) e quais responsabilidades cada camada tem.
+3. Listar suposicoes apenas se algo estiver faltando (e, se possivel, checar via ferramentas; caso nao seja possivel, perguntar).
+4. Somente depois disso, propor e executar o plano de implementacao.
+
 # Tarefa
 
 [Descrição concisa e específica do que deve ser feito. Use verbos de ação: criar, implementar, corrigir, refatorar, adicionar.]
@@ -40,7 +49,7 @@ Todo prompt gerado deve seguir esta estrutura:
 ## Workflow de Geração
 
 1. **Clarificar a tarefa**: Entender exatamente o que o usuário quer executar no Claude Code.
-2. **Identificar contexto**: Tecnologias, estrutura do projeto, convenções existentes.
+2. **Delegar investigacao ao executor**: O prompt deve instruir o Claude Code a ler o repo e confirmar stack/padroes/convencoes antes de executar.
 3. **Listar requisitos**: Obrigatórios primeiro, opcionais depois.
 4. **Definir formato**: Estrutura esperada do output (código, arquivos, documentação).
 5. **Excluir anti-padrões**: O que evitar para não gerar resultados indesejados.
@@ -50,9 +59,10 @@ Todo prompt gerado deve seguir esta estrutura:
 
 - **Específico > Genérico**: "Adicionar validação Zod ao formulário X em Y" em vez de "melhorar validação".
 - **Uma tarefa por prompt**: Focar em um objetivo claro; dividir tarefas complexas em vários prompts.
-- **Contexto mínimo necessário**: Incluir só o que Claude Code precisa para executar (paths, nomes de arquivos, stack).
+- **Contexto mínimo necessário**: Incluir só o que o usuário forneceu como contexto (sem analise/preenchimento assumido). Quando precisar de repo/padroes, delegar para o Claude Code investigar com ferramentas.
 - **Verbos de ação**: Usar criar, implementar, adicionar, corrigir, refatorar, remover.
 - **Formato explícito**: Especificar se deve editar arquivo existente, criar novo, ou ambos.
+- **Delegar investigacao ao executor**: O prompt deve conter uma fase de checagem obrigatoria antes de codar (e impedir que a execucao comece baseada em suposicoes).
 
 ## Tarefas Comuns e Suas Estruturas
 

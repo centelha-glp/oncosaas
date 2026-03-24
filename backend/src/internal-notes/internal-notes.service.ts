@@ -156,7 +156,7 @@ export class InternalNotesService {
     }
 
     return this.prisma.internalNote.update({
-      where: { id },
+      where: { id, tenantId },
       data: updateInternalNoteDto,
       include: {
         author: {
@@ -206,7 +206,7 @@ export class InternalNotesService {
     }
 
     await this.prisma.internalNote.delete({
-      where: { id },
+      where: { id, tenantId },
     });
   }
 }

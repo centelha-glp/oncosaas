@@ -97,6 +97,7 @@ def _build_synthetic_patient(
     # Comorbidities
     has_sepsis_risk = int(rng.random() < 0.10)
     has_thrombosis_risk = int(rng.random() < 0.10)
+
     # Override defaults by scenario
     if scenario == "febrile_neutropenia":
         temperature = float(rng.uniform(38.0, 40.5))

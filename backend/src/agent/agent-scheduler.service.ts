@@ -165,7 +165,7 @@ export class AgentSchedulerService {
       try {
         // Mark as executing
         await this.prisma.scheduledAction.update({
-          where: { id: action.id },
+          where: { id: action.id, tenantId: action.tenantId },
           data: { status: ScheduledActionStatus.EXECUTING },
         });
 
@@ -191,7 +191,7 @@ export class AgentSchedulerService {
 
         // Mark as completed
         await this.prisma.scheduledAction.update({
-          where: { id: action.id },
+          where: { id: action.id, tenantId: action.tenantId },
           data: {
             status: ScheduledActionStatus.COMPLETED,
             executedAt: new Date(),
@@ -210,7 +210,7 @@ export class AgentSchedulerService {
 
         const retryCount = action.retryCount + 1;
         await this.prisma.scheduledAction.update({
-          where: { id: action.id },
+          where: { id: action.id, tenantId: action.tenantId },
           data: {
             status:
               retryCount >= action.maxRetries

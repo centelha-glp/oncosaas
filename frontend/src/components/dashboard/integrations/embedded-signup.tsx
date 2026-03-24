@@ -165,7 +165,10 @@ export function EmbeddedSignup({ onSuccess, onError }: EmbeddedSignupProps) {
 
     if (!configId) {
       setIsLoading(false);
-      onError?.('Meta Config ID não configurado. O ID deve vir de Facebook Login for Business → Configuration (WhatsApp Embedded Signup).');
+      onError?.(
+        'Meta Config ID não configurado. Defina NEXT_PUBLIC_META_APP_CONFIG_ID no .env.local. ' +
+          'O ID deve vir de Facebook Login for Business → Configuration (WhatsApp Embedded Signup).'
+      );
       return;
     }
 

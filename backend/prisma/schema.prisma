@@ -131,11 +131,11 @@ model Patient {
 }
 
 enum JourneyStage {
-  SCREENING // Rastreio
-  DIAGNOSIS // Diagnóstico
-  TREATMENT // Tratamento
-  FOLLOW_UP // Seguimento
-  PALLIATIVE // Cuidados paliativos
+  SCREENING  // Rastreio
+  DIAGNOSIS  // Diagnóstico
+  TREATMENT  // Tratamento
+  FOLLOW_UP  // Seguimento
+  PALLIATIVE // Cuidados paliativos (transversal a qualquer tipo de câncer)
 }
 
 enum PriorityCategory {
@@ -232,6 +232,12 @@ model NavigationStep {
   result           String? // Resultado da etapa (ex: "Normal", "Alterado", "Pendente")
   findings         Json? // Lista de achados/alterações (array de strings ou objetos)
 
+  // Dependência e prazos relativos
+  dependsOnStepKey String? // stepKey da etapa predecessora (null = etapa inicial ou trigger manual)
+  relativeDaysMin  Int?    // dias mínimos após predecessora concluir → expectedDate
+  relativeDaysMax  Int?    // dias máximos após predecessora concluir → dueDate
+  stepOrder        Int     @default(0) // ordem sequencial dentro do workflow do tipo de câncer
+
   // Metadados
   metadata Json? // Informações adicionais (exame, resultado, etc.)
   notes    String? // Observações
@@ -253,6 +259,8 @@ model NavigationStep {
   @@index([status])
   @@index([dueDate])
   @@index([completedAt])
+  @@index([patientId, stepKey])
+  @@index([patientId, dependsOnStepKey])
   @@map("navigation_steps")
 }
 

@@ -1,29 +1,28 @@
-import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { OncologyNavigationService } from './oncology-navigation.service';
-import { PrismaService } from '../prisma/prisma.service';
+import { JourneyStage, PatientStatus, NavigationStepStatus } from '@prisma/client';
 import { AlertsService } from '../alerts/alerts.service';
-import { JourneyStage, NavigationStepStatus, PatientStatus } from '@prisma/client';
+import { PrismaService } from '../prisma/prisma.service';
+import {
+  OncologyNavigationService,
+  StepConfig,
+} from './oncology-navigation.service';
 
-const mockPrisma = {
-  patient: { findFirst: jest.fn() },
+type MockPrisma = {
+  patient: {
+    findFirst: jest.Mock;
+    findMany: jest.Mock;
+  };
+  patientJourney: {
+    findUnique: jest.Mock;
+  };
   navigationStep: {
-    findMany: jest.fn(),
-    create: jest.fn(),
-    findFirst: jest.fn(),
-    update: jest.fn(),
-    updateMany: jest.fn(),
-    count: jest.fn(),
-  },
-  patientJourney: { findUnique: jest.fn() },
+    findMany: jest.Mock;
+    findFirst: jest.Mock;
+    create: jest.Mock;
+  };
   alert: {
-    findFirst: jest.fn(),
-    create: jest.fn(),
-  },
-};
-
-const mockAlertsService = {
-  createOverdueStepAlert: jest.fn(),
+    findFirst: jest.Mock;
+  };
 };
 
 const TENANT = 'tenant-abc';
@@ -41,19 +40,32 @@ const baseJourney = { id: JOURNEY_ID };
 
 describe('OncologyNavigationService', () => {
   let service: OncologyNavigationService;
+  let mockPrisma: MockPrisma;
 
-  beforeEach(async () => {
-    jest.clearAllMocks();
+  beforeEach((): void => {
+    mockPrisma = {
+      patient: {
+        findFirst: jest.fn(),
+        findMany: jest.fn(),
+      },
+      patientJourney: {
+        findUnique: jest.fn(),
+      },
+      navigationStep: {
+        findMany: jest.fn(),
+        findFirst: jest.fn(),
+        create: jest.fn(),
+      },
+      alert: {
+        findFirst: jest.fn(),
+      },
+    };
 
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        OncologyNavigationService,
-        { provide: PrismaService, useValue: mockPrisma },
-        { provide: AlertsService, useValue: mockAlertsService },
-      ],
-    }).compile();
-
-    service = module.get<OncologyNavigationService>(OncologyNavigationService);
+    const mockAlertsService = {} as AlertsService;
+    service = new OncologyNavigationService(
+      mockPrisma as unknown as PrismaService,
+      mockAlertsService
+    );
   });
 
   // ─── getAvailableStepTemplates ───────────────────────────────────────────────
@@ -164,6 +176,24 @@ describe('OncologyNavigationService', () => {
 
       expect(templates.length).toBeGreaterThan(0);
     });
+
+    it('returns palliative templates when journeyStage is PALLIATIVE even if patient status is ACTIVE', async () => {
+      mockPrisma.patient.findFirst.mockResolvedValue({
+        cancerType: 'breast',
+        status: PatientStatus.ACTIVE,
+        cancerDiagnoses: [],
+      });
+      mockPrisma.navigationStep.findMany.mockResolvedValue([]);
+
+      const templates = await service.getAvailableStepTemplates(
+        PATIENT_ID,
+        TENANT,
+        JourneyStage.PALLIATIVE
+      );
+
+      expect(templates.length).toBeGreaterThan(0);
+      expect(templates.map((t) => t.stepKey)).toContain('palliative_comfort_care');
+    });
   });
 
   // ─── createStepFromTemplate ──────────────────────────────────────────────────
@@ -177,7 +207,7 @@ describe('OncologyNavigationService', () => {
           PATIENT_ID,
           TENANT,
           JourneyStage.TREATMENT,
-          'transurethral_resection'
+          'intravesical_bcg'
         )
       ).rejects.toThrow(NotFoundException);
     });
@@ -190,7 +220,7 @@ describe('OncologyNavigationService', () => {
           PATIENT_ID,
           OTHER_TENANT,
           JourneyStage.TREATMENT,
-          'transurethral_resection'
+          'intravesical_bcg'
         )
       ).rejects.toThrow(NotFoundException);
 
@@ -217,10 +247,10 @@ describe('OncologyNavigationService', () => {
 
     it('should create first instance with base stepKey when none exists', async () => {
       mockPrisma.patient.findFirst.mockResolvedValue(basePatient);
+      // intravesical_bcg is a valid TREATMENT step for bladder cancer
       mockPrisma.navigationStep.findMany.mockResolvedValue([]);
       mockPrisma.patientJourney.findUnique.mockResolvedValue(baseJourney);
 
-      // intravesical_bcg is a valid TREATMENT step for bladder cancer
       const createdStep = {
         id: 'step-uuid-1',
         stepKey: 'intravesical_bcg',
@@ -256,7 +286,6 @@ describe('OncologyNavigationService', () => {
 
     it('should create second instance with -2 suffix when one already exists', async () => {
       mockPrisma.patient.findFirst.mockResolvedValue(basePatient);
-      // One existing instance
       mockPrisma.navigationStep.findMany.mockResolvedValue([
         { stepKey: 'intravesical_bcg' },
       ]);
@@ -285,16 +314,13 @@ describe('OncologyNavigationService', () => {
       expect(result.stepKey).toBe('intravesical_bcg-2');
       expect(mockPrisma.navigationStep.create).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({
-            stepKey: 'intravesical_bcg-2',
-          }),
+          data: expect.objectContaining({ stepKey: 'intravesical_bcg-2' }),
         })
       );
     });
 
     it('should create third instance with -3 suffix when two already exist', async () => {
       mockPrisma.patient.findFirst.mockResolvedValue(basePatient);
-      // Two existing instances
       mockPrisma.navigationStep.findMany.mockResolvedValue([
         { stepKey: 'intravesical_bcg' },
         { stepKey: 'intravesical_bcg-2' },
@@ -402,8 +428,7 @@ describe('OncologyNavigationService', () => {
     it('should return { created: 0, skipped: N } when all steps already exist', async () => {
       mockPrisma.patient.findFirst.mockResolvedValue(basePatient);
 
-      // Bladder cancer TREATMENT has exactly 4 steps:
-      // intravesical_bcg, radical_cystectomy, neobladder_or_urostomy, chemotherapy
+      // Bladder cancer TREATMENT has exactly 4 steps
       mockPrisma.navigationStep.findMany.mockResolvedValue([
         { stepKey: 'intravesical_bcg' },
         { stepKey: 'radical_cystectomy' },
@@ -426,14 +451,14 @@ describe('OncologyNavigationService', () => {
       mockPrisma.patient.findFirst.mockResolvedValue(basePatient);
       mockPrisma.patientJourney.findUnique.mockResolvedValue(baseJourney);
 
-      // Only one TREATMENT step exists
+      // Only one step exists
       mockPrisma.navigationStep.findMany.mockResolvedValue([
-        { stepKey: 'transurethral_resection' },
+        { stepKey: 'intravesical_bcg' },
       ]);
 
       mockPrisma.navigationStep.create.mockResolvedValue({
         id: 'new-step',
-        stepKey: 'adjuvant_intravesical_therapy',
+        stepKey: 'radical_cystectomy',
         dueDate: null,
         isCompleted: false,
       });
@@ -447,13 +472,13 @@ describe('OncologyNavigationService', () => {
       expect(result.created).toBeGreaterThan(0);
       expect(result.skipped).toBe(1);
 
-      // Verify it did NOT attempt to create transurethral_resection again
+      // Verify it did NOT attempt to create intravesical_bcg again
       const createCalls = mockPrisma.navigationStep.create.mock.calls;
       const createdKeys = createCalls.map((call: any) => call[0].data.stepKey as string);
-      expect(createdKeys).not.toContain('transurethral_resection');
+      expect(createdKeys).not.toContain('intravesical_bcg');
     });
 
-    it('should not treat suffixed key as equivalent to base key (e.g. intravesical_bcg-2 should not block intravesical_bcg)', async () => {
+    it('should not treat suffixed key as equivalent to base key', async () => {
       mockPrisma.patient.findFirst.mockResolvedValue(basePatient);
       mockPrisma.patientJourney.findUnique.mockResolvedValue(baseJourney);
 
@@ -475,8 +500,6 @@ describe('OncologyNavigationService', () => {
         JourneyStage.TREATMENT
       );
 
-      // intravesical_bcg-2 has key 'intravesical_bcg-2', not 'intravesical_bcg',
-      // so the base key should be considered missing and created
       const createCalls = mockPrisma.navigationStep.create.mock.calls;
       const createdKeys = createCalls.map((call: any) => call[0].data.stepKey as string);
       expect(createdKeys).toContain('intravesical_bcg');
@@ -503,6 +526,260 @@ describe('OncologyNavigationService', () => {
 
       expect(result.created).toBeGreaterThan(0);
       expect(result.skipped).toBe(0);
+    });
+
+    it('creates all missing steps when onlyStepKey is omitted (undefined)', async () => {
+      mockPrisma.patient.findFirst.mockResolvedValue({
+        cancerType: 'breast',
+        status: PatientStatus.ACTIVE,
+        cancerDiagnoses: [],
+      });
+      mockPrisma.patientJourney.findUnique.mockResolvedValue({ id: 'journey-1' });
+      mockPrisma.navigationStep.findMany.mockResolvedValue([]);
+      mockPrisma.navigationStep.create.mockResolvedValue({ id: 'step-created' });
+
+      const stepConfigs: StepConfig[] = [
+        {
+          journeyStage: JourneyStage.DIAGNOSIS,
+          stepKey: 'step-a',
+          stepName: 'Step A',
+          stepDescription: 'A',
+          isRequired: true,
+          dependsOnStepKey: null,
+          relativeDaysMin: null,
+          relativeDaysMax: null,
+          stepOrder: 1,
+        },
+        {
+          journeyStage: JourneyStage.DIAGNOSIS,
+          stepKey: 'step-b',
+          stepName: 'Step B',
+          stepDescription: 'B',
+          isRequired: true,
+          dependsOnStepKey: null,
+          relativeDaysMin: null,
+          relativeDaysMax: null,
+          stepOrder: 2,
+        },
+      ];
+
+      jest
+        .spyOn(
+          service as unknown as {
+            getStepConfigs: (
+              cancerType: string,
+              status?: string | null,
+              currentStage?: JourneyStage
+            ) => StepConfig[];
+          },
+          'getStepConfigs'
+        )
+        .mockReturnValue(stepConfigs);
+
+      const result = await service.createMissingStepsForStage(
+        'patient-1',
+        'tenant-1',
+        JourneyStage.DIAGNOSIS
+      );
+
+      expect(result.created).toBe(2);
+      expect(mockPrisma.navigationStep.create).toHaveBeenCalledTimes(2);
+    });
+
+    it('creates only the requested step when onlyStepKey is provided', async () => {
+      mockPrisma.patient.findFirst.mockResolvedValue({
+        cancerType: 'breast',
+        status: PatientStatus.ACTIVE,
+        cancerDiagnoses: [],
+      });
+      mockPrisma.patientJourney.findUnique.mockResolvedValue({ id: 'journey-1' });
+      mockPrisma.navigationStep.findMany.mockResolvedValue([]);
+      mockPrisma.navigationStep.create.mockResolvedValue({ id: 'step-created' });
+
+      const stepConfigs: StepConfig[] = [
+        {
+          journeyStage: JourneyStage.DIAGNOSIS,
+          stepKey: 'step-a',
+          stepName: 'Step A',
+          stepDescription: 'A',
+          isRequired: true,
+          dependsOnStepKey: null,
+          relativeDaysMin: null,
+          relativeDaysMax: null,
+          stepOrder: 1,
+        },
+        {
+          journeyStage: JourneyStage.DIAGNOSIS,
+          stepKey: 'step-b',
+          stepName: 'Step B',
+          stepDescription: 'B',
+          isRequired: true,
+          dependsOnStepKey: null,
+          relativeDaysMin: null,
+          relativeDaysMax: null,
+          stepOrder: 2,
+        },
+      ];
+
+      jest
+        .spyOn(
+          service as unknown as {
+            getStepConfigs: (
+              cancerType: string,
+              status?: string | null,
+              currentStage?: JourneyStage
+            ) => StepConfig[];
+          },
+          'getStepConfigs'
+        )
+        .mockReturnValue(stepConfigs);
+
+      const result = await service.createMissingStepsForStage(
+        'patient-1',
+        'tenant-1',
+        JourneyStage.DIAGNOSIS,
+        'step-b'
+      );
+
+      expect(result.created).toBe(1);
+      expect(mockPrisma.navigationStep.create).toHaveBeenCalledTimes(1);
+      expect(mockPrisma.navigationStep.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ stepKey: 'step-b' }),
+        })
+      );
+    });
+
+    it('creates missing palliative steps for PALLIATIVE stage even when status is ACTIVE', async () => {
+      mockPrisma.patient.findFirst.mockResolvedValue({
+        cancerType: 'breast',
+        status: PatientStatus.ACTIVE,
+        cancerDiagnoses: [],
+      });
+      mockPrisma.patientJourney.findUnique.mockResolvedValue({ id: 'journey-1' });
+      mockPrisma.navigationStep.findMany.mockResolvedValue([]);
+      mockPrisma.navigationStep.create.mockResolvedValue({ id: 'step-created' });
+
+      const result = await service.createMissingStepsForStage(
+        PATIENT_ID,
+        TENANT,
+        JourneyStage.PALLIATIVE
+      );
+
+      expect(result.created).toBeGreaterThan(0);
+      const createdStepKeys = mockPrisma.navigationStep.create.mock.calls.map(
+        (args: any) => (args[0] as { data: { stepKey: string } }).data.stepKey
+      );
+      expect(createdStepKeys).toContain('palliative_comfort_care');
+    });
+  });
+
+  // ─── initializeAllPatientsSteps ──────────────────────────────────────────────
+
+  describe('initializeAllPatientsSteps', () => {
+    it('reinitializes patients that already have legacy navigation steps', async () => {
+      mockPrisma.patient.findMany.mockResolvedValue([
+        {
+          id: 'patient-legacy',
+          cancerType: 'breast',
+          currentStage: JourneyStage.DIAGNOSIS,
+          cancerDiagnoses: [],
+          navigationSteps: [{ id: 'existing-step' }],
+        },
+      ]);
+      mockPrisma.navigationStep.findFirst.mockResolvedValue({ id: 'legacy-step' });
+
+      const initializeSpy = jest
+        .spyOn(
+          service as unknown as {
+            initializeNavigationSteps: (
+              patientId: string,
+              tenantId: string,
+              cancerType: string,
+              stage: JourneyStage
+            ) => Promise<void>;
+          },
+          'initializeNavigationSteps'
+        )
+        .mockResolvedValue(undefined);
+
+      const result = await service.initializeAllPatientsSteps('tenant-1');
+
+      expect(result).toEqual({ initialized: 1, skipped: 0, errors: 0 });
+      expect(initializeSpy).toHaveBeenCalledWith(
+        'patient-legacy',
+        'tenant-1',
+        'breast',
+        JourneyStage.DIAGNOSIS
+      );
+    });
+
+    it('skips patients that already have non-legacy navigation graph', async () => {
+      mockPrisma.patient.findMany.mockResolvedValue([
+        {
+          id: 'patient-modern',
+          cancerType: 'breast',
+          currentStage: JourneyStage.DIAGNOSIS,
+          cancerDiagnoses: [],
+          navigationSteps: [{ id: 'existing-step' }],
+        },
+      ]);
+      mockPrisma.navigationStep.findFirst.mockResolvedValue(null);
+
+      const initializeSpy = jest
+        .spyOn(
+          service as unknown as {
+            initializeNavigationSteps: (
+              patientId: string,
+              tenantId: string,
+              cancerType: string,
+              stage: JourneyStage
+            ) => Promise<void>;
+          },
+          'initializeNavigationSteps'
+        )
+        .mockResolvedValue(undefined);
+
+      const result = await service.initializeAllPatientsSteps('tenant-1');
+
+      expect(result).toEqual({ initialized: 0, skipped: 1, errors: 0 });
+      expect(initializeSpy).not.toHaveBeenCalled();
+    });
+
+    it('initializes patients with no existing navigation steps', async () => {
+      mockPrisma.patient.findMany.mockResolvedValue([
+        {
+          id: 'patient-empty',
+          cancerType: 'breast',
+          currentStage: JourneyStage.SCREENING,
+          cancerDiagnoses: [],
+          navigationSteps: [],
+        },
+      ]);
+
+      const initializeSpy = jest
+        .spyOn(
+          service as unknown as {
+            initializeNavigationSteps: (
+              patientId: string,
+              tenantId: string,
+              cancerType: string,
+              stage: JourneyStage
+            ) => Promise<void>;
+          },
+          'initializeNavigationSteps'
+        )
+        .mockResolvedValue(undefined);
+
+      const result = await service.initializeAllPatientsSteps('tenant-1');
+
+      expect(result).toEqual({ initialized: 1, skipped: 0, errors: 0 });
+      expect(initializeSpy).toHaveBeenCalledWith(
+        'patient-empty',
+        'tenant-1',
+        'breast',
+        JourneyStage.SCREENING
+      );
     });
   });
 });

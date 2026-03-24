@@ -230,7 +230,7 @@ export class ObservationsService {
     }
 
     return this.prisma.observation.update({
-      where: { id },
+      where: { id, tenantId },
       data: updateData,
       include: {
         patient: {
@@ -256,7 +256,7 @@ export class ObservationsService {
     }
 
     await this.prisma.observation.delete({
-      where: { id },
+      where: { id, tenantId },
     });
   }
 
@@ -280,7 +280,7 @@ export class ObservationsService {
     }
 
     return this.prisma.observation.update({
-      where: { id },
+      where: { id, tenantId },
       data: {
         syncedToEHR: true,
         syncedAt: new Date(),

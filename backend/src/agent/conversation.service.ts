@@ -144,8 +144,16 @@ export class ConversationService {
    * Update conversation state (agent state, status, etc.)
    */
   async updateState(conversationId: string, agentState: Record<string, any>) {
-    return this.prisma.conversation.update({
+    const conversation = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
+      select: { tenantId: true },
+    });
+    if (!conversation) {
+      throw new NotFoundException('Conversation not found');
+    }
+
+    return this.prisma.conversation.update({
+      where: { id: conversationId, tenantId: conversation.tenantId },
       data: { agentState },
     });
   }
@@ -161,7 +169,7 @@ export class ConversationService {
     const conversation = await this.findOne(conversationId, tenantId);
 
     return this.prisma.conversation.update({
-      where: { id: conversation.id },
+      where: { id: conversation.id, tenantId },
       data: {
         handledBy: HandledBy.NURSING,
         status: ConversationStatus.ESCALATED,
@@ -180,7 +188,7 @@ export class ConversationService {
 
     await this.prisma.$transaction([
       this.prisma.conversation.update({
-        where: { id: conversation.id },
+        where: { id: conversation.id, tenantId },
         data: {
           handledBy: HandledBy.AGENT,
           status: ConversationStatus.ACTIVE,
@@ -206,7 +214,7 @@ export class ConversationService {
     const conversation = await this.findOne(conversationId, tenantId);
 
     return this.prisma.conversation.update({
-      where: { id: conversation.id },
+      where: { id: conversation.id, tenantId },
       data: { status: ConversationStatus.CLOSED },
     });
   }

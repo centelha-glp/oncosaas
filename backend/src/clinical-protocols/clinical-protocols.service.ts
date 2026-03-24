@@ -97,7 +97,7 @@ export class ClinicalProtocolsService {
     await this.findOne(id, tenantId);
 
     return this.prisma.clinicalProtocol.update({
-      where: { id },
+      where: { id, tenantId },
       data: dto,
     });
   }
