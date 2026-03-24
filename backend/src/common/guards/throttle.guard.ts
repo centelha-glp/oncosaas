@@ -30,7 +30,6 @@ export class ThrottleGuard implements CanActivate {
   private readonly defaultTtl = 60; // segundos
   private readonly loginLimit = 10;
   private readonly webhookLimit = 200;
-  private readonly healthLimit = 30;
 
   constructor(private readonly redisService: RedisService) {
     // Limpeza periódica do fallback in-memory
@@ -46,9 +45,19 @@ export class ThrottleGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<Request>();
-    const ip = this.getClientIp(request);
     const path = request.path;
 
+    // Health/readiness probes must never be rate-limited (Docker health checks would self-block)
+    if (
+      path === '/health' ||
+      path === '/ready' ||
+      path === '/api/v1/health' ||
+      path === '/api/v1/ready'
+    ) {
+      return true;
+    }
+
+    const ip = this.getClientIp(request);
     const limit = this.getLimit(path);
     const key = `rl:${ip}:${path}`;
 
@@ -114,14 +123,6 @@ export class ThrottleGuard implements CanActivate {
       (path.includes('/whatsapp-connections') && path.includes('/webhook'))
     ) {
       return this.webhookLimit;
-    }
-    if (
-      path === '/health' ||
-      path === '/ready' ||
-      path === '/api/v1/health' ||
-      path === '/api/v1/ready'
-    ) {
-      return this.healthLimit;
     }
     return this.defaultLimit;
   }
