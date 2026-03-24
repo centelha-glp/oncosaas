@@ -37,7 +37,7 @@ from ..agent.context_builder import context_builder
 from ..agent.symptom_analyzer import symptom_analyzer
 from ..agent.questionnaire_engine import questionnaire_engine
 from ..agent.protocol_engine import protocol_engine
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
@@ -1524,20 +1524,27 @@ async def health():
 
 
 @router.get("/observability/traces")
-async def get_traces(limit: int = 50):
-    """Return the most recent agent execution traces (last N, newest first)."""
+async def get_traces(
+    limit: int = 50,
+    x_tenant_id: str = Header(..., alias="X-Tenant-Id"),
+):
+    """Return the most recent agent execution traces for the calling tenant only."""
     limit = max(1, min(limit, 500))
-    return {"traces": tracer.get_traces(limit=limit)}
+    return {"traces": tracer.get_traces(limit=limit, tenant_id=x_tenant_id)}
 
 
 @router.get("/observability/stats")
-async def get_stats():
-    """Return aggregate statistics over all stored traces."""
-    return tracer.get_stats()
+async def get_stats(x_tenant_id: str = Header(..., alias="X-Tenant-Id")):
+    """Return aggregate statistics scoped to the calling tenant."""
+    return tracer.get_stats(tenant_id=x_tenant_id)
 
 
 @router.delete("/observability/traces")
-async def clear_traces():
-    """Clear all stored traces (useful for resetting during testing)."""
-    tracer._traces.clear()
-    return {"cleared": True}
+async def clear_traces(x_tenant_id: str = Header(..., alias="X-Tenant-Id")):
+    """Clear traces belonging to the calling tenant only.
+
+    Requires the ``X-Tenant-Id`` header so the operation is always scoped to
+    the caller's tenant.  Traces from other tenants are never touched.
+    """
+    removed = tracer.clear_by_tenant(x_tenant_id)
+    return {"cleared": True, "removed": removed}
