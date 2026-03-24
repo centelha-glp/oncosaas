@@ -119,9 +119,10 @@ export function ChartDrillDownModal({
     staleTime: 0,
     refetchOnMount: 'always',
   });
-  const pendingAlerts: PendingAlert[] = Array.isArray(pendingAlertsRaw)
-    ? pendingAlertsRaw
-    : [];
+  const pendingAlerts = React.useMemo<PendingAlert[]>(
+    () => (Array.isArray(pendingAlertsRaw) ? pendingAlertsRaw : []),
+    [pendingAlertsRaw]
+  );
 
   // Buscar pacientes por indicador (mensagens não assumidas, biomarcadores pendentes)
   const {
@@ -140,9 +141,10 @@ export function ChartDrillDownModal({
     staleTime: 0,
     refetchOnMount: 'always',
   });
-  const indicatorPatients = Array.isArray(indicatorPatientsRaw)
-    ? indicatorPatientsRaw
-    : [];
+  const indicatorPatients = React.useMemo<Patient[]>(
+    () => (Array.isArray(indicatorPatientsRaw) ? indicatorPatientsRaw : []),
+    [indicatorPatientsRaw]
+  );
 
   // Buscar todos os pacientes (para priority, cancerType, journeyStage)
   const { data: allPatients, isLoading: isLoadingPatients } = useQuery({

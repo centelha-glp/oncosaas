@@ -176,15 +176,16 @@ export default function ChatPage() {
   // Determinar se a conversa está ativa para o usuário atual
   const isConversationAssumedByCurrentUser =
     assumedMessage?.assumedBy === user?.id;
+  const hasAssumedMessage = Boolean(assumedMessage);
 
   // Atualizar isNursingActive baseado na mensagem assumida
   useEffect(() => {
-    if (assumedMessage && isConversationAssumedByCurrentUser) {
+    if (hasAssumedMessage && isConversationAssumedByCurrentUser) {
       setIsNursingActive(true);
-    } else if (!assumedMessage) {
+    } else if (!hasAssumedMessage) {
       setIsNursingActive(false);
     }
-  }, [assumedMessage?.id, isConversationAssumedByCurrentUser]);
+  }, [hasAssumedMessage, isConversationAssumedByCurrentUser]);
 
   // Carregar filtros do localStorage ao montar o componente
   useEffect(() => {
