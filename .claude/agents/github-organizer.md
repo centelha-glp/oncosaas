@@ -1,6 +1,6 @@
 ---
 name: github-organizer
-description: Use para organizar e executar commits atômicos, criar PRs bem estruturadas, analisar o que mudou no repositório, sugerir estratégia de versionamento e dividir mudanças grandes em commits lógicos. Acione quando precisar fazer commit, abrir PR, ou revisar alterações pendentes.
+description: OBRIGATÓRIO para TODA operação de commit e PR. Nunca commitar diretamente — sempre delegar a este agent. Use para organizar commits atômicos, criar PRs bem estruturadas, analisar mudanças no repositório e dividir mudanças grandes em commits lógicos. Acione sempre que houver mudanças para commitar, abrir PR, ou revisar alterações pendentes.
 tools: Bash, Read, Grep, Glob
 ---
 
