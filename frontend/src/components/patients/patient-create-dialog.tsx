@@ -86,9 +86,13 @@ export function PatientCreateDialog({
   const currentTreatment = useWatch({ control, name: 'currentTreatment' });
 
   const needsDiagnosisFields =
-    currentStage === 'TREATMENT' || currentStage === 'FOLLOW_UP';
+    currentStage === 'TREATMENT' ||
+    currentStage === 'FOLLOW_UP' ||
+    currentStage === 'PALLIATIVE';
   const needsTreatmentField =
-    currentStage === 'TREATMENT' || currentStage === 'FOLLOW_UP';
+    currentStage === 'TREATMENT' ||
+    currentStage === 'FOLLOW_UP' ||
+    currentStage === 'PALLIATIVE';
   const treatmentOptions = getTreatmentOptionsForCancerType(
     cancerType ?? null,
     currentStage === 'TREATMENT'

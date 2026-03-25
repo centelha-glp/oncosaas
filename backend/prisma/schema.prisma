@@ -56,7 +56,7 @@ model Patient {
   cpf       String? // Criptografado (LGPD)
   birthDate DateTime
   gender    String? // male, female, other
-  phone     String // WhatsApp - Criptografado (LGPD)
+  phone     String? // WhatsApp - Criptografado (LGPD)
   phoneHash String? // Hash SHA-256 do telefone normalizado para busca eficiente (indexado)
   email     String?
 

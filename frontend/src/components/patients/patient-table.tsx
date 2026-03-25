@@ -1,14 +1,14 @@
 'use client';
 
 import { Patient } from '@/lib/api/patients';
+import { JOURNEY_STAGE_LABELS } from '@/lib/utils/journey-stage';
+import { CANCER_TYPE_LABELS } from '@/lib/utils/patient-cancer-type';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { Eye, Edit } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { JOURNEY_STAGE_LABELS } from '@/lib/utils/journey-stage';
-import { CANCER_TYPE_LABELS } from '@/lib/utils/patient-cancer-type';
 
 interface PatientTableProps {
   patients: Patient[];

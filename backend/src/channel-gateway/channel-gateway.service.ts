@@ -2,6 +2,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  BadRequestException,
   Inject,
   forwardRef,
 } from '@nestjs/common';
@@ -198,6 +199,12 @@ export class ChannelGatewayService {
 
     if (!patient) {
       throw new NotFoundException(`Patient ${patientId} not found`);
+    }
+
+    if (!patient.phone?.trim()) {
+      throw new BadRequestException(
+        `Patient ${patientId} has no phone number; cannot send via ${channel}`
+      );
     }
 
     const outgoing: OutgoingMessage = {

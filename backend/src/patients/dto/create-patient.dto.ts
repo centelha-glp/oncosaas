@@ -53,8 +53,8 @@ export class CreatePatientDto {
   gender?: Gender;
 
   @IsPhoneNumber('BR')
-  @IsNotEmpty()
-  phone: string; // WhatsApp - Criptografado (LGPD)
+  @IsOptional()
+  phone?: string; // WhatsApp - Criptografado (LGPD)
 
   @IsEmail()
   @IsOptional()
@@ -82,7 +82,7 @@ export class CreatePatientDto {
 
   @IsString()
   @IsOptional()
-  currentStage?: string; // SCREENING, NAVIGATION, DIAGNOSIS, TREATMENT, FOLLOW_UP
+  currentStage?: string; // SCREENING, DIAGNOSIS, TREATMENT, FOLLOW_UP, PALLIATIVE
 
   @IsNumber()
   @IsOptional()

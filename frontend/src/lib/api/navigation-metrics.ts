@@ -8,6 +8,7 @@ export interface NavigationMetrics {
     DIAGNOSIS: number;
     TREATMENT: number;
     FOLLOW_UP: number;
+    PALLIATIVE: number;
   };
   stepsDueSoonCount: number;
   overallCompletionRate: number;

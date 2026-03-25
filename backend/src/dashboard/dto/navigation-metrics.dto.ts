@@ -26,10 +26,10 @@ export class NavigationMetricsDto {
   // Pacientes por fase da jornada
   patientsByStage: {
     SCREENING: number;
-    NAVIGATION: number;
     DIAGNOSIS: number;
     TREATMENT: number;
     FOLLOW_UP: number;
+    PALLIATIVE: number;
   };
 
   // Etapas próximas do prazo (próximas 7 dias)
@@ -43,9 +43,9 @@ export class NavigationMetricsDto {
   bottlenecks: Bottleneck[]; // Identificação de bottlenecks
   averageTimePerStage: {
     SCREENING: number | null;
-    NAVIGATION: number | null;
     DIAGNOSIS: number | null;
     TREATMENT: number | null;
     FOLLOW_UP: number | null;
+    PALLIATIVE: number | null;
   };
 }

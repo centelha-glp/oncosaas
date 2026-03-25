@@ -1,5 +1,6 @@
 import { apiClient } from './client';
 import { getApiUrl } from '@/lib/utils/api-config';
+import type { JourneyStage } from '@/lib/utils/journey-stage';
 
 export interface PatientSummaryHighlight {
   icon: 'info' | 'warning' | 'success' | 'clock';
@@ -269,7 +270,7 @@ export interface Patient {
   cpf: string | null;
   birthDate: string;
   gender: 'male' | 'female' | 'other';
-  phone: string;
+  phone: string | null;
   email: string | null;
   cancerType: string | null;
   stage: string | null;
@@ -286,7 +287,7 @@ export interface Patient {
   clinicalDispositionReason: string | null;
   preferredEmergencyHospital: string | null;
   // Jornada
-  currentStage: string;
+  currentStage: JourneyStage;
   currentSpecialty: string | null;
   // Priorização IA
   priorityScore: number;
@@ -324,7 +325,7 @@ export interface CreatePatientDto {
   stage?: string;
   diagnosisDate?: string;
   performanceStatus?: number;
-  currentStage: string;
+  currentStage: JourneyStage;
   currentTreatment?: string;
   smokingHistory?: string;
   alcoholHistory?: string;

@@ -475,7 +475,9 @@ function PatientNavigationCard({
 
     navigationSteps.forEach((step) => {
       if (step.cancerType.toLowerCase() === cancerType.toLowerCase()) {
-        grouped[step.journeyStage].push(step);
+        const stage = step.journeyStage;
+        if (!grouped[stage]) grouped[stage] = [];
+        grouped[stage].push(step);
       }
     });
 
