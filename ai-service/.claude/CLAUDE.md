@@ -253,6 +253,11 @@ No critical blocking issues remain. Items previously tracked (startup SyntaxErro
 | Situação | Agent | Quando acionar |
 |---|---|---|
 | Implementar/modificar orchestrator, clinical rules, ML model ou endpoints FastAPI | `ai-service` | Tarefas complexas de múltiplos arquivos |
+| Após criar ou modificar qualquer código | `test-generator` | **Sempre** — gera/atualiza testes antes do commit |
 | Commitar mudanças | `github-organizer` | **Sempre** — nunca commitar diretamente |
-| Rodar testes | skill `/testar-modulo ai-service` | Validar antes do commit |
 | Adicionar protocolo clínico | skill `/novo-protocolo-clinico` | Sincroniza backend + ai-service |
+
+**Ordem obrigatória pré-commit:**
+```
+código alterado → test-generator → github-organizer
+```

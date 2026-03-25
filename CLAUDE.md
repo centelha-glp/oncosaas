@@ -165,8 +165,14 @@ Agents obrigatórios em toda sessão de desenvolvimento:
 
 | Situação | Agent | Quando acionar |
 |---|---|---|
+| Qualquer código novo ou modificado | `test-generator` | **Sempre** — antes de `seguranca-compliance` e `github-organizer` |
+| Criar/modificar endpoint, service, DTO ou guard no backend | `seguranca-compliance` | **Sempre** — após `test-generator`, antes do commit |
 | Qualquer commit | `github-organizer` | **Sempre** — nunca commitar diretamente |
-| Criar/modificar endpoint, service, DTO ou guard no backend | `seguranca-compliance` | **Sempre** — antes do commit |
+
+**Ordem obrigatória pré-commit:**
+```
+código alterado → test-generator → seguranca-compliance (se backend) → github-organizer
+```
 
 Agents situacionais (acionar para tarefas complexas):
 

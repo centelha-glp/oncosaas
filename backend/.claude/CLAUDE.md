@@ -462,7 +462,13 @@ These are confirmed issues identified during architectural assessment. Do not pa
 | Situação | Agent | Quando acionar |
 |---|---|---|
 | Implementar módulo, endpoint, service ou DTO | `backend-nestjs` | Tarefas complexas de scaffolding |
-| Após criar ou modificar qualquer controller, service, DTO ou guard | `seguranca-compliance` | **Sempre** — antes do commit |
+| Após criar ou modificar qualquer código | `test-generator` | **Sempre** — gera/atualiza testes antes da revisão |
+| Após criar ou modificar qualquer controller, service, DTO ou guard | `seguranca-compliance` | **Sempre** — após test-generator, antes do commit |
 | Commitar mudanças | `github-organizer` | **Sempre** — nunca commitar diretamente |
 | Migração Prisma | skill `/migrar-prisma` | Sempre que alterar `schema.prisma` |
 | Criar módulo do zero | skill `/novo-modulo-backend` | Scaffolding inicial de módulo |
+
+**Ordem obrigatória pré-commit:**
+```
+código alterado → test-generator → seguranca-compliance → github-organizer
+```

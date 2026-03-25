@@ -291,6 +291,11 @@ When assessing configuration:
 | Situação | Agent | Quando acionar |
 |---|---|---|
 | Implementar feature, página ou componente complexo | `frontend-nextjs` | Tarefas que envolvem múltiplos arquivos |
+| Após criar ou modificar qualquer código | `test-generator` | **Sempre** — gera/atualiza testes antes do commit |
 | Commitar mudanças | `github-organizer` | **Sempre** — nunca commitar diretamente |
 | Criar hook + API client para nova entidade | skill `/novo-hook-frontend` | Scaffolding inicial |
-| Rodar testes | skill `/testar-modulo frontend` | Validar antes do commit |
+
+**Ordem obrigatória pré-commit:**
+```
+código alterado → test-generator → github-organizer
+```
