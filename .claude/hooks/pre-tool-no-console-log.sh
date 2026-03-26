@@ -6,13 +6,13 @@ set -euo pipefail
 
 INPUT=$(cat)
 
-TOOL_NAME=$(echo "$INPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('tool_name',''))" 2>/dev/null || echo "")
+TOOL_NAME=$(echo "$INPUT" | python -c "import sys,json; d=json.load(sys.stdin); print(d.get('tool_name',''))" 2>/dev/null || echo "")
 
 if [[ "$TOOL_NAME" != "Edit" && "$TOOL_NAME" != "Write" ]]; then
   exit 0
 fi
 
-FILE_PATH=$(echo "$INPUT" | python3 -c "
+FILE_PATH=$(echo "$INPUT" | python -c "
 import sys, json
 d = json.load(sys.stdin)
 inp = d.get('tool_input', {})
@@ -33,7 +33,7 @@ if [[ "$FILE_PATH" == *".spec.ts" || "$FILE_PATH" == *".test.ts" || "$FILE_PATH"
   exit 0
 fi
 
-NEW_CONTENT=$(echo "$INPUT" | python3 -c "
+NEW_CONTENT=$(echo "$INPUT" | python -c "
 import sys, json
 d = json.load(sys.stdin)
 inp = d.get('tool_input', {})
@@ -46,7 +46,7 @@ if [[ -z "$NEW_CONTENT" ]]; then
 fi
 
 # Verificar se o conteúdo novo adiciona console.log/warn/error
-HAS_CONSOLE=$(echo "$NEW_CONTENT" | grep -cP "console\.(log|warn|error|debug|info)\(" 2>/dev/null || echo "0")
+HAS_CONSOLE=$(echo "$NEW_CONTENT" | grep -cP "console\.(log|warn|error|debug|info)\(" 2>/dev/null) || true
 
 if [[ "$HAS_CONSOLE" -gt 0 ]]; then
   IS_BACKEND=false
