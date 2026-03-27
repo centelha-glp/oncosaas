@@ -35,7 +35,8 @@ export class RedisService implements OnModuleDestroy {
   async increment(key: string, ttlSeconds: number): Promise<number> {
     const multi = this.client.multi();
     multi.incr(key);
-    multi.expire(key, ttlSeconds);
+    // 'NX' sets TTL only on first creation, keeping a fixed (not sliding) window
+    multi.expire(key, ttlSeconds, 'NX');
     const results = await multi.exec();
     return (results?.[0]?.[1] as number) ?? 1;
   }

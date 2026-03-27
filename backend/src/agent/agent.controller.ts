@@ -199,17 +199,23 @@ export class AgentController {
   // ==========================================
 
   @Get('observability/traces')
-  async getObservabilityTraces(@Query('limit') limit?: string) {
-    return this.agentService.getObservabilityTraces(limit ? parseInt(limit) : 50);
+  async getObservabilityTraces(
+    @Request() req: any,
+    @Query('limit') limit?: string,
+  ) {
+    return this.agentService.getObservabilityTraces(
+      req.user.tenantId,
+      limit ? parseInt(limit) : 50,
+    );
   }
 
   @Get('observability/stats')
-  async getObservabilityStats() {
-    return this.agentService.getObservabilityStats();
+  async getObservabilityStats(@Request() req: any) {
+    return this.agentService.getObservabilityStats(req.user.tenantId);
   }
 
   @Delete('observability/traces')
-  async clearObservabilityTraces() {
-    return this.agentService.clearObservabilityTraces();
+  async clearObservabilityTraces(@Request() req: any) {
+    return this.agentService.clearObservabilityTraces(req.user.tenantId);
   }
 }

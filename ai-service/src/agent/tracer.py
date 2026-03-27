@@ -130,14 +130,31 @@ class AgentTracer:
             }
         )
 
-    def get_traces(self, limit: int = 50) -> List[Dict[str, Any]]:
+    def clear_by_tenant(self, tenant_id: str) -> int:
+        """Remove only the traces that belong to *tenant_id*.
+
+        Returns the number of entries removed.  The global ring buffer is
+        rebuilt in-place so traces from other tenants are never affected.
+        """
+        with self._lock:
+            before = len(self._traces)
+            kept = [t for t in self._traces if t.get("tenant_id") != tenant_id]
+            self._traces.clear()
+            self._traces.extend(kept)
+            return before - len(self._traces)
+
+    def get_traces(self, limit: int = 50, tenant_id: Optional[str] = None) -> List[Dict[str, Any]]:
         with self._lock:
             traces = list(self._traces)
+        if tenant_id is not None:
+            traces = [t for t in traces if t.get("tenant_id") == tenant_id]
         return list(reversed(traces))[:limit]
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self, tenant_id: Optional[str] = None) -> Dict[str, Any]:
         with self._lock:
             traces = list(self._traces)
+        if tenant_id is not None:
+            traces = [t for t in traces if t.get("tenant_id") == tenant_id]
 
         if not traces:
             return {
