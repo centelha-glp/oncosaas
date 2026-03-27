@@ -181,3 +181,4 @@ Agents situacionais (acionar para tarefas complexas):
 | Tarefas em `backend/src/` ou `backend/prisma/` | `backend-nestjs` |
 | Tarefas em `frontend/src/` | `frontend-nextjs` |
 | Tarefas em `ai-service/` | `ai-service` |
+| Gestão de backlog, milestones, issues no GitHub | `product-owner` (via `/po`) |
