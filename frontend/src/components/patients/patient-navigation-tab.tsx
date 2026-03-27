@@ -43,6 +43,7 @@ import { toast } from 'sonner';
 import {
   JOURNEY_STAGE_LABELS,
   JOURNEY_STAGES,
+  type JourneyStage,
 } from '@/lib/utils/journey-stage';
 import { CANCER_TYPE_LABELS as BASE_CANCER_TYPE_LABELS } from '@/lib/utils/patient-cancer-type';
 
@@ -114,14 +115,14 @@ export function PatientNavigationTab({
   // Wizard: fase selecionada no popover principal
     const [wizardStage, setWizardStage] = useState<{
     cancerType: string;
-    stage: string;
+    stage: JourneyStage;
   } | null>(null);
   const [wizardTypeKey, setWizardTypeKey] = useState<string | null>(null);
 
   // Step picker independente (para botões inline por fase)
   const [stepPickerTarget, setStepPickerTarget] = useState<{
     typeKey: string;
-    stage: string;
+    stage: JourneyStage;
   } | null>(null);
   const [stepPickerTemplates, setStepPickerTemplates] = useState<
     { stepKey: string; stepName: string; stepDescription?: string | null; isRequired: boolean }[]
@@ -194,7 +195,7 @@ export function PatientNavigationTab({
 
   const handleWizardSelectStage = async (
     selectedCancerType: string,
-    stage: string
+    stage: JourneyStage
   ): Promise<void> => {
     setWizardStage({ cancerType: selectedCancerType, stage });
     setWizardLoading(true);
@@ -259,7 +260,7 @@ export function PatientNavigationTab({
     }
   };
 
-  const openStepPicker = async (typeKey: string, stage: string): Promise<void> => {
+  const openStepPicker = async (typeKey: string, stage: JourneyStage): Promise<void> => {
     setStepPickerLoading(true);
     setStepPickerTarget({ typeKey, stage });
     const templates = await loadTemplates(typeKey, stage);
@@ -504,8 +505,7 @@ export function PatientNavigationTab({
                   <AccordionContent>
                     <div className="space-y-6 pt-2">
                       {JOURNEY_STAGES.map((stage) => {
-                        const normalizedStage = stage.toUpperCase();
-                        const steps = stageMap?.get(normalizedStage) || [];
+                        const steps = stageMap?.get(stage) || [];
                         const stageLabel = JOURNEY_STAGE_LABELS[stage] || stage;
 
                         return (
@@ -525,7 +525,7 @@ export function PatientNavigationTab({
                                   <Button
                                     size="sm"
                                     variant="outline"
-                                    onClick={() => openStepPicker(typeKey, normalizedStage)}
+                                    onClick={() => openStepPicker(typeKey, stage)}
                                   >
                                     <Plus className="h-4 w-4 mr-2" />
                                     Adicionar etapa
@@ -704,7 +704,7 @@ export function PatientNavigationTab({
                                   <Button
                                     size="sm"
                                     variant="outline"
-                                    onClick={() => openStepPicker(typeKey, normalizedStage)}
+                                    onClick={() => openStepPicker(typeKey, stage)}
                                   >
                                     <Plus className="h-4 w-4 mr-2" />
                                     Adicionar etapa

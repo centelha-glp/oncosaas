@@ -47,6 +47,7 @@ import { useQueryClient, useMutation } from '@tanstack/react-query';
 import {
   JOURNEY_STAGE_LABELS,
   JOURNEY_STAGES,
+  type JourneyStage,
 } from '@/lib/utils/journey-stage';
 
 interface FileMetadata {
@@ -397,7 +398,7 @@ function PatientNavigationCard({
   );
   // Wizard de adicionar etapa: null = fechado, 'phase' = seleção de fase, 'step' = seleção de etapa
   const [wizardOpen, setWizardOpen] = useState(false);
-  const [wizardPhase, setWizardPhase] = useState<string | null>(null);
+  const [wizardPhase, setWizardPhase] = useState<JourneyStage | null>(null);
   const [templates, setTemplates] = useState<
     { stepKey: string; stepName: string; stepDescription?: string; isRequired: boolean }[]
   >([]);
@@ -420,7 +421,7 @@ function PatientNavigationCard({
     },
   });
 
-  const handleSelectPhase = async (stage: string): Promise<void> => {
+  const handleSelectPhase = async (stage: JourneyStage): Promise<void> => {
     setWizardPhase(stage);
     setLoadingTemplates(true);
     try {
@@ -678,7 +679,7 @@ function PatientNavigationCard({
                   <div className="bg-gray-50 px-4 py-2 border-b">
                     <div className="flex items-center justify-between">
                       <span className="font-semibold">
-                        {JOURNEY_STAGE_LABELS[stage] || stage}
+                        {JOURNEY_STAGE_LABELS[stage as JourneyStage] || stage}
                       </span>
                       <span className="text-sm text-gray-600">
                         {stageCompleted}/{steps.length} concluídas
