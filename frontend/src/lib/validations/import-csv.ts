@@ -2,25 +2,30 @@ import { z } from 'zod';
 
 export const csvRowSchema = z.object({
   name: z.string().min(2),
-  cpf: z.string().min(11),
-  dataNascimento: z.string(),
-  sexo: z.enum(['male', 'female', 'other']),
-  telefone: z.string().min(10, 'Telefone é obrigatório'),
+  cpf: z.string().optional().or(z.literal('')),
+  dataNascimento: z.string().optional().or(z.literal('')),
+  sexo: z
+    .enum(['male', 'female', 'other'])
+    .optional()
+    .or(z.literal('')),
+  telefone: z.string().optional().or(z.literal('')),
   email: z.string().email().optional().or(z.literal('')),
-  tipoCancer: z.enum([
-    'breast',
-    'lung',
-    'colorectal',
-    'prostate',
-    'kidney',
-    'bladder',
-    'testicular',
-    'other',
-  ]),
-  dataDiagnostico: z.string().optional(),
+  tipoCancer: z
+    .enum([
+      'breast',
+      'lung',
+      'colorectal',
+      'prostate',
+      'kidney',
+      'bladder',
+      'testicular',
+      'other',
+    ])
+    .optional()
+    .or(z.literal('')),
+  dataDiagnostico: z.string().optional().or(z.literal('')),
   estagio: z.string().optional(),
   oncologistaResponsavel: z.string().optional(),
-  // Campo opcional para especificar o estágio da jornada
   currentStage: z
     .enum([
       'SCREENING',

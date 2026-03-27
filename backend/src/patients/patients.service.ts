@@ -11,6 +11,7 @@ import { CreatePatientDto, Gender, CancerType } from './dto/create-patient.dto';
 import { UpdatePatientDto } from './dto/update-patient.dto';
 import { UpdatePriorityDto } from './dto/update-priority.dto';
 import { ImportPatientRowDto } from './dto/import-patients.dto';
+import { ImportSpreadsheetRowDto } from './dto/import-spreadsheet.dto';
 import { PatientDetailResponse } from './dto/patient-detail-response.dto';
 import { CreateCancerDiagnosisDto } from './dto/create-cancer-diagnosis.dto';
 import { UpdateCancerDiagnosisDto } from './dto/update-cancer-diagnosis.dto';
@@ -277,8 +278,22 @@ export class PatientsService {
     tenantId: string
   ): Promise<Patient> {
     // Normalizar telefone e calcular hash para busca eficiente
-    const normalizedPhone = normalizePhoneNumber(createPatientDto.phone);
-    const phoneHash = hashPhoneNumber(normalizedPhone);
+    const normalizedPhone = createPatientDto.phone
+      ? normalizePhoneNumber(createPatientDto.phone)
+      : null;
+    const phoneHash = normalizedPhone
+      ? hashPhoneNumber(normalizedPhone)
+      : null;
+
+    // Validar tipos de câncer habilitados para o tenant
+    if (createPatientDto.cancerType) {
+      await this.validateCancerType(createPatientDto.cancerType, tenantId);
+    }
+    for (const diag of createPatientDto.cancerDiagnoses ?? []) {
+      if (diag.cancerType) {
+        await this.validateCancerType(String(diag.cancerType), tenantId);
+      }
+    }
 
     // Validar tipos de câncer habilitados para o tenant
     if (createPatientDto.cancerType) {
@@ -319,7 +334,7 @@ export class PatientsService {
         cpf: patientData.cpf,
         birthDate: new Date(createPatientDto.birthDate),
         gender: patientData.gender,
-        phone: patientData.phone,
+        phone: normalizedPhone,
         email: patientData.email,
         cancerType: patientData.cancerType,
         stage: patientData.stage,
@@ -678,33 +693,21 @@ export class PatientsService {
                     'Nome é obrigatório e deve ter pelo menos 2 caracteres'
                   );
                 }
-                if (!row.cpf || row.cpf.trim().length === 0) {
-                  rowErrors.push('CPF é obrigatório');
-                }
-                if (!row.dataNascimento) {
-                  rowErrors.push('Data de nascimento é obrigatória');
-                }
                 if (
-                  !row.sexo ||
+                  row.sexo &&
                   !['male', 'female', 'other'].includes(row.sexo)
                 ) {
                   rowErrors.push('Sexo deve ser male, female ou other');
                 }
-                if (!row.telefone || row.telefone.trim().length < 10) {
-                  rowErrors.push(
-                    'Telefone é obrigatório e deve ter pelo menos 10 dígitos'
-                  );
-                }
-                if (!row.tipoCancer) {
-                  rowErrors.push('Tipo de câncer é obrigatório');
-                }
                 // Normalizar tipo de câncer: valor canônico é em inglês (ex.: lung)
-                const raw = (row.tipoCancer as string).trim();
-                const normalizedTipoCancer =
-                  raw === 'Pulmão' || raw === 'pulmão' || raw === 'pulmao'
-                    ? 'lung'
-                    : raw;
-                row.tipoCancer = normalizedTipoCancer as CancerType;
+                if (row.tipoCancer) {
+                  const raw = (row.tipoCancer as string).trim();
+                  const normalizedTipoCancer =
+                    raw === 'Pulmão' || raw === 'pulmão' || raw === 'pulmao'
+                      ? 'lung'
+                      : raw;
+                  row.tipoCancer = normalizedTipoCancer as CancerType;
+                }
                 // Data de diagnóstico só é obrigatória se não estiver em rastreio
                 // Por padrão, assumimos SCREENING se não especificado
                 const currentStage = (row as any).currentStage || 'SCREENING';
@@ -734,22 +737,26 @@ export class PatientsService {
                 }
 
                 try {
-                  // Normalizar telefone (já validado como obrigatório acima)
-                  let normalizedPhone = row.telefone.trim();
-                  let phoneHash = null;
-                  try {
-                    normalizedPhone = normalizePhoneNumber(normalizedPhone);
-                    phoneHash = hashPhoneNumber(normalizedPhone);
-                  } catch (error) {
-                    rowErrors.push('Telefone inválido');
-                    errors.push({ row: i + 2, errors: rowErrors });
-                    continue;
+                  // Normalizar telefone (opcional)
+                  let normalizedPhone: string | null = null;
+                  let phoneHash: string | null = null;
+                  if (row.telefone && row.telefone.trim().length >= 10) {
+                    try {
+                      normalizedPhone = normalizePhoneNumber(
+                        row.telefone.trim()
+                      );
+                      phoneHash = hashPhoneNumber(normalizedPhone);
+                    } catch (error) {
+                      this.logger.warn(
+                        `Telefone inválido na linha ${i + 2}, ignorando: ${row.telefone}`
+                      );
+                    }
                   }
 
                   // Criar paciente
                   const createDto: CreatePatientDto = {
                     name: row.name.trim(),
-                    cpf: row.cpf.trim(),
+                    cpf: row.cpf?.trim(),
                     birthDate: row.dataNascimento,
                     gender: row.sexo,
                     phone: normalizedPhone,
@@ -772,10 +779,12 @@ export class PatientsService {
                     patient = await this.prisma.patient.create({
                       data: {
                         name: createDto.name,
-                        cpf: createDto.cpf,
-                        birthDate: new Date(row.dataNascimento),
+                        cpf: createDto.cpf || null,
+                        birthDate: row.dataNascimento
+                          ? new Date(row.dataNascimento)
+                          : new Date(),
                         gender: createDto.gender,
-                        phone: createDto.phone,
+                        phone: normalizedPhone,
                         email: createDto.email,
                         cancerType: createDto.cancerType,
                         stage: createDto.stage,
@@ -891,6 +900,220 @@ export class PatientsService {
         );
       }
     });
+  }
+
+  async importFromSpreadsheet(
+    rows: ImportSpreadsheetRowDto[],
+    tenantId: string
+  ): Promise<{
+    created: number;
+    updated: number;
+    surgeries: number;
+    errors: Array<{ row: number; errors: string[] }>;
+  }> {
+    let createdCount = 0;
+    let updatedCount = 0;
+    let surgeriesCount = 0;
+    const errors: Array<{ row: number; errors: string[] }> = [];
+
+    // Obter tipos de câncer habilitados para o tenant
+    const enabledTypes = await this.getEnabledCancerTypes(tenantId);
+    const defaultCancerType = enabledTypes.includes('bladder')
+      ? 'bladder'
+      : enabledTypes[0] || 'other';
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const rowErrors: string[] = [];
+
+      // Validação: nome é obrigatório
+      if (!row.name || row.name.trim().length < 2) {
+        rowErrors.push('Nome é obrigatório (mínimo 2 caracteres)');
+        errors.push({ row: i + 1, errors: rowErrors });
+        continue;
+      }
+
+      try {
+        // Deduplicação por prontuário
+        let patient = null;
+        if (row.medicalRecordNumber) {
+          patient = await this.prisma.patient.findFirst({
+            where: {
+              tenantId,
+              medicalRecordNumber: row.medicalRecordNumber.trim(),
+            },
+            include: { cancerDiagnoses: { where: { isActive: true } } },
+          });
+        }
+
+        if (patient) {
+          // Paciente já existe — atualizar dados básicos se necessário
+          const updateData: Record<string, any> = {};
+          if (row.occupation && !patient.occupation) {
+            updateData.occupation = row.occupation.trim();
+          }
+          if (row.smokingHistory && !patient.smokingHistory) {
+            updateData.smokingHistory = row.smokingHistory.trim();
+          }
+          if (row.gender && !patient.gender) {
+            updateData.gender = row.gender;
+          }
+
+          if (Object.keys(updateData).length > 0) {
+            await this.prisma.patient.update({
+              where: { id: patient.id, tenantId },
+              data: updateData,
+            });
+            updatedCount++;
+          }
+        } else {
+          // Criar novo paciente
+          const birthDate = row.birthDate
+            ? new Date(row.birthDate)
+            : new Date(1970, 0, 1);
+
+          // Normalizar telefone se fornecido
+          let normalizedPhone: string | null = null;
+          let phoneHash: string | null = null;
+          if (row.phone && row.phone.trim().length >= 10) {
+            try {
+              normalizedPhone = normalizePhoneNumber(row.phone.trim());
+              phoneHash = hashPhoneNumber(normalizedPhone);
+            } catch {
+              this.logger.warn(
+                `Telefone inválido na linha ${i + 1}, ignorando`
+              );
+            }
+          }
+
+          patient = await this.prisma.patient.create({
+            data: {
+              tenantId,
+              name: row.name.trim(),
+              cpf: row.cpf?.trim() || null,
+              birthDate,
+              gender: row.gender || null,
+              phone: normalizedPhone,
+              phoneHash,
+              email: null,
+              medicalRecordNumber: row.medicalRecordNumber?.trim() || null,
+              occupation: row.occupation?.trim() || null,
+              smokingHistory: row.smokingHistory?.trim() || null,
+              cancerType: defaultCancerType,
+              currentStage: 'TREATMENT' as JourneyStage,
+              status: 'ACTIVE',
+            },
+            include: { cancerDiagnoses: { where: { isActive: true } } },
+          });
+
+          // Criar diagnóstico de câncer
+          const diagnosisText = row.diagnosis?.trim() || null;
+          await this.prisma.cancerDiagnosis.create({
+            data: {
+              tenantId,
+              patientId: patient.id,
+              cancerType: defaultCancerType,
+              diagnosisDate: row.referenceDate
+                ? new Date(row.referenceDate)
+                : new Date(),
+              diagnosisConfirmed: true,
+              isPrimary: true,
+              isActive: true,
+              histologicalType: diagnosisText,
+            },
+          });
+
+          // Inicializar etapas de navegação
+          if (this.navigationService) {
+            try {
+              await this.navigationService.initializeNavigationSteps(
+                patient.id,
+                tenantId,
+                defaultCancerType,
+                'TREATMENT' as JourneyStage
+              );
+            } catch (error) {
+              this.logger.warn(
+                `Erro ao inicializar navegação para paciente ${patient.id}:`,
+                error instanceof Error ? error.message : String(error)
+              );
+            }
+          }
+
+          createdCount++;
+        }
+
+        // Criar registro de cirurgia (Treatment) se houver dados cirúrgicos
+        if (row.surgeryDate || row.surgeryType) {
+          const diagnosisId =
+            (patient as any).cancerDiagnoses?.[0]?.id || null;
+
+          if (diagnosisId) {
+            await this.prisma.treatment.create({
+              data: {
+                tenantId,
+                patientId: patient.id,
+                diagnosisId,
+                treatmentType: 'SURGERY',
+                treatmentName: row.surgeryType?.trim() || 'Cirurgia',
+                startDate: row.surgeryDate
+                  ? new Date(row.surgeryDate)
+                  : null,
+                status: 'COMPLETED',
+                isActive: false,
+                admissionDate: row.admissionDate
+                  ? new Date(row.admissionDate)
+                  : null,
+                dischargeDate: row.dischargeDate
+                  ? new Date(row.dischargeDate)
+                  : null,
+                aihEmissionDate: row.aihEmissionDate
+                  ? new Date(row.aihEmissionDate)
+                  : null,
+                isReadmission: row.isReadmission || false,
+                readmissionReason: row.readmissionReason?.trim() || null,
+                isReoperation: row.isReoperation || false,
+                hadNeoadjuvantChemo: row.hadNeoadjuvantChemo || false,
+                neoadjuvantChemoDetail:
+                  row.neoadjuvantChemoDetail?.trim() || null,
+                hadUrinaryDiversion: row.hadUrinaryDiversion || false,
+                intraoperativeMortality:
+                  row.intraoperativeMortality || false,
+                mortality30Days: row.mortality30Days || false,
+                mortality90Days: row.mortality90Days || false,
+                mortality90DaysDetail:
+                  row.mortality90DaysDetail?.trim() || null,
+                notes: row.diagnosis?.trim() || null,
+              },
+            });
+            surgeriesCount++;
+          } else {
+            rowErrors.push(
+              'Não foi possível criar registro cirúrgico: diagnóstico não encontrado'
+            );
+          }
+        }
+
+        if (rowErrors.length > 0) {
+          errors.push({ row: i + 1, errors: rowErrors });
+        }
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : 'Erro desconhecido';
+        errors.push({ row: i + 1, errors: [message] });
+      }
+    }
+
+    this.logger.log(
+      `Importação de planilha concluída: ${createdCount} criados, ${updatedCount} atualizados, ${surgeriesCount} cirurgias, ${errors.length} erros`
+    );
+
+    return {
+      created: createdCount,
+      updated: updatedCount,
+      surgeries: surgeriesCount,
+      errors,
+    };
   }
 
   /**

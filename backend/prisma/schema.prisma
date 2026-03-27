@@ -2,7 +2,8 @@
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
 }
 
 datasource db {
@@ -59,6 +60,10 @@ model Patient {
   phone     String? // WhatsApp - Criptografado (LGPD)
   phoneHash String? // Hash SHA-256 do telefone normalizado para busca eficiente (indexado)
   email     String?
+
+  // Dados hospitalares (importação de planilhas)
+  medicalRecordNumber String? // Número do prontuário hospitalar
+  occupation          String? // Ocupação/profissão
 
   // Dados oncológicos
   cancerType        String? // Tipo de câncer
@@ -127,6 +132,7 @@ model Patient {
   @@index([status])
   @@index([ehrPatientId])
   @@index([phoneHash]) // Índice para busca eficiente por telefone
+  @@index([tenantId, medicalRecordNumber]) // Busca e deduplicação por prontuário
   @@map("patients")
 }
 
@@ -412,6 +418,21 @@ model Treatment {
   response         TreatmentResponse? // RC, RP, DE, PD
   responseDate     DateTime? // Data da avaliação de resposta
   responseNotes    String? // Observações sobre a resposta
+
+  // Dados cirúrgicos (importação de planilhas hospitalares)
+  admissionDate          DateTime? // Data de internação
+  dischargeDate          DateTime? // Data de alta
+  aihEmissionDate        DateTime? // Data de emissão da AIH
+  isReadmission          Boolean   @default(false) // Reinternação
+  readmissionReason      String?   // Motivo da reinternação
+  isReoperation          Boolean   @default(false) // Reoperação
+  hadNeoadjuvantChemo    Boolean   @default(false) // QT neoadjuvante
+  neoadjuvantChemoDetail String?   // Detalhes da QT neoadjuvante (ex: "GENCITABINA + CISPLATINA")
+  hadUrinaryDiversion    Boolean   @default(false) // Derivação urinária
+  intraoperativeMortality Boolean  @default(false) // Mortalidade intraoperatória
+  mortality30Days        Boolean   @default(false) // Mortalidade em 30 dias
+  mortality90Days        Boolean   @default(false) // Mortalidade em 90 dias
+  mortality90DaysDetail  String?   // Detalhes (ex: "ÓBITO EM MARÇO 2024")
 
   // Metadados
   notes            String? // Observações gerais
