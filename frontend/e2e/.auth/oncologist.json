@@ -1,0 +1,37 @@
+{
+  "cookies": [
+    {
+      "name": "session_active",
+      "value": "1",
+      "domain": "localhost",
+      "path": "/",
+      "expires": -1,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    }
+  ],
+  "origins": [
+    {
+      "origin": "http://localhost:3000",
+      "localStorage": [
+        {
+          "name": "auth_token",
+          "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0ZmEzOWFhYS1hYWMxLTQwMjgtYTk4OC1lYmQzNWM0MjA4NjYiLCJlbWFpbCI6Im9uY29sb2dpc3RhQGhvc3BpdGFsdGVzdGUuY29tIiwidGVuYW50SWQiOiI3MmYxYTc4Mi1lOTI5LTQyMDMtYjU4Yi0xYjA3MzAyMDhmOTYiLCJyb2xlIjoiT05DT0xPR0lTVCIsImlhdCI6MTc3NDMxMTI2MCwiZXhwIjoxNzc0Mzk3NjYwfQ.NimmkPa5OwW8Ygm9aenVYeMa7eQRfkG9D_V3kWtGADQ"
+        },
+        {
+          "name": "tenant_id",
+          "value": "72f1a782-e929-4203-b58b-1b0730208f96"
+        },
+        {
+          "name": "user",
+          "value": "{\"id\":\"4fa39aaa-aac1-4028-a988-ebd35c420866\",\"email\":\"oncologista@hospitalteste.com\",\"name\":\"Dr. João Silva\",\"role\":\"ONCOLOGIST\",\"tenantId\":\"72f1a782-e929-4203-b58b-1b0730208f96\",\"tenant\":{\"id\":\"72f1a782-e929-4203-b58b-1b0730208f96\",\"name\":\"Hospital de Teste\",\"schemaName\":\"hospital_teste\",\"settings\":{\"language\":\"pt-BR\",\"timezone\":\"America/Sao_Paulo\"},\"createdAt\":\"2026-03-18T22:05:21.695Z\",\"updatedAt\":\"2026-03-18T22:05:21.695Z\"}}"
+        },
+        {
+          "name": "refresh_token",
+          "value": "a9d2c386e86157af9f956d8062e7e1bf5646e7fe80d6b3ceef7168e9266fd830b2b7da9a749d0d4d"
+        }
+      ]
+    }
+  ]
+}
