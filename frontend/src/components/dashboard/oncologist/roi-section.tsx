@@ -3,6 +3,7 @@
 import { DashboardMetrics, DashboardStatistics } from '@/lib/api/dashboard';
 import { TrendingUp, Clock, DollarSign, Users } from 'lucide-react';
 import { useMemo } from 'react';
+import { MetricInfoTooltip } from '@/components/shared/metric-info-tooltip';
 
 interface ROISectionProps {
   metrics: DashboardMetrics;
@@ -69,8 +70,9 @@ export function ROISection({ metrics, statistics }: ROISectionProps) {
         <div className="bg-white rounded-lg border p-4">
           <div className="flex items-center gap-2 mb-2">
             <Users className="h-5 w-5 text-blue-600" />
-            <h3 className="text-sm font-medium text-gray-600">
+            <h3 className="text-sm font-medium text-gray-600 flex items-center gap-1">
               Consultas Evitadas
+              <MetricInfoTooltip title="Consultas Evitadas" description="Estimativa de consultas presenciais evitadas." calculation="30% das mensagens não assumidas." />
             </h3>
           </div>
           <p className="text-2xl font-bold text-gray-900">
@@ -85,8 +87,9 @@ export function ROISection({ metrics, statistics }: ROISectionProps) {
         <div className="bg-white rounded-lg border p-4">
           <div className="flex items-center gap-2 mb-2">
             <Clock className="h-5 w-5 text-green-600" />
-            <h3 className="text-sm font-medium text-gray-600">
+            <h3 className="text-sm font-medium text-gray-600 flex items-center gap-1">
               Tempo Economizado
+              <MetricInfoTooltip title="Tempo Economizado" description="Estimativa de horas economizadas." calculation="Alertas pendentes × tempo médio de resposta (em horas)." />
             </h3>
           </div>
           <p className="text-2xl font-bold text-gray-900">
@@ -101,8 +104,9 @@ export function ROISection({ metrics, statistics }: ROISectionProps) {
         <div className="bg-white rounded-lg border p-4">
           <div className="flex items-center gap-2 mb-2">
             <DollarSign className="h-5 w-5 text-green-600" />
-            <h3 className="text-sm font-medium text-gray-600">
+            <h3 className="text-sm font-medium text-gray-600 flex items-center gap-1">
               Economia Estimada
+              <MetricInfoTooltip title="Economia Estimada" description="Economia estimada com consultas evitadas." calculation="Consultas evitadas × R$ 200 (custo médio)." />
             </h3>
           </div>
           <p className="text-2xl font-bold text-gray-900">
@@ -117,8 +121,9 @@ export function ROISection({ metrics, statistics }: ROISectionProps) {
         <div className="bg-white rounded-lg border p-4">
           <div className="flex items-center gap-2 mb-2">
             <TrendingUp className="h-5 w-5 text-purple-600" />
-            <h3 className="text-sm font-medium text-gray-600">
+            <h3 className="text-sm font-medium text-gray-600 flex items-center gap-1">
               Redução de Alertas
+              <MetricInfoTooltip title="Redução de Alertas" description="Variação na média diária de alertas." calculation="(média 7d anteriores − últimos 7d) / anteriores × 100." />
             </h3>
           </div>
           <p

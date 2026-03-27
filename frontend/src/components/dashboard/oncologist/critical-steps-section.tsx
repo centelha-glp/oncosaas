@@ -38,7 +38,7 @@ export function CriticalStepsSection({
   }
 
   const handlePatientClick = (patientId: string) => {
-    router.push(`/dashboard?patient=${patientId}`);
+    router.push(`/patients/${patientId}`);
   };
 
   const getSeverityColor = (

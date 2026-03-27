@@ -8,6 +8,7 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import { useMemo } from 'react';
+import { MetricInfoTooltip } from '@/components/shared/metric-info-tooltip';
 
 interface ExecutiveViewProps {
   metrics: DashboardMetrics;
@@ -57,8 +58,9 @@ export function ExecutiveView({ metrics, statistics }: ExecutiveViewProps) {
         <div className="bg-white rounded-lg border p-4">
           <div className="flex items-center gap-2 mb-2">
             <AlertTriangle className="h-5 w-5 text-red-600" />
-            <h3 className="text-sm font-medium text-gray-600">
+            <h3 className="text-sm font-medium text-gray-600 flex items-center gap-1">
               Taxa de Pacientes Críticos
+              <MetricInfoTooltip title="Taxa de Pacientes Críticos" description="Percentual de pacientes em estado crítico." calculation="Pacientes CRITICAL / total de pacientes ativos × 100." />
             </h3>
           </div>
           <p className="text-2xl font-bold text-gray-900">
@@ -74,8 +76,9 @@ export function ExecutiveView({ metrics, statistics }: ExecutiveViewProps) {
         <div className="bg-white rounded-lg border p-4">
           <div className="flex items-center gap-2 mb-2">
             <TrendingUp className="h-5 w-5 text-green-600" />
-            <h3 className="text-sm font-medium text-gray-600">
+            <h3 className="text-sm font-medium text-gray-600 flex items-center gap-1">
               Variação de Alertas
+              <MetricInfoTooltip title="Variação de Alertas" description="Variação percentual de alertas entre semanas." calculation="(alertas 7d anteriores − últimos 7d) / anteriores × 100." />
             </h3>
           </div>
           <p className={`text-2xl font-bold ${executiveMetrics.improvementPercentage > 0 ? 'text-green-600' : 'text-gray-900'}`}>
@@ -91,8 +94,9 @@ export function ExecutiveView({ metrics, statistics }: ExecutiveViewProps) {
         <div className="bg-white rounded-lg border p-4">
           <div className="flex items-center gap-2 mb-2">
             <Clock className="h-5 w-5 text-indigo-600" />
-            <h3 className="text-sm font-medium text-gray-600">
+            <h3 className="text-sm font-medium text-gray-600 flex items-center gap-1">
               Alertas/Dia (7d)
+              <MetricInfoTooltip title="Alertas/Dia (7d)" description="Média de alertas por dia nos últimos 7 dias." calculation="Total de alertas nos últimos 7 dias / 7." />
             </h3>
           </div>
           <p className="text-2xl font-bold text-gray-900">
@@ -107,8 +111,9 @@ export function ExecutiveView({ metrics, statistics }: ExecutiveViewProps) {
         <div className="bg-white rounded-lg border p-4">
           <div className="flex items-center gap-2 mb-2">
             <Users className="h-5 w-5 text-blue-600" />
-            <h3 className="text-sm font-medium text-gray-600">
+            <h3 className="text-sm font-medium text-gray-600 flex items-center gap-1">
               Pacientes Ativos
+              <MetricInfoTooltip title="Pacientes Ativos" description="Total de pacientes em acompanhamento ativo." calculation="Contagem de pacientes com status ACTIVE no tenant." />
             </h3>
           </div>
           <p className="text-2xl font-bold text-gray-900">

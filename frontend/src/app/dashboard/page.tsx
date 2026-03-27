@@ -335,7 +335,7 @@ function ManagementDashboard() {
   }
 
   const handlePatientClick = (patientId: string) => {
-    router.push(`/dashboard?patient=${patientId}`);
+    router.push(`/patients/${patientId}`);
   };
 
   const handleAlertSelect = (alert: Alert) => {
