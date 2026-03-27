@@ -1,6 +1,8 @@
 'use client';
 
 import { Patient } from '@/lib/api/patients';
+import { JOURNEY_STAGE_LABELS } from '@/lib/utils/journey-stage';
+import { CANCER_TYPE_LABELS } from '@/lib/utils/patient-cancer-type';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { format } from 'date-fns';
@@ -12,24 +14,6 @@ interface PatientTableProps {
   patients: Patient[];
   onPatientClick?: (patientId: string) => void;
 }
-
-const CANCER_TYPE_LABELS: Record<string, string> = {
-  breast: 'Mama',
-  lung: 'Pulmão',
-  colorectal: 'Colorretal',
-  prostate: 'Próstata',
-  kidney: 'Rim',
-  bladder: 'Bexiga',
-  testicular: 'Testículo',
-  other: 'Outros',
-};
-
-const JOURNEY_STAGE_LABELS: Record<string, string> = {
-  SCREENING: 'Rastreio',
-  DIAGNOSIS: 'Diagnóstico',
-  TREATMENT: 'Tratamento',
-  FOLLOW_UP: 'Seguimento',
-};
 
 const PRIORITY_COLORS: Record<string, string> = {
   CRITICAL: 'bg-red-100 text-red-800 border-red-300',

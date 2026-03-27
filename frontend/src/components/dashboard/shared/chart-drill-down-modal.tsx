@@ -56,6 +56,7 @@ const JOURNEY_STAGE_LABELS: Record<string, string> = {
   DIAGNOSIS: 'Diagnóstico',
   TREATMENT: 'Tratamento',
   FOLLOW_UP: 'Seguimento',
+  PALLIATIVE: 'Cuidados paliativos',
 };
 
 const ALERT_TYPE_LABELS: Record<string, string> = {
@@ -119,7 +120,10 @@ export function ChartDrillDownModal({
     staleTime: 0,
     refetchOnMount: 'always',
   });
-  // Computed inside useMemo below to avoid a new [] reference on every render.
+  const pendingAlerts = React.useMemo<PendingAlert[]>(
+    () => (Array.isArray(pendingAlertsRaw) ? pendingAlertsRaw : []),
+    [pendingAlertsRaw]
+  );
 
   // Buscar pacientes por indicador (mensagens não assumidas, biomarcadores pendentes)
   const {
@@ -138,7 +142,10 @@ export function ChartDrillDownModal({
     staleTime: 0,
     refetchOnMount: 'always',
   });
-  // Computed inside useMemo below to avoid a new [] reference on every render.
+  const indicatorPatients = React.useMemo<Patient[]>(
+    () => (Array.isArray(indicatorPatientsRaw) ? indicatorPatientsRaw : []),
+    [indicatorPatientsRaw]
+  );
 
   // Buscar todos os pacientes (para priority, cancerType, journeyStage)
   const { data: allPatients, isLoading: isLoadingPatients } = useQuery({
@@ -157,7 +164,6 @@ export function ChartDrillDownModal({
 
   // Lista de alertas filtrada por nome do paciente ou mensagem
   const pendingAlertsFiltered = React.useMemo(() => {
-    const pendingAlerts: PendingAlert[] = Array.isArray(pendingAlertsRaw) ? pendingAlertsRaw : [];
     if (!pendingAlerts.length) return [];
     if (!searchTerm.trim()) return pendingAlerts;
     const term = searchTerm.toLowerCase().trim();
@@ -166,16 +172,15 @@ export function ChartDrillDownModal({
         a.patient.name.toLowerCase().includes(term) ||
         a.message.toLowerCase().includes(term)
     );
-  }, [pendingAlertsRaw, searchTerm]);
+  }, [pendingAlerts, searchTerm]);
 
   // Lista de pacientes filtrada por indicador (mensagens/biomarcadores) + busca por nome
   const indicatorPatientsFiltered = React.useMemo(() => {
-    const indicatorPatients = Array.isArray(indicatorPatientsRaw) ? indicatorPatientsRaw : [];
-    if (!indicatorPatients.length) return [];
+    if (!indicatorPatients) return [];
     if (!searchTerm.trim()) return indicatorPatients;
     const term = searchTerm.toLowerCase().trim();
     return indicatorPatients.filter((p) => p.name.toLowerCase().includes(term));
-  }, [indicatorPatientsRaw, searchTerm]);
+  }, [indicatorPatients, searchTerm]);
 
   // Filtrar pacientes baseado no tipo de filtro (apenas para priority, cancerType, journeyStage)
   const filteredPatients = useMemo(() => {

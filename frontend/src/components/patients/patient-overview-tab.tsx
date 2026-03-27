@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { PatientSummaryCard } from './patient-summary-card';
+import { JOURNEY_STAGE_LABELS } from '@/lib/utils/journey-stage';
 
 interface PatientOverviewTabProps {
   patient: PatientDetail;
@@ -21,13 +22,6 @@ function calculateAge(birthDate: string): number {
   }
   return age;
 }
-
-const JOURNEY_STAGE_LABELS: Record<string, string> = {
-  SCREENING: 'Rastreio',
-  DIAGNOSIS: 'Diagnóstico',
-  TREATMENT: 'Tratamento',
-  FOLLOW_UP: 'Seguimento',
-};
 
 const PRIORITY_COLORS: Record<string, string> = {
   CRITICAL: 'bg-red-100 text-red-800 border-red-300',

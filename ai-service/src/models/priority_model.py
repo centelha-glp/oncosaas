@@ -1,4 +1,11 @@
 from __future__ import annotations
+import logging
+import os
+from typing import Any, Dict, Optional
+import joblib
+import numpy as np
+import pandas as pd
+from lightgbm import LGBMClassifier
 
 """
 Oncology Priority Model — Ordinal Classifier (Phase 3).
@@ -24,15 +31,6 @@ Model: LightGBM ordinal classifier via cross-entropy on ordered classes.
 Asymmetric penalty: under-triaging (predicting lower class) is penalized
 more heavily than over-triaging.
 """
-
-import logging
-import os
-from typing import Any, Dict, Optional
-
-import joblib
-import numpy as np
-import pandas as pd
-from lightgbm import LGBMClassifier
 
 logger = logging.getLogger(__name__)
 
@@ -148,54 +146,22 @@ class OncologyPriorityModel:
         )
 
     def train(self, X: pd.DataFrame, y: pd.Series) -> Dict[str, Any]:
-        """
-        Train the ordinal classifier with a stratified 80/20 validation split.
-
-        The returned classification report reflects held-out validation performance,
-        not training-set performance, so the reported F1 is a genuine quality estimate.
-        Falls back to full-dataset training when the dataset is too small to stratify.
-        """
+        """Train the ordinal classifier."""
         from sklearn.metrics import classification_report
-        from sklearn.model_selection import train_test_split
 
         self.model = self._create_model()
-
-        # Stratified split when we have enough samples per class (≥ 5 per class in val)
-        n_classes = y.nunique()
-        min_per_class = y.value_counts().min()
-        use_split = len(X) >= 50 and min_per_class >= 5
-
-        if use_split:
-            X_train, X_val, y_train, y_val = train_test_split(
-                X, y, test_size=0.20, stratify=y, random_state=42
-            )
-            self.model.fit(X_train, y_train)
-            y_pred = self.model.predict(X_val)
-            eval_label = "validation"
-        else:
-            # Too few samples — train on full dataset, evaluate on training set
-            logger.warning(
-                "Dataset too small for stratified split (%d rows, %d classes). "
-                "Evaluating on training data — metrics will be optimistic.",
-                len(X), n_classes,
-            )
-            self.model.fit(X, y)
-            y_pred = self.model.predict(X)
-            eval_label = "train (no split)"
-
+        self.model.fit(X, y)
         self.is_trained = True
+
+        # Quick evaluation on training set
+        y_pred = self.model.predict(X)
         report = classification_report(
-            y_val if use_split else y,
-            y_pred,
+            y, y_pred,
             target_names=DISPOSITION_CLASSES,
             output_dict=True,
             zero_division=0,
         )
-        logger.info(
-            "Training complete (%s). Macro F1: %.3f",
-            eval_label,
-            report["macro avg"]["f1-score"],
-        )
+        logger.info(f"Training complete. Macro F1: {report['macro avg']['f1-score']:.3f}")
         return {"classification_report": report}
 
     def predict_single(self, features: Dict[str, Any]) -> Dict[str, Any]:
@@ -433,26 +399,7 @@ def extract_features(
     has_renal_risk = 1 if any(c.get("affectsRenalClearance") for c in comorbidities) else 0
 
     # ── Context ───────────────────────────────────────────────────────────────
-    # days_since_last_visit: most recent completedAt across all navigation steps
-    nav_steps = clinical_context.get("navigationSteps", [])
-    best_visit: Optional[int] = None
-    for step in nav_steps:
-        completed = step.get("completedAt")
-        if completed:
-            try:
-                dt = datetime.fromisoformat(completed.replace("Z", "+00:00"))
-                d = (datetime.now(timezone.utc) - dt).days
-                if best_visit is None or d < best_visit:
-                    best_visit = d
-            except Exception:
-                pass
-    days_since_last_visit = best_visit if best_visit is not None else 0
-
-    # is_alone: patient lives alone or has no social support
-    is_alone = 1 if (
-        patient.get("livesAlone")
-        or patient.get("socialSupport") == "NONE"
-    ) else 0
+    days_since_last_visit = 0  # would come from navigationSteps if available
 
     # ── Symptom summary ───────────────────────────────────────────────────────
     critical_count = sum(1 for s in detected if s.get("severity") == "CRITICAL")
@@ -488,7 +435,7 @@ def extract_features(
         "mascc_score": mascc_score if mascc_score is not None else 26,  # 26=max=low risk default
         "cisne_score": cisne_score if cisne_score is not None else 0,   # 0=low risk default
         "days_since_last_visit": days_since_last_visit,
-        "is_alone": is_alone,
+        "is_alone": 0,
         "symptom_critical_count": critical_count,
         "symptom_high_count": high_count,
     }

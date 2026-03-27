@@ -13,7 +13,7 @@ pip install -r requirements.txt
 
 # Run tests
 python -m pytest tests/
-python -m pytest tests/test_priority_model.py -v    # single file, verbose
+python -m pytest tests/models/test_priority_model.py -v    # single file, verbose
 
 # Validate before committing
 python -m pytest tests/
@@ -26,9 +26,9 @@ flake8 .
 pylint src/
 
 # Train the priority model
-python scripts/train_model.py                        # synthetic training (5000 samples)
-python scripts/train_model.py --real data.json       # blend synthetic + real feedback
-python scripts/train_model.py --eval                 # evaluate current model
+python -m scripts.train_model                        # synthetic training (5000 samples)
+python -m scripts.train_model --real data.json       # blend synthetic + real feedback
+python -m scripts.train_model --eval                 # evaluate current model
 
 # Docker build
 docker build -t onconav-ai-service:latest .
@@ -49,7 +49,7 @@ Tests use **pytest**. Config lives in `pyproject.toml` (`testpaths = ["tests"]`)
 
 ### What NOT to test
 
-- End-to-end orchestrator with live LLM calls — use manual scripts in `scripts/`
+- End-to-end orchestrator with live LLM calls — use manual scripts in `tools/manual/`
 - RAG retrieval with live embeddings — too heavy for CI
 
 ### Patterns
@@ -71,12 +71,12 @@ result = clinical_rules_engine.evaluate(symptom_analysis, clinical_context)
 
 ### File locations
 
-Place test files in `tests/`:
-- `tests/test_priority_model.py` — `OncologyPriorityModel`, `extract_features()`
-- `tests/test_clinical_rules.py` — deterministic rule firing, precedence, MASCC upgrade
-- `tests/test_llm_provider.py` — key resolution, fallback response, degraded mode
-- `tests/test_backend_client.py` — token behaviour, retry decision logic
-- `tests/test_smoke.py` — import smoke tests, singletons, constant cardinality
+Place test files by domain:
+- `tests/models/test_priority_model.py` — `OncologyPriorityModel`, `extract_features()`
+- `tests/agent/test_clinical_rules.py` — deterministic rule firing, precedence, MASCC upgrade
+- `tests/agent/test_llm_provider.py` — key resolution, fallback response, degraded mode
+- `tests/services/test_backend_client.py` — token behaviour, retry decision logic
+- `tests/system/test_smoke.py` — import smoke tests, singletons, constant cardinality
 
 ## How to work in this repo
 
@@ -195,7 +195,7 @@ Corpus loaded from `src/agent/rag/oncology_corpus.json` (not committed — RAG i
 | Path | Responsibility |
 |------|----------------|
 | `main.py` | App entry, dotenv loading, startup (model load/train, RAG init), CORS |
-| `src/api/routes.py` | 18 API endpoints under `/api/v1` |
+| `src/routes/` | API endpoints under `/api/v1` |
 | `src/models/priority_model.py` | `OncologyPriorityModel` + `extract_features()` |
 | `src/models/train_priority.py` | Synthetic data generation + `load_or_train()` |
 | `src/models/schemas.py` | All Pydantic request/response models |
@@ -233,7 +233,7 @@ When assessing configuration:
 
 - **Structured JSON logging** — single-line JSON per entry via `_JsonFormatter` in `main.py`. Fields: `time`, `level`, `name`, `message`.
 - **Traces** — `AgentTracer` ring buffer (max 500) at `GET /api/v1/observability/traces` and `/stats`. Cleared at `DELETE /api/v1/observability/traces`. Stores `patient_id`, `tenant_id`, dispositions, symptom severities — treat as sensitive PHI.
-- **Health check** — `GET /health` returns `{status, service, model_trained, llm_configured}`.
+- **Health check** — `GET /health` returns `{status, service, version, model_trained, capabilities}`.
 - **Debug endpoint** — `GET /api/v1/debug/llm-status` shows masked key presence. Do not expose without authentication in production.
 
 ## Known Issues

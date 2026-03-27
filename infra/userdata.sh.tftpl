@@ -14,6 +14,7 @@ DB_USER="${db_username}"
 DB_NAME="${db_name}"
 DB_HOST="${db_host}"
 DB_PASSWORD_PATH="${db_password_path}"
+SSH_PUBLIC_KEY="${ssh_public_key}"
 
 apt-get update -y
 apt-get upgrade -y
@@ -135,7 +136,15 @@ iptables -I DOCKER-USER -d 169.254.169.254/32 -j DROP || true
 mkdir -p "$APP_DIR/scripts" "$APP_DIR/current/backend" "$APP_DIR/current/frontend" "$APP_DIR/current/ai-service"
 chown -R ubuntu:ubuntu "$APP_DIR"
 
-cat >/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<CWAGENT
+if [ -n "$SSH_PUBLIC_KEY" ]; then
+  install -d -m 700 -o ubuntu -g ubuntu /home/ubuntu/.ssh
+  touch /home/ubuntu/.ssh/authorized_keys
+  chown ubuntu:ubuntu /home/ubuntu/.ssh/authorized_keys
+  chmod 600 /home/ubuntu/.ssh/authorized_keys
+  grep -qxF "$SSH_PUBLIC_KEY" /home/ubuntu/.ssh/authorized_keys || echo "$SSH_PUBLIC_KEY" >> /home/ubuntu/.ssh/authorized_keys
+fi
+
+cat >/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<'CWAGENT'
 {
   "agent": {
     "metrics_collection_interval": 60,

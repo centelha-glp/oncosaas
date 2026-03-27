@@ -86,7 +86,7 @@ rm -rf /Users/pedrofernandes/stuff/onco/oncosaas/infra
 ```
 
 ### Caveats
-- Remote backend is configured as `backend "s3" {}` and requires external `backend.hcl` values before `terraform init`.
+- Remote backend is configured as `backend "s3" {}` and requires external `backend.hcl` values before `terraform init`. (Removed)
 
 ---
 

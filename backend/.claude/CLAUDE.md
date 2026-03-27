@@ -378,7 +378,12 @@ Use `redisService.increment()` (atomic `MULTI/EXEC`) for any counter with a race
 
 ## Testing
 
-Tests live alongside source files as `*.spec.ts`. The global setup in `test/setup.ts` sets `NODE_ENV=test` and stubs required environment variables.
+Testing follows a split structure:
+
+- **Unit tests** live alongside source files in `src/**` as `*.spec.ts`
+- **Cross-module contract/integration tests** live at top-level in `test/**` (for example `test/docs-contract.spec.ts`)
+
+The global setup in `test/setup.ts` sets `NODE_ENV=test` and stubs required environment variables.
 
 Coverage thresholds: 70% branches / functions / lines / statements.
 
@@ -387,6 +392,7 @@ Coverage thresholds: 70% branches / functions / lines / statements.
 - **Service unit tests** — mock all Prisma calls and external services; test the business logic paths
 - **Security tests** — every service touching tenant-scoped data must assert that a cross-tenant access attempt returns null or throws (not just tests with matching tenant IDs)
 - **Auth flow tests** — test lockout, token rotation, and failure paths explicitly
+- **Behavior contracts** — keep expected service behavior documented in `test/SERVICE_BEHAVIOR.md` and update it whenever behavior tests are added or changed
 
 ### What NOT to test
 

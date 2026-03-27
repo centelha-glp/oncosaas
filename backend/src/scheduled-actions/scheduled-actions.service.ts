@@ -98,7 +98,7 @@ export class ScheduledActionsService {
     }
 
     return this.prisma.scheduledAction.update({
-      where: { id },
+      where: { id, tenantId },
       data: { status: ScheduledActionStatus.CANCELLED },
     });
   }

@@ -42,6 +42,10 @@ export interface User {
   tenant?: {
     id: string;
     name: string;
+    settings?: {
+      enabledCancerTypes?: string[];
+      [key: string]: unknown;
+    } | null;
   };
 }
 

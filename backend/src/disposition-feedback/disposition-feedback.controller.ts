@@ -2,6 +2,7 @@ import {
   Controller,
   Post,
   Get,
+  UseGuards,
   Body,
   HttpCode,
   HttpStatus,
@@ -11,9 +12,13 @@ import { DispositionFeedbackService } from './disposition-feedback.service';
 import { CreateDispositionFeedbackDto } from './dto/create-feedback.dto';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { TenantGuard } from '../auth/guards/tenant.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
 import { UserRole } from '@prisma/client';
 
 @Controller('disposition-feedback')
+@UseGuards(JwtAuthGuard, TenantGuard, RolesGuard)
 export class DispositionFeedbackController {
   constructor(private readonly service: DispositionFeedbackService) {}
 

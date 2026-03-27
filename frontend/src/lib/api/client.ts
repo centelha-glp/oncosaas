@@ -149,9 +149,10 @@ class ApiClient {
   setToken(token: string): void {
     if (typeof window !== 'undefined') {
       localStorage.setItem('auth_token', token);
-      // Set a session cookie so Next.js middleware can detect authenticated state.
-      // This is NOT the JWT itself — it's a presence flag only.
-      // The JWT remains in localStorage; a full HttpOnly cookie migration is a longer-term refactor.
+      // Mirror access token in a non-HttpOnly cookie so Next.js middleware can
+      // at least validate JWT shape/expiry before allowing protected routes.
+      // Security note: full server-issued HttpOnly cookie auth remains the ideal target.
+      document.cookie = `auth_token=${encodeURIComponent(token)}; path=/; SameSite=Lax`;
       document.cookie = 'session_active=1; path=/; SameSite=Lax';
     }
   }
@@ -193,7 +194,8 @@ class ApiClient {
       localStorage.removeItem('refresh_token');
       localStorage.removeItem('tenant_id');
       localStorage.removeItem('user');
-      // Clear session cookie so middleware redirects unauthenticated requests
+      // Clear auth/session cookies so middleware redirects unauthenticated requests
+      document.cookie = 'auth_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax';
       document.cookie = 'session_active=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax';
     }
     this.tenantId = null;

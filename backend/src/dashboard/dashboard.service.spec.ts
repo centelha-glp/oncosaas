@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { DashboardService } from './dashboard.service';
-import { PrismaService } from '../prisma/prisma.service';
+import { DashboardService } from '@/dashboard/dashboard.service';
+import { PrismaService } from '@/prisma/prisma.service';
 
 const createMockPrisma = () => ({
   patient: {

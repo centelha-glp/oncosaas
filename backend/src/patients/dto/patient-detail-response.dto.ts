@@ -12,7 +12,7 @@ export interface PatientDetailResponse {
   cpf: string | null;
   birthDate: Date;
   gender: string | null;
-  phone: string;
+  phone: string | null;
   email: string | null;
   cancerType: string | null;
   stage: string | null;

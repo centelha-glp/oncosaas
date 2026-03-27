@@ -1,12 +1,11 @@
 import {
-  IsString,
   IsNotEmpty,
   IsObject,
   IsOptional,
   IsEnum,
   IsUUID,
 } from 'class-validator';
-import { ProcessedBy } from '@prisma/client';
+import { ProcessedBy, Prisma } from '@prisma/client';
 
 export class CreateQuestionnaireResponseDto {
   @IsUUID()
@@ -19,7 +18,7 @@ export class CreateQuestionnaireResponseDto {
 
   @IsObject()
   @IsNotEmpty()
-  responses: Record<string, any>; // JSON com respostas estruturadas
+  responses: Prisma.InputJsonValue; // JSON com respostas estruturadas
 
   @IsUUID()
   @IsOptional()

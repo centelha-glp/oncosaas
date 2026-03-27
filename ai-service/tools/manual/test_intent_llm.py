@@ -1,7 +1,6 @@
 import asyncio
 import logging
 import os
-import sys
 from pathlib import Path
 from dotenv import load_dotenv
 from src.agent.intent_classifier import intent_classifier, CONFIDENCE_THRESHOLD_LLM
@@ -11,8 +10,7 @@ Script para testar se o Intent Classifier chama a LLM no fallback.
 Mensagens ambíguas (baixa confiança no regex) devem acionar a LLM.
 """
 
-AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(AI_SERVICE_ROOT))
+AI_SERVICE_ROOT = Path(__file__).resolve().parents[2]
 load_dotenv(AI_SERVICE_ROOT / ".env")
 
 # Logs visíveis para ver "Intent LLM fallback"

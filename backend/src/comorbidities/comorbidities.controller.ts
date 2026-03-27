@@ -4,6 +4,7 @@ import {
   Post,
   Patch,
   Delete,
+  UseGuards,
   Param,
   Body,
   ParseUUIDPipe,
@@ -15,9 +16,13 @@ import { CreateComorbidityDto } from './dto/create-comorbidity.dto';
 import { UpdateComorbidityDto } from './dto/update-comorbidity.dto';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { TenantGuard } from '../auth/guards/tenant.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
 import { UserRole } from '@prisma/client';
 
 @Controller('patients/:patientId/comorbidities')
+@UseGuards(JwtAuthGuard, TenantGuard, RolesGuard)
 export class ComorbiditiesController {
   constructor(private readonly service: ComorbiditiesService) {}
 

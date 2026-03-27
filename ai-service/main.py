@@ -6,6 +6,7 @@ from pydantic_settings import BaseSettings
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
+from src.routes import router
 
 """
 AI Service - Plataforma Oncológica
@@ -13,7 +14,7 @@ Serviço de IA para priorização de casos e agente conversacional
 """
 
 # Load environment variables early, before importing modules that may read os.getenv.
-# Source: ai-service/.env only (service-local configuration).
+# Source of truth: ai-service/.env only.
 BASE_DIR = Path(__file__).resolve().parent
 LOCAL_ENV_PATH = BASE_DIR / ".env"
 
@@ -49,15 +50,16 @@ try:
 except Exception as e:
     logger.warning("Priority model initialization deferred: %s", e, exc_info=True)
 
-from src.api.routes import router
-
 
 class Settings(BaseSettings):
     openai_api_key: str = ""
     anthropic_api_key: str = ""
+    google_cloud_project_id: str = ""
     backend_url: str = "http://localhost:3002"
     cors_origins: str = "http://localhost:3000,http://localhost:3002"
-    # env vars already loaded by load_dotenv() above — no env_file needed here
+
+    class Config:
+        env_file = str(LOCAL_ENV_PATH)
 
 
 settings = Settings()
@@ -88,9 +90,8 @@ async def lifespan(app: FastAPI):
     if has_anthropic:
         logger.info("[AI Service] ANTHROPIC_API_KEY present: %s", _mask_key(os.getenv("ANTHROPIC_API_KEY", "")))
     try:
-        import asyncio
         from src.agent.rag import knowledge_rag
-        await asyncio.to_thread(knowledge_rag.initialize)
+        knowledge_rag.initialize()
     except Exception as e:
         logger.warning(f"RAG initialization deferred: {e}")
     # Priority model loaded at import time (see top of main.py)
@@ -125,12 +126,11 @@ async def root():
 @app.get("/health")
 async def health():
     from src.models.priority_model import priority_model
-    from src.agent.llm_provider import llm_provider
     return {
         "status": "ok",
         "service": "onconav-ai-service",
         "model_trained": priority_model.is_trained,
-        "llm_configured": llm_provider.has_any_llm_key(),
+        "llm_configured": bool(settings.openai_api_key or settings.anthropic_api_key),
     }
 
 if __name__ == "__main__":

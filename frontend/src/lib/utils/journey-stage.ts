@@ -1,3 +1,8 @@
+/**
+ * Constantes centralizadas para estágios da jornada oncológica.
+ * Importar deste arquivo em vez de definir localmente em cada componente.
+ */
+
 export const JOURNEY_STAGES = [
   'SCREENING',
   'DIAGNOSIS',

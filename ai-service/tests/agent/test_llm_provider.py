@@ -1,10 +1,6 @@
 """
 Tests for LLMProvider — key resolution, fallback response, degraded mode.
 """
-import sys
-import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-
 import pytest
 from src.agent.llm_provider import LLMProvider
 

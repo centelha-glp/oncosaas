@@ -42,6 +42,7 @@ const JOURNEY_STAGE_LABELS: Record<string, string> = {
   DIAGNOSIS: '📋 Diagnóstico',
   TREATMENT: '💊 Tratamento',
   FOLLOW_UP: '📅 Seguimento',
+  PALLIATIVE: '🤝 Cuidados paliativos',
 };
 
 const JOURNEY_STAGE_LABELS_SHORT: Record<string, string> = {
@@ -49,11 +50,12 @@ const JOURNEY_STAGE_LABELS_SHORT: Record<string, string> = {
   DIAGNOSIS: 'Diagnóstico',
   TREATMENT: 'Tratamento',
   FOLLOW_UP: 'Seguimento',
+  PALLIATIVE: 'Paliativos',
 };
 
 const STAGE_ORDER: Array<
-  'SCREENING' | 'DIAGNOSIS' | 'TREATMENT' | 'FOLLOW_UP'
-> = ['SCREENING', 'DIAGNOSIS', 'TREATMENT', 'FOLLOW_UP'];
+  'SCREENING' | 'DIAGNOSIS' | 'TREATMENT' | 'FOLLOW_UP' | 'PALLIATIVE'
+> = ['SCREENING', 'DIAGNOSIS', 'TREATMENT', 'FOLLOW_UP', 'PALLIATIVE'];
 
 export function OncologyNavigationPanel({
   patientId,

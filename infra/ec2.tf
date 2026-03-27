@@ -26,6 +26,7 @@ locals {
     db_name          = var.db_name
     db_host          = aws_db_instance.postgres.address
     db_password_path = aws_ssm_parameter.db_master_password.name
+    ssh_public_key   = var.ssh_public_key
   })
 }
 

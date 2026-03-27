@@ -55,6 +55,7 @@ export const useInitializeNavigationSteps = () => {
       queryClient.invalidateQueries({
         queryKey: ['navigation-steps', variables.patientId],
       });
+      queryClient.invalidateQueries({ queryKey: ['patient', variables.patientId] });
       toast.success('Etapas de navegação inicializadas!');
     },
     onError: (error: Error) => {
@@ -77,11 +78,9 @@ export const useUpdateNavigationStep = () => {
       stepId: string;
       data: Parameters<typeof oncologyNavigationApi.updateStep>[1];
     }) => oncologyNavigationApi.updateStep(stepId, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ['navigation-steps'],
-      });
-      toast.success('Etapa atualizada com sucesso!');
+    onSuccess: (updatedStep) => {
+      queryClient.invalidateQueries({ queryKey: ['navigation-steps'] });
+      queryClient.invalidateQueries({ queryKey: ['patient', updatedStep.patientId] });
     },
     onError: (error: Error) => {
       console.error('Erro ao atualizar etapa:', error);
@@ -98,8 +97,8 @@ export const useInitializeAllPatients = () => {
   return useMutation({
     mutationFn: () => oncologyNavigationApi.initializeAllPatients(),
     onSuccess: (result) => {
-      // Invalidar todas as queries de pacientes e etapas
       queryClient.invalidateQueries({ queryKey: ['patients'] });
+      queryClient.invalidateQueries({ queryKey: ['patient'] });
       queryClient.invalidateQueries({ queryKey: ['navigation-steps'] });
       toast.success('Etapas inicializadas para todos os pacientes!');
       return result;
@@ -113,15 +112,33 @@ export const useInitializeAllPatients = () => {
   });
 };
 
+export const useDeleteNavigationStep = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ stepId }: { stepId: string; patientId: string }) =>
+      oncologyNavigationApi.deleteStep(stepId),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['navigation-steps'] });
+      queryClient.invalidateQueries({ queryKey: ['patient', variables.patientId] });
+    },
+    onError: (error: Error) => {
+      toast.error('Falha ao excluir etapa.', {
+        description: error.message || 'Tente novamente.',
+      });
+    },
+  });
+};
+
 export const useUploadStepFile = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: ({ stepId, file }: { stepId: string; file: File }) =>
       oncologyNavigationApi.uploadFile(stepId, file),
-    onSuccess: () => {
-      // Invalidar etapas do paciente
+    onSuccess: (updatedStep) => {
       queryClient.invalidateQueries({ queryKey: ['navigation-steps'] });
+      queryClient.invalidateQueries({ queryKey: ['patient', updatedStep.patientId] });
       toast.success('Arquivo enviado com sucesso!');
     },
     onError: (error: Error) => {

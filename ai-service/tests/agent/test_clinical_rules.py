@@ -1,10 +1,6 @@
 """
 Tests for ClinicalRulesEngine — deterministic triage rules.
 """
-import sys
-import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-
 from src.agent.clinical_rules import (
     ClinicalRulesEngine,
     ER_IMMEDIATE,

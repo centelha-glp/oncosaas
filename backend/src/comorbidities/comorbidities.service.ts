@@ -88,12 +88,15 @@ export class ComorbiditiesService {
     if (dto.type) {Object.assign(updateData, resolveRiskFlags(dto.type));}
     if (dto.diagnosedAt) {updateData.diagnosedAt = new Date(dto.diagnosedAt);}
 
-    return this.prisma.comorbidity.update({ where: { id }, data: updateData });
+    return this.prisma.comorbidity.update({
+      where: { id, tenantId },
+      data: updateData,
+    });
   }
 
   async remove(id: string, tenantId: string) {
     await this.findOne(id, tenantId);
-    return this.prisma.comorbidity.delete({ where: { id } });
+    return this.prisma.comorbidity.delete({ where: { id, tenantId } });
   }
 
   /** Returns comorbidities with any risk flag — used by the risk engine. */

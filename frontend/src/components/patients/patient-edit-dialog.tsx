@@ -35,6 +35,8 @@ import {
 } from '@/lib/utils/patient-cancer-type';
 import { usePatientUpdate } from '@/hooks/use-patient-update';
 import { toast } from 'sonner';
+import { JOURNEY_STAGE_LABELS } from '@/lib/utils/journey-stage';
+import { useEnabledCancerTypes } from '@/hooks/useEnabledCancerTypes';
 
 const patientQuickEditSchema = z.object({
   name: z.string().min(2, 'Nome deve ter pelo menos 2 caracteres'),
@@ -42,7 +44,7 @@ const patientQuickEditSchema = z.object({
   phone: z.string().min(10, 'Telefone é obrigatório (mín. 10 dígitos)'),
   birthDate: z.string().min(1, 'Data de nascimento é obrigatória'),
   email: z.string().email('Email inválido').optional().or(z.literal('')),
-  currentStage: z.enum(['SCREENING', 'DIAGNOSIS', 'TREATMENT', 'FOLLOW_UP']),
+  currentStage: z.enum(['SCREENING', 'DIAGNOSIS', 'TREATMENT', 'FOLLOW_UP', 'PALLIATIVE']),
   cancerType: z
     .enum([
       'breast',
@@ -64,25 +66,17 @@ const CURRENT_STAGE_OPTIONS: {
   value: PatientQuickEditFormData['currentStage'];
   label: string;
 }[] = [
-  { value: 'SCREENING', label: 'Em Rastreio' },
-  { value: 'DIAGNOSIS', label: 'Diagnóstico' },
-  { value: 'TREATMENT', label: 'Tratamento' },
-  { value: 'FOLLOW_UP', label: 'Seguimento' },
+  { value: 'SCREENING', label: JOURNEY_STAGE_LABELS['SCREENING'] },
+  { value: 'DIAGNOSIS', label: JOURNEY_STAGE_LABELS['DIAGNOSIS'] },
+  { value: 'TREATMENT', label: JOURNEY_STAGE_LABELS['TREATMENT'] },
+  { value: 'FOLLOW_UP', label: JOURNEY_STAGE_LABELS['FOLLOW_UP'] },
+  { value: 'PALLIATIVE', label: JOURNEY_STAGE_LABELS['PALLIATIVE'] },
 ];
 
 /** Valor usado no Select para "nenhum tipo"; Radix não permite value="" em SelectItem */
 const CANCER_TYPE_NONE_VALUE = '__none__';
 
-const CANCER_TYPE_OPTIONS: { value: string; label: string }[] = [
-  { value: 'breast', label: 'Mama' },
-  { value: 'lung', label: 'Pulmão' },
-  { value: 'colorectal', label: 'Colorretal' },
-  { value: 'prostate', label: 'Próstata' },
-  { value: 'kidney', label: 'Rim' },
-  { value: 'bladder', label: 'Bexiga' },
-  { value: 'testicular', label: 'Testículo' },
-  { value: 'other', label: 'Outro' },
-];
+// CANCER_TYPE_OPTIONS agora é dinâmico, gerado dentro do componente via useEnabledCancerTypes
 
 function formatBirthDateForInput(dateStr: string | null | undefined): string {
   if (!dateStr) return '';
@@ -104,6 +98,11 @@ export function PatientEditDialog({
   patient,
   onSuccess,
 }: PatientEditDialogProps) {
+  const { labels: enabledLabels } = useEnabledCancerTypes();
+  const cancerTypeOptions = Object.entries(enabledLabels).map(([value, label]) => ({
+    value,
+    label,
+  }));
   const updateMutation = usePatientUpdate();
 
   const form = useForm<PatientQuickEditFormData>({
@@ -288,7 +287,7 @@ export function PatientEditDialog({
                       <SelectItem value={CANCER_TYPE_NONE_VALUE}>
                         Nenhum / Em rastreio
                       </SelectItem>
-                      {CANCER_TYPE_OPTIONS.map((opt) => (
+                      {cancerTypeOptions.map((opt) => (
                         <SelectItem key={opt.value} value={opt.value}>
                           {opt.label}
                         </SelectItem>

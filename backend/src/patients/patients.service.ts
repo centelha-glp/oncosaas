@@ -41,6 +41,40 @@ export class PatientsService {
     private readonly priorityRecalculationService?: PriorityRecalculationService
   ) {}
 
+  /**
+   * Retorna os tipos de câncer habilitados para o tenant.
+   * Lê de tenant.settings.enabledCancerTypes. Default MVP: ['bladder'].
+   */
+  private async getEnabledCancerTypes(tenantId: string): Promise<string[]> {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { settings: true },
+    });
+    const settings = tenant?.settings as Record<string, unknown> | null;
+    const enabled = settings?.enabledCancerTypes;
+    if (Array.isArray(enabled) && enabled.length > 0) {
+      return enabled.map((t: unknown) => String(t).toLowerCase());
+    }
+    return ['bladder']; // Default MVP
+  }
+
+  /**
+   * Valida se um tipo de câncer está habilitado para o tenant.
+   * Lança BadRequestException se não estiver.
+   */
+  private async validateCancerType(
+    cancerType: string | null | undefined,
+    tenantId: string
+  ): Promise<void> {
+    if (!cancerType) {return;}
+    const enabledTypes = await this.getEnabledCancerTypes(tenantId);
+    if (!enabledTypes.includes(cancerType.toLowerCase())) {
+      throw new BadRequestException(
+        `Tipo de câncer '${cancerType}' não está habilitado para este tenant. Tipos habilitados: ${enabledTypes.join(', ')}`
+      );
+    }
+  }
+
   async findAll(
     tenantId: string,
     options?: { limit?: number; offset?: number }
@@ -246,6 +280,16 @@ export class PatientsService {
     const normalizedPhone = normalizePhoneNumber(createPatientDto.phone);
     const phoneHash = hashPhoneNumber(normalizedPhone);
 
+    // Validar tipos de câncer habilitados para o tenant
+    if (createPatientDto.cancerType) {
+      await this.validateCancerType(createPatientDto.cancerType, tenantId);
+    }
+    for (const diag of createPatientDto.cancerDiagnoses ?? []) {
+      if (diag.cancerType) {
+        await this.validateCancerType(String(diag.cancerType), tenantId);
+      }
+    }
+
     // Extrair cancerDiagnoses do DTO para processar separadamente
     const { cancerDiagnoses, ...patientData } = createPatientDto;
 
@@ -380,6 +424,7 @@ export class PatientsService {
       updateData.email = updatePatientDto.email;
     }
     if (updatePatientDto.cancerType !== undefined) {
+      await this.validateCancerType(updatePatientDto.cancerType, tenantId);
       updateData.cancerType = updatePatientDto.cancerType;
     }
     if (updatePatientDto.stage !== undefined) {
@@ -456,12 +501,9 @@ export class PatientsService {
       const oldStage = existingPatient.currentStage;
       const newStage = updatedPatient.currentStage || JourneyStage.SCREENING;
 
-      // Quando currentStage ou cancerType mudam: etapas são recriadas em initializeNavigationSteps;
-      // prazos (dueDate/expectedDate) são atribuídos apenas às etapas da fase atual (oncology-navigation.service).
-      if (
-        newCancerType &&
-        (newCancerType !== oldCancerType || newStage !== oldStage)
-      ) {
+      // Quando cancerType muda: reinicializar todas as etapas (delete + create)
+      // Quando apenas a fase avança (mesmo cancer type): criar etapas faltantes da nova fase
+      if (newCancerType && newCancerType !== oldCancerType) {
         try {
           await this.navigationService.initializeNavigationSteps(
             id,
@@ -472,6 +514,20 @@ export class PatientsService {
         } catch (error) {
           this.logger.error(
             'Erro ao atualizar etapas de navegação:',
+            error instanceof Error ? error.stack : String(error)
+          );
+        }
+      } else if (newCancerType && newStage !== oldStage) {
+        // Apenas fase mudou — criar etapas faltantes da nova fase sem deletar as anteriores
+        try {
+          await this.navigationService.createMissingStepsForStage(
+            id,
+            tenantId,
+            newStage,
+          );
+        } catch (error) {
+          this.logger.error(
+            'Erro ao criar etapas da nova fase:',
             error instanceof Error ? error.stack : String(error)
           );
         }
@@ -521,7 +577,7 @@ export class PatientsService {
     const [updatedPatient] = await this.prisma.$transaction([
       // Atualizar score no paciente
       this.prisma.patient.update({
-        where: { id },
+        where: { id, tenantId },
         data: {
           priorityScore: updatePriorityDto.score,
           priorityCategory: updatePriorityDto.category,

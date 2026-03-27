@@ -17,6 +17,7 @@ const JOURNEY_STAGE_LABELS: Record<string, string> = {
   DIAGNOSIS: 'Diagnóstico',
   TREATMENT: 'Tratamento',
   FOLLOW_UP: 'Seguimento',
+  PALLIATIVE: 'Cuidados paliativos',
 };
 
 export function NavigationMetricsPanel() {

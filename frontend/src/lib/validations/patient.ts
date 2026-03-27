@@ -70,7 +70,7 @@ export const createPatientSchema = z
         .optional()
     ),
     currentStage: z
-      .enum(['SCREENING', 'DIAGNOSIS', 'TREATMENT', 'FOLLOW_UP'])
+      .enum(['SCREENING', 'DIAGNOSIS', 'TREATMENT', 'FOLLOW_UP', 'PALLIATIVE'])
       .default('SCREENING'),
 
     // Tratamento atual (obrigatório em seguimento)
@@ -91,7 +91,9 @@ export const createPatientSchema = z
     (data) => {
       // Em tratamento, seguimento ou paliativo: diagnóstico obrigatório (tipo, estágio TNM, data, ECOG)
       const needsDiagnosis =
-        data.currentStage === 'TREATMENT' || data.currentStage === 'FOLLOW_UP';
+        data.currentStage === 'TREATMENT' ||
+        data.currentStage === 'FOLLOW_UP' ||
+        data.currentStage === 'PALLIATIVE';
       if (!needsDiagnosis) return true;
       if (!data.cancerType?.trim()) return false;
       if (!data.diagnosisDate?.trim()) return false;
@@ -108,9 +110,11 @@ export const createPatientSchema = z
   )
   .refine(
     (data) => {
-      // Em tratamento ou seguimento: tratamento obrigatório (em tratamento pode ser "A definir")
+      // Em tratamento, seguimento ou paliativo: tratamento obrigatório (em tratamento pode ser "A definir")
       const needsTreatment =
-        data.currentStage === 'TREATMENT' || data.currentStage === 'FOLLOW_UP';
+        data.currentStage === 'TREATMENT' ||
+        data.currentStage === 'FOLLOW_UP' ||
+        data.currentStage === 'PALLIATIVE';
       if (!needsTreatment) return true;
       return !!data.currentTreatment?.trim();
     },

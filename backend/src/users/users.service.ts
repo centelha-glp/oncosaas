@@ -181,7 +181,7 @@ export class UsersService {
 
     // Atualizar usuário
     const user = await this.prisma.user.update({
-      where: { id },
+      where: { id, tenantId },
       data: updateData,
       select: {
         id: true,
@@ -233,7 +233,7 @@ export class UsersService {
     }
 
     await this.prisma.user.delete({
-      where: { id },
+      where: { id, tenantId },
     });
 
     return { message: 'User deleted successfully' };

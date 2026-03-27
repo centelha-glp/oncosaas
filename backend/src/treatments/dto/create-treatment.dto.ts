@@ -8,11 +8,11 @@ import {
   IsArray,
   IsObject,
   Min,
-  Max,
   IsUUID,
   IsNotEmpty,
 } from 'class-validator';
 import {
+  Prisma,
   TreatmentType,
   TreatmentIntent,
   TreatmentStatus,
@@ -157,5 +157,5 @@ export class CreateTreatmentDto {
 
   @IsObject()
   @IsOptional()
-  metadata?: any;
+  metadata?: Prisma.InputJsonValue;
 }

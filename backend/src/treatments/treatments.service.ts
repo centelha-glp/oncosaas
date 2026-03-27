@@ -1,7 +1,6 @@
 import {
   Injectable,
   NotFoundException,
-  BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateTreatmentDto } from './dto/create-treatment.dto';
@@ -320,7 +319,7 @@ export class TreatmentsService {
     }
 
     return this.prisma.treatment.update({
-      where: { id },
+      where: { id, tenantId },
       data: updateData,
       include: {
         diagnosis: {
@@ -350,7 +349,7 @@ export class TreatmentsService {
     }
 
     await this.prisma.treatment.delete({
-      where: { id },
+      where: { id, tenantId },
     });
   }
 }

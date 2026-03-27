@@ -18,6 +18,7 @@ import { getCancerTypeLabel } from '@/lib/utils/patient-cancer-type';
 import { OncologyNavigationPanel } from './oncology-navigation-panel';
 import { PatientEditDialog } from '@/components/patients/patient-edit-dialog';
 import { Button } from '@/components/ui/button';
+import { JOURNEY_STAGE_LABELS } from '@/lib/utils/journey-stage';
 
 interface PatientDetailsProps {
   patient: Patient | null;
@@ -210,16 +211,7 @@ export function PatientDetails({
         <div>
           <p className="text-sm text-gray-500">Fase Atual</p>
           <p className="font-semibold capitalize">
-            {patient.currentStage === 'SCREENING' && '🔍 Em Rastreio'}
-            {patient.currentStage === 'DIAGNOSIS' && '📋 Diagnóstico'}
-            {patient.currentStage === 'TREATMENT' && '💊 Tratamento'}
-            {patient.currentStage === 'FOLLOW_UP' && '📅 Seguimento'}
-            {![
-              'SCREENING',
-              'DIAGNOSIS',
-              'TREATMENT',
-              'FOLLOW_UP',
-            ].includes(patient.currentStage) && patient.currentStage}
+            {JOURNEY_STAGE_LABELS[patient.currentStage] || patient.currentStage}
           </p>
         </div>
 

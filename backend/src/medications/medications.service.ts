@@ -77,14 +77,14 @@ export class MedicationsService {
     if (dto.endDate) {updateData.endDate = new Date(dto.endDate);}
 
     return this.prisma.medication.update({
-      where: { id },
+      where: { id, tenantId },
       data: updateData,
     });
   }
 
   async remove(id: string, tenantId: string) {
     await this.findOne(id, tenantId);
-    return this.prisma.medication.delete({ where: { id } });
+    return this.prisma.medication.delete({ where: { id, tenantId } });
   }
 
   /** Returns active medications with any critical risk flag set — used by the risk engine. */

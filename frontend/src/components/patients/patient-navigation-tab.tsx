@@ -1,14 +1,14 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQueryClient, useMutation } from '@tanstack/react-query';
 import { PatientDetail } from '@/lib/api/patients';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { CheckCircle2, Clock, AlertCircle, Edit, Plus, Trash2 } from 'lucide-react';
+import { CheckCircle2, Clock, AlertCircle, Edit, Plus, Trash2, ChevronLeft, Check } from 'lucide-react';
 import {
   Accordion,
   AccordionContent,
@@ -30,13 +30,34 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { NavigationStep, navigationApi } from '@/lib/api/navigation';
 import { NavigationStepDialog } from './navigation-step-dialog';
 import { CreateNavigationStepDialog } from './create-navigation-step-dialog';
 import { toast } from 'sonner';
+import {
+  JOURNEY_STAGE_LABELS,
+  JOURNEY_STAGES,
+  type JourneyStage,
+} from '@/lib/utils/journey-stage';
+import { CANCER_TYPE_LABELS as BASE_CANCER_TYPE_LABELS } from '@/lib/utils/patient-cancer-type';
 
 interface PatientNavigationTabProps {
   patient: PatientDetail;
+}
+
+interface WizardTemplate {
+  stepKey: string;
+  stepName: string;
+  stepDescription?: string;
+  journeyStage: string;
+  isRequired: boolean;
+  existingCount: number;
 }
 
 const STEP_STATUS_COLORS: Record<string, string> = {
@@ -66,31 +87,14 @@ const STEP_STATUS_ICONS: Record<string, React.ReactNode> = {
   NOT_APPLICABLE: <AlertCircle className="h-4 w-4" />,
 };
 
+// Labels derivados do utilitário centralizado; palliative_care é específico de navegação
 const CANCER_TYPE_LABELS: Record<string, string> = {
-  breast: 'Câncer de Mama',
-  lung: 'Câncer de Pulmão',
-  colorectal: 'Câncer Colorretal',
-  prostate: 'Câncer de Próstata',
-  kidney: 'Câncer de Rim',
-  bladder: 'Câncer de Bexiga',
-  testicular: 'Câncer de Testículo',
+  ...Object.fromEntries(
+    Object.entries(BASE_CANCER_TYPE_LABELS).map(([k, v]) => [k, `Câncer de ${v}`])
+  ),
   palliative_care: 'Tratamento Paliativo',
-  other: 'Outros',
 };
 
-const JOURNEY_STAGE_LABELS: Record<string, string> = {
-  SCREENING: 'Rastreamento',
-  DIAGNOSIS: 'Diagnóstico',
-  TREATMENT: 'Tratamento',
-  FOLLOW_UP: 'Seguimento',
-};
-
-const JOURNEY_STAGE_ORDER: string[] = [
-  'SCREENING',
-  'DIAGNOSIS',
-  'TREATMENT',
-  'FOLLOW_UP',
-];
 
 export function PatientNavigationTab({
   patient,
@@ -105,6 +109,179 @@ export function PatientNavigationTab({
   const [stepToDelete, setStepToDelete] = useState<NavigationStep | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [addStepPopoverOpen, setAddStepPopoverOpen] = useState(false);
+  const [wizardTemplates, setWizardTemplates] = useState<WizardTemplate[]>([]);
+  const [wizardLoading, setWizardLoading] = useState(false);
+
+  // Wizard: fase selecionada no popover principal
+    const [wizardStage, setWizardStage] = useState<{
+    cancerType: string;
+    stage: JourneyStage;
+  } | null>(null);
+  const [wizardTypeKey, setWizardTypeKey] = useState<string | null>(null);
+
+  // Step picker independente (para botões inline por fase)
+  const [stepPickerTarget, setStepPickerTarget] = useState<{
+    typeKey: string;
+    stage: JourneyStage;
+  } | null>(null);
+  const [stepPickerTemplates, setStepPickerTemplates] = useState<
+    { stepKey: string; stepName: string; stepDescription?: string | null; isRequired: boolean }[]
+  >([]);
+  const [stepPickerLoading, setStepPickerLoading] = useState(false);
+
+  const toggleCompleteMutation = useMutation({
+    mutationFn: ({ stepId, isCompleted }: { stepId: string; isCompleted: boolean }) =>
+      navigationApi.updateStep(stepId, {
+        isCompleted,
+        completedAt: isCompleted ? new Date().toISOString() : undefined,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['patient', patient.id] });
+      queryClient.invalidateQueries({ queryKey: ['navigation-steps', patient.id] });
+    },
+    onError: (error: Error) => {
+      toast.error(`Erro ao atualizar etapa: ${error.message}`);
+    },
+  });
+
+  const createMissingStepsMutation = useMutation({
+    mutationFn: ({ journeyStage, stepKey }: { journeyStage: string; stepKey?: string }) =>
+      navigationApi.createMissingStepsForStage(patient.id, journeyStage, stepKey),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['patient', patient.id] });
+      queryClient.invalidateQueries({ queryKey: ['navigation-steps', patient.id] });
+      toast.success(
+        data.created > 0
+          ? `${data.created} etapa(s) criada(s) com sucesso`
+          : 'Todas as etapas já existem para esta fase'
+      );
+    },
+    onError: (error: Error) => {
+      toast.error(`Erro ao criar etapas: ${error.message}`);
+    },
+  });
+
+  const loadTemplates = async (typeKey: string, stage: string): Promise<
+    { stepKey: string; stepName: string; stepDescription?: string | null; isRequired: boolean }[]
+  > => {
+    try {
+      return await navigationApi.getStepTemplates(patient.id, stage);
+    } catch {
+      return [];
+    }
+  };
+
+    const handleEditStep = (step: NavigationStep): void => {
+    setSelectedStep(step);
+    setIsDialogOpen(true);
+  };
+
+  const handleDeleteStep = async (stepId: string): Promise<void> => {
+    setIsDeleting(true);
+    try {
+      await navigationApi.deleteStep(stepId);
+      queryClient.invalidateQueries({ queryKey: ['patient', patient.id] });
+      queryClient.invalidateQueries({ queryKey: ['navigation-steps', patient.id] });
+      toast.success('Etapa excluída.');
+      setStepToDelete(null);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : 'Erro ao excluir etapa'
+      );
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const handleWizardSelectStage = async (
+    selectedCancerType: string,
+    stage: JourneyStage
+  ): Promise<void> => {
+    setWizardStage({ cancerType: selectedCancerType, stage });
+    setWizardLoading(true);
+    try {
+      const templates = await navigationApi.getStepTemplates(patient.id, stage);
+      setWizardTemplates(templates);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : 'Erro ao carregar templates'
+      );
+      setWizardTemplates([]);
+    } finally {
+      setWizardLoading(false);
+    }
+  };
+
+  const handleWizardSelectStep = async (
+    selectedStepKey: string | null
+  ): Promise<void> => {
+    if (!wizardStage) return;
+
+    if (selectedStepKey === '__custom__') {
+      setCreateStage({
+        cancerType: wizardStage.cancerType,
+        journeyStage: wizardStage.stage,
+      });
+      setAddStepPopoverOpen(false);
+      setWizardStage(null);
+      setWizardTemplates([]);
+      return;
+    }
+
+    try {
+      if (selectedStepKey === null) {
+        const result = await navigationApi.createMissingStepsForStage(
+          patient.id,
+          wizardStage.stage
+        );
+        toast.success(
+          result.created > 0
+            ? `${result.created} etapa(s) criada(s).`
+            : 'Nenhuma etapa faltante para criar.'
+        );
+      } else {
+        await navigationApi.createStepFromTemplate(
+          patient.id,
+          wizardStage.stage,
+          selectedStepKey
+        );
+        toast.success('Etapa adicionada com sucesso.');
+      }
+
+      queryClient.invalidateQueries({ queryKey: ['patient', patient.id] });
+      queryClient.invalidateQueries({
+        queryKey: ['navigation-steps', patient.id],
+      });
+      setAddStepPopoverOpen(false);
+      setWizardStage(null);
+      setWizardTemplates([]);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Erro ao criar etapa');
+    }
+  };
+
+  const openStepPicker = async (typeKey: string, stage: JourneyStage): Promise<void> => {
+    setStepPickerLoading(true);
+    setStepPickerTarget({ typeKey, stage });
+    const templates = await loadTemplates(typeKey, stage);
+    setStepPickerTemplates(templates);
+    setStepPickerLoading(false);
+  };
+
+  const handleStepPickerSelect = (stepKey: string | null): void => {
+    const target = stepPickerTarget!;
+    setStepPickerTarget(null);
+    setStepPickerTemplates([]);
+    if (stepKey === '__custom__') {
+      setCreateStage({ cancerType: target.typeKey, journeyStage: target.stage });
+    } else {
+      createMissingStepsMutation.mutate(
+        stepKey
+          ? { journeyStage: target.stage, stepKey }
+          : { journeyStage: target.stage }
+      );
+    }
+  };
 
   // cancerType e diagnosisId para nova etapa: primeiro diagnóstico ativo ou primeira etapa
   const { cancerType, diagnosisId } = useMemo(() => {
@@ -176,31 +353,6 @@ export function PatientNavigationTab({
     return byType;
   }, [patient.navigationSteps]);
 
-  const handleEditStep = (step: NavigationStep): void => {
-    setSelectedStep(step);
-    setIsDialogOpen(true);
-  };
-
-  const handleDeleteStep = async (): Promise<void> => {
-    if (!stepToDelete) return;
-    setIsDeleting(true);
-    try {
-      await navigationApi.deleteStep(stepToDelete.id);
-      queryClient.invalidateQueries({ queryKey: ['patient', patient.id] });
-      queryClient.invalidateQueries({
-        queryKey: ['navigation-steps', patient.id],
-      });
-      toast.success('Etapa excluída.');
-      setStepToDelete(null);
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : 'Erro ao excluir etapa'
-      );
-    } finally {
-      setIsDeleting(false);
-    }
-  };
-
   const hasStepsOrDiagnosis =
     (patient.navigationSteps?.length ?? 0) > 0 ||
     (patient.cancerDiagnoses?.length ?? 0) > 0;
@@ -227,38 +379,106 @@ export function PatientNavigationTab({
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle>Etapas de Navegação</CardTitle>
-            <Popover open={addStepPopoverOpen} onOpenChange={setAddStepPopoverOpen}>
+            <Popover open={addStepPopoverOpen} onOpenChange={(open) => {
+              setAddStepPopoverOpen(open);
+              if (!open) { setWizardStage(null); setWizardTemplates([]); }
+            }}>
               <PopoverTrigger asChild>
                 <Button size="sm">
                   <Plus className="h-4 w-4 mr-2" />
                   Adicionar etapa
                 </Button>
               </PopoverTrigger>
-              <PopoverContent align="end" className="w-56 p-2">
-                <p className="text-sm font-medium text-muted-foreground px-2 py-1 mb-1">
-                  Tipo de câncer e fase
-                </p>
-                {cancerTypes.map((typeKey) => (
-                  <div key={typeKey} className="mb-2 last:mb-0">
-                    <p className="text-xs font-medium text-muted-foreground px-2 py-1">
-                      {CANCER_TYPE_LABELS[typeKey] ?? typeKey}
+              <PopoverContent align="end" className="w-64 p-2">
+                {!wizardStage ? (
+                  <>
+                    <p className="text-sm font-medium text-muted-foreground px-2 py-1 mb-1">
+                      Selecione a fase
                     </p>
-                    {JOURNEY_STAGE_ORDER.map((stage) => (
-                      <Button
-                        key={`${typeKey}-${stage}`}
-                        variant="ghost"
-                        className="w-full justify-start"
-                        size="sm"
-                        onClick={() => {
-                          setCreateStage({ cancerType: typeKey, journeyStage: stage });
-                          setAddStepPopoverOpen(false);
-                        }}
-                      >
-                        {JOURNEY_STAGE_LABELS[stage] ?? stage}
-                      </Button>
+                    {cancerTypes.map((typeKey) => (
+                      <div key={typeKey} className="mb-2 last:mb-0">
+                        <p className="text-xs font-medium text-muted-foreground px-2 py-1">
+                          {CANCER_TYPE_LABELS[typeKey] ?? typeKey}
+                        </p>
+                        {JOURNEY_STAGES.map((stage) => (
+                          <Button
+                            key={`${typeKey}-${stage}`}
+                            variant="ghost"
+                            className="w-full justify-start"
+                            size="sm"
+                            onClick={() => handleWizardSelectStage(typeKey, stage)}
+                          >
+                            {JOURNEY_STAGE_LABELS[stage] ?? stage}
+                          </Button>
+                        ))}
+                      </div>
                     ))}
-                  </div>
-                ))}
+                  </>
+                ) : (
+                  <>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="w-full justify-start text-muted-foreground mb-1"
+                      onClick={() => { setWizardStage(null); setWizardTemplates([]); }}
+                    >
+                      <ChevronLeft className="h-4 w-4 mr-1" />
+                      {JOURNEY_STAGE_LABELS[wizardStage.stage] ?? wizardStage.stage}
+                    </Button>
+                    {wizardLoading ? (
+                      <p className="text-xs text-muted-foreground px-2 py-2">Carregando...</p>
+                    ) : (
+                      <>
+                        {wizardTemplates.some((t) => t.existingCount === 0) && (
+                          <Button
+                            variant="ghost"
+                            className="w-full justify-start text-blue-600"
+                            size="sm"
+                            onClick={() => handleWizardSelectStep(null)}
+                          >
+                            Criar todas as etapas faltantes
+                          </Button>
+                        )}
+                        <Button
+                          variant="ghost"
+                          className="w-full justify-start text-muted-foreground"
+                          size="sm"
+                          onClick={() => handleWizardSelectStep('__custom__')}
+                        >
+                          + Etapa personalizada...
+                        </Button>
+                        <div className="border-t my-1" />
+                        {wizardTemplates.map((t) => (
+                          <Button
+                            key={t.stepKey}
+                            variant="ghost"
+                            className="w-full justify-start"
+                            size="sm"
+                            onClick={() => handleWizardSelectStep(t.stepKey)}
+                            title={t.stepDescription ?? undefined}
+                          >
+                            <span className="truncate">{t.stepName}</span>
+                            <span className="ml-auto flex items-center gap-1 shrink-0">
+                              {t.existingCount > 0 && (
+                                <span className="text-xs text-muted-foreground">
+                                  ({t.existingCount})
+                                </span>
+                              )}
+                              {t.isRequired && (
+                                <span className="text-xs text-purple-600">obr.</span>
+                              )}
+                            </span>
+                          </Button>
+                        ))}
+                        {wizardTemplates.length === 0 && (
+                          <p className="text-xs text-muted-foreground px-2 py-1">
+                            Nenhum template disponível para esta fase.
+                          </p>
+                        )}
+                      </>
+                    )}
+                  </>
+                )}
               </PopoverContent>
             </Popover>
           </div>
@@ -284,9 +504,8 @@ export function PatientNavigationTab({
                   </AccordionTrigger>
                   <AccordionContent>
                     <div className="space-y-6 pt-2">
-                      {JOURNEY_STAGE_ORDER.map((stage) => {
-                        const normalizedStage = stage.toUpperCase();
-                        const steps = stageMap?.get(normalizedStage) || [];
+                      {JOURNEY_STAGES.map((stage) => {
+                        const steps = stageMap?.get(stage) || [];
                         const stageLabel = JOURNEY_STAGE_LABELS[stage] || stage;
 
                         return (
@@ -306,12 +525,7 @@ export function PatientNavigationTab({
                                   <Button
                                     size="sm"
                                     variant="outline"
-                                    onClick={() =>
-                                      setCreateStage({
-                                        cancerType: typeKey,
-                                        journeyStage: normalizedStage,
-                                      })
-                                    }
+                                    onClick={() => openStepPicker(typeKey, stage)}
                                   >
                                     <Plus className="h-4 w-4 mr-2" />
                                     Adicionar etapa
@@ -350,6 +564,23 @@ export function PatientNavigationTab({
                                         step.status}
                                     </span>
                                   </Badge>
+                                  <button
+                                    onClick={() =>
+                                      toggleCompleteMutation.mutate({
+                                        stepId: step.id,
+                                        isCompleted: !step.isCompleted,
+                                      })
+                                    }
+                                    disabled={toggleCompleteMutation.isPending}
+                                    className={`p-1.5 rounded transition-colors disabled:opacity-50 ${
+                                      step.isCompleted
+                                        ? 'bg-green-100 hover:bg-green-200 text-green-700'
+                                        : 'bg-gray-100 hover:bg-gray-200 text-gray-600'
+                                    }`}
+                                    title={step.isCompleted ? 'Desmarcar como concluída' : 'Marcar como concluída'}
+                                  >
+                                    <Check className="h-4 w-4" />
+                                  </button>
                                   <Button
                                     size="sm"
                                     variant="outline"
@@ -473,12 +704,7 @@ export function PatientNavigationTab({
                                   <Button
                                     size="sm"
                                     variant="outline"
-                                    onClick={() =>
-                                      setCreateStage({
-                                        cancerType: typeKey,
-                                        journeyStage: normalizedStage,
-                                      })
-                                    }
+                                    onClick={() => openStepPicker(typeKey, stage)}
                                   >
                                     <Plus className="h-4 w-4 mr-2" />
                                     Adicionar etapa
@@ -518,6 +744,67 @@ export function PatientNavigationTab({
         diagnosisId={diagnosisId}
       />
 
+      {/* Dialog step picker inline (botões por fase) */}
+      <Dialog
+        open={stepPickerTarget !== null}
+        onOpenChange={(open) => { if (!open) { setStepPickerTarget(null); setStepPickerTemplates([]); } }}
+      >
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>
+              {stepPickerTarget
+                ? `${JOURNEY_STAGE_LABELS[stepPickerTarget.stage] ?? stepPickerTarget.stage} — escolha a etapa`
+                : ''}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-1 pt-1">
+            {stepPickerLoading ? (
+              <p className="text-sm text-muted-foreground py-2">Carregando...</p>
+            ) : (
+              <>
+                <Button
+                  variant="ghost"
+                  className="w-full justify-start text-blue-600"
+                  size="sm"
+                  onClick={() => handleStepPickerSelect(null)}
+                >
+                  Criar todas as etapas
+                </Button>
+                <Button
+                  variant="ghost"
+                  className="w-full justify-start text-muted-foreground"
+                  size="sm"
+                  onClick={() => handleStepPickerSelect('__custom__')}
+                >
+                  + Etapa personalizada...
+                </Button>
+                {stepPickerTemplates.length > 0 && <div className="border-t my-1" />}
+                {stepPickerTemplates.map((t) => (
+                  <Button
+                    key={t.stepKey}
+                    variant="ghost"
+                    className="w-full justify-start"
+                    size="sm"
+                    onClick={() => handleStepPickerSelect(t.stepKey)}
+                    title={t.stepDescription ?? undefined}
+                  >
+                    <span className="truncate">{t.stepName}</span>
+                    {t.isRequired && (
+                      <span className="ml-auto text-xs text-purple-600 shrink-0">obr.</span>
+                    )}
+                  </Button>
+                ))}
+                {stepPickerTemplates.length === 0 && !stepPickerLoading && (
+                  <p className="text-xs text-muted-foreground px-2 py-1">
+                    Todas as etapas desta fase já existem.
+                  </p>
+                )}
+              </>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Confirmação de exclusão */}
       <AlertDialog
         open={stepToDelete !== null}
@@ -538,7 +825,7 @@ export function PatientNavigationTab({
             <AlertDialogAction
               onClick={(e) => {
                 e.preventDefault();
-                handleDeleteStep();
+                if (stepToDelete) handleDeleteStep(stepToDelete.id);
               }}
               disabled={isDeleting}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"

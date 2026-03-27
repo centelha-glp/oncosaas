@@ -10,7 +10,8 @@ export interface NavigationStep {
     | 'SCREENING'
     | 'DIAGNOSIS'
     | 'TREATMENT'
-    | 'FOLLOW_UP';
+    | 'FOLLOW_UP'
+    | 'PALLIATIVE';
   stepKey: string;
   stepName: string;
   stepDescription?: string;
@@ -44,7 +45,8 @@ export interface CreateNavigationStepDto {
     | 'SCREENING'
     | 'DIAGNOSIS'
     | 'TREATMENT'
-    | 'FOLLOW_UP';
+    | 'FOLLOW_UP'
+    | 'PALLIATIVE';
   stepKey: string;
   stepName: string;
   stepDescription?: string;
@@ -162,6 +164,72 @@ export const oncologyNavigationApi = {
       skipped: number;
       errors: number;
     }>('/oncology-navigation/initialize-all-patients');
+  },
+
+  /**
+   * Retorna todos os templates de etapas para uma fase, com contagem de instâncias existentes
+   */
+  getStepTemplates: async (
+    patientId: string,
+    journeyStage: string
+  ): Promise<
+    {
+      stepKey: string;
+      stepName: string;
+      stepDescription?: string;
+      journeyStage: string;
+      isRequired: boolean;
+      existingCount: number;
+    }[]
+  > => {
+    const data = await apiClient.get<
+      {
+        stepKey: string;
+        stepName: string;
+        stepDescription?: string;
+        journeyStage: string;
+        isRequired: boolean;
+        existingCount: number;
+      }[]
+    >(
+      `/oncology-navigation/patients/${patientId}/step-templates/${journeyStage}`
+    );
+    return data ?? [];
+  },
+
+  /**
+   * Cria uma instância de um step a partir de um template (primeira ou adicional)
+   */
+  createStepFromTemplate: async (
+    patientId: string,
+    journeyStage: string,
+    stepKey: string
+  ): Promise<NavigationStep> => {
+    return apiClient.post<NavigationStep>(
+      `/oncology-navigation/patients/${patientId}/stages/${journeyStage}/create-from-template`,
+      { stepKey }
+    );
+  },
+
+  /**
+   * Cria etapas faltantes para uma fase (opcionalmente apenas uma pelo stepKey)
+   */
+  createMissingStepsForStage: async (
+    patientId: string,
+    journeyStage: string,
+    stepKey?: string
+  ): Promise<{ created: number; skipped: number }> => {
+    return apiClient.post<{ created: number; skipped: number }>(
+      `/oncology-navigation/patients/${patientId}/stages/${journeyStage}/create-missing`,
+      stepKey ? { stepKey } : {}
+    );
+  },
+
+  /**
+   * Exclui uma etapa de navegação
+   */
+  deleteStep: async (stepId: string): Promise<void> => {
+    await apiClient.delete(`/oncology-navigation/steps/${stepId}`);
   },
 
   /**

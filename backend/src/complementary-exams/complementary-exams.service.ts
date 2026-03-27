@@ -103,7 +103,7 @@ export class ComplementaryExamsService {
     await this.findOne(patientId, examId, tenantId);
 
     return this.prisma.complementaryExam.update({
-      where: { id: examId },
+      where: { id: examId, tenantId },
       data: dto,
       include: {
         results: { orderBy: { performedAt: 'desc' } },
@@ -115,7 +115,7 @@ export class ComplementaryExamsService {
     await this.findOne(patientId, examId, tenantId);
 
     await this.prisma.complementaryExam.delete({
-      where: { id: examId },
+      where: { id: examId, tenantId },
     });
 
     return { deleted: true };
@@ -179,7 +179,7 @@ export class ComplementaryExamsService {
     }
 
     const updated = await this.prisma.complementaryExamResult.update({
-      where: { id: resultId },
+      where: { id: resultId, tenantId },
       data: {
         ...dto,
         performedAt: dto.performedAt
@@ -212,7 +212,7 @@ export class ComplementaryExamsService {
     }
 
     await this.prisma.complementaryExamResult.delete({
-      where: { id: resultId },
+      where: { id: resultId, tenantId },
     });
 
     return { deleted: true };

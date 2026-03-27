@@ -10,9 +10,12 @@ import {
   usePatientNavigationSteps,
   useUpdateNavigationStep,
   useUploadStepFile,
+  useDeleteNavigationStep,
 } from '@/hooks/useOncologyNavigation';
 import { Patient } from '@/lib/api/patients';
+import { CANCER_TYPE_LABELS as BASE_CANCER_TYPE_LABELS } from '@/lib/utils/patient-cancer-type';
 import { NavigationStep } from '@/lib/api/oncology-navigation';
+import { navigationApi } from '@/lib/api/navigation';
 import { Button } from '@/components/ui/button';
 import {
   Navigation,
@@ -30,6 +33,7 @@ import {
   X,
   Check,
   Plus,
+  Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { NavigationBar } from '@/components/shared/navigation-bar';
@@ -39,7 +43,12 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover';
 import { CreateNavigationStepDialog } from '@/components/patients/create-navigation-step-dialog';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQueryClient, useMutation } from '@tanstack/react-query';
+import {
+  JOURNEY_STAGE_LABELS,
+  JOURNEY_STAGES,
+  type JourneyStage,
+} from '@/lib/utils/journey-stage';
 
 interface FileMetadata {
   filename: string;
@@ -52,15 +61,10 @@ interface FileMetadata {
 }
 
 const CANCER_TYPE_LABELS: Record<string, string> = {
-  breast: 'Câncer de Mama',
-  lung: 'Câncer de Pulmão',
-  colorectal: 'Câncer Colorretal',
-  prostate: 'Câncer de Próstata',
-  kidney: 'Câncer de Rim',
-  bladder: 'Câncer de Bexiga',
-  testicular: 'Câncer de Testículo',
-  palliative_care: '💜 Tratamento Paliativo',
-  other: 'Outros',
+  ...Object.fromEntries(
+    Object.entries(BASE_CANCER_TYPE_LABELS).map(([k, v]) => [k, `Câncer de ${v}`])
+  ),
+  palliative_care: 'Tratamento Paliativo',
 };
 
 /** Normaliza tipo de câncer para a chave canônica (ex.: pulmão → lung) para agrupamento e label. */
@@ -69,20 +73,6 @@ function normalizeCancerTypeKey(raw: string): string {
   if (lower === 'pulmão' || lower === 'pulmao') return 'lung';
   return lower;
 }
-
-const JOURNEY_STAGE_ORDER = [
-  'SCREENING',
-  'DIAGNOSIS',
-  'TREATMENT',
-  'FOLLOW_UP',
-] as const;
-
-const JOURNEY_STAGE_LABELS: Record<string, string> = {
-  SCREENING: '🔍 Rastreio',
-  DIAGNOSIS: '📋 Diagnóstico',
-  TREATMENT: '💊 Tratamento',
-  FOLLOW_UP: '📅 Seguimento',
-};
 
 const STATUS_COLORS: Record<string, string> = {
   PENDING: 'bg-gray-100 text-gray-700',
@@ -406,8 +396,72 @@ function PatientNavigationCard({
   const { data: navigationSteps, isLoading } = usePatientNavigationSteps(
     patient.id || null
   );
+  // Wizard de adicionar etapa: null = fechado, 'phase' = seleção de fase, 'step' = seleção de etapa
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const [wizardPhase, setWizardPhase] = useState<JourneyStage | null>(null);
+  const [templates, setTemplates] = useState<
+    { stepKey: string; stepName: string; stepDescription?: string; isRequired: boolean }[]
+  >([]);
+  const [loadingTemplates, setLoadingTemplates] = useState(false);
   const [createStage, setCreateStage] = useState<string | null>(null);
-  const [addStepPopoverOpen, setAddStepPopoverOpen] = useState(false);
+
+  const createMissingStepsMutation = useMutation({
+    mutationFn: ({ journeyStage, stepKey }: { journeyStage: string; stepKey?: string }) =>
+      navigationApi.createMissingStepsForStage(patient.id ?? '', journeyStage, stepKey),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['navigation-steps', patient.id] });
+      toast.success(
+        data.created > 0
+          ? `${data.created} etapa(s) criada(s) com sucesso`
+          : 'Todas as etapas já existem para esta fase'
+      );
+    },
+    onError: (error: Error) => {
+      toast.error(`Erro ao criar etapas: ${error.message}`);
+    },
+  });
+
+  const handleSelectPhase = async (stage: JourneyStage): Promise<void> => {
+    setWizardPhase(stage);
+    setLoadingTemplates(true);
+    try {
+      const data = await navigationApi.getStepTemplates(patient.id ?? '', stage);
+      setTemplates(data);
+    } catch {
+      setTemplates([]);
+    } finally {
+      setLoadingTemplates(false);
+    }
+  };
+
+  const handleSelectStep = (stepKey: string | null): void => {
+    const stage = wizardPhase!;
+    setWizardOpen(false);
+    setWizardPhase(null);
+    setTemplates([]);
+    if (stepKey === '__custom__') {
+      setCreateStage(stage);
+    } else {
+      createMissingStepsMutation.mutate(
+        stepKey ? { journeyStage: stage, stepKey } : { journeyStage: stage }
+      );
+    }
+  };
+
+  const handleAllPhases = (): void => {
+    setWizardOpen(false);
+    setWizardPhase(null);
+    // Cria missing steps para todas as fases sequencialmente
+    const stages = ['SCREENING', 'DIAGNOSIS', 'TREATMENT', 'FOLLOW_UP', 'PALLIATIVE'];
+    Promise.all(
+      stages.map((s) =>
+        navigationApi.createMissingStepsForStage(patient.id ?? '', s).catch(() => null)
+      )
+    ).then(() => {
+      queryClient.invalidateQueries({ queryKey: ['navigation-steps', patient.id] });
+      toast.success('Etapas criadas para todas as fases');
+    });
+  };
 
   const stepsByStage = useMemo(() => {
     if (!navigationSteps) return {};
@@ -417,11 +471,14 @@ function PatientNavigationCard({
       DIAGNOSIS: [],
       TREATMENT: [],
       FOLLOW_UP: [],
+      PALLIATIVE: [],
     };
 
     navigationSteps.forEach((step) => {
       if (step.cancerType.toLowerCase() === cancerType.toLowerCase()) {
-        grouped[step.journeyStage].push(step);
+        const stage = step.journeyStage;
+        if (!grouped[stage]) grouped[stage] = [];
+        grouped[stage].push(step);
       }
     });
 
@@ -490,8 +547,11 @@ function PatientNavigationCard({
         <div className="mt-4 ml-8 space-y-4">
           <div className="flex justify-end">
             <Popover
-              open={addStepPopoverOpen}
-              onOpenChange={setAddStepPopoverOpen}
+              open={wizardOpen}
+              onOpenChange={(open) => {
+                setWizardOpen(open);
+                if (!open) { setWizardPhase(null); setTemplates([]); }
+              }}
             >
               <PopoverTrigger asChild>
                 <Button size="sm">
@@ -499,27 +559,93 @@ function PatientNavigationCard({
                   Adicionar etapa
                 </Button>
               </PopoverTrigger>
-              <PopoverContent
-                align="end"
-                className="w-56 p-2 bg-background z-[100]"
-              >
-                <p className="text-sm font-medium text-muted-foreground px-2 py-1 mb-1">
-                  Escolha a fase
-                </p>
-                {JOURNEY_STAGE_ORDER.map((stage) => (
-                  <Button
-                    key={stage}
-                    variant="ghost"
-                    className="w-full justify-start"
-                    size="sm"
-                    onClick={() => {
-                      setCreateStage(stage);
-                      setAddStepPopoverOpen(false);
-                    }}
-                  >
-                    {JOURNEY_STAGE_LABELS[stage] ?? stage}
-                  </Button>
-                ))}
+              <PopoverContent align="end" className="w-64 p-2 bg-background z-[100]">
+                {wizardPhase === null ? (
+                  /* Passo 1: selecionar fase */
+                  <>
+                    <p className="text-sm font-medium text-muted-foreground px-2 py-1 mb-1">
+                      Escolha a fase
+                    </p>
+                    <Button
+                      variant="ghost"
+                      className="w-full justify-start text-blue-600"
+                      size="sm"
+                      onClick={() => { setWizardOpen(false); handleAllPhases(); }}
+                    >
+                      Criar todas as fases
+                    </Button>
+                    <div className="border-t my-1" />
+                    {JOURNEY_STAGES.map((stage) => (
+                      <Button
+                        key={stage}
+                        variant="ghost"
+                        className="w-full justify-start"
+                        size="sm"
+                        onClick={() => handleSelectPhase(stage)}
+                      >
+                        {JOURNEY_STAGE_LABELS[stage] ?? stage}
+                      </Button>
+                    ))}
+                  </>
+                ) : (
+                  /* Passo 2: selecionar etapa dentro da fase */
+                  <>
+                    <div className="flex items-center gap-1 mb-1">
+                      <button
+                        onClick={() => { setWizardPhase(null); setTemplates([]); }}
+                        className="p-1 hover:bg-gray-100 rounded"
+                      >
+                        <ChevronRight className="h-4 w-4 rotate-180 text-gray-500" />
+                      </button>
+                      <p className="text-sm font-medium">
+                        {JOURNEY_STAGE_LABELS[wizardPhase] ?? wizardPhase}
+                      </p>
+                    </div>
+                    {loadingTemplates ? (
+                      <p className="text-xs text-muted-foreground px-2 py-2">Carregando...</p>
+                    ) : (
+                      <>
+                        <Button
+                          variant="ghost"
+                          className="w-full justify-start text-blue-600"
+                          size="sm"
+                          onClick={() => handleSelectStep(null)}
+                        >
+                          Criar todas as etapas
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          className="w-full justify-start text-gray-500"
+                          size="sm"
+                          onClick={() => handleSelectStep('__custom__')}
+                        >
+                          + Etapa personalizada...
+                        </Button>
+                        {templates.length > 0 && <div className="border-t my-1" />}
+                        {templates.map((t) => (
+                          <Button
+                            key={t.stepKey}
+                            variant="ghost"
+                            className="w-full justify-start text-sm"
+                            size="sm"
+                            onClick={() => handleSelectStep(t.stepKey)}
+                            title={t.stepDescription}
+                          >
+                            <span className="truncate">{t.stepName}</span>
+                            {t.isRequired && (
+                              <span className="ml-auto text-xs text-purple-600 shrink-0">obr.</span>
+                            )}
+                          </Button>
+                        ))}
+                        {templates.length === 0 && (
+                          <p className="text-xs text-muted-foreground px-2 py-1">
+                            Todas as etapas desta fase já existem.
+                          </p>
+                        )}
+                      </>
+                    )}
+                  </>
+                )}
               </PopoverContent>
             </Popover>
           </div>
@@ -553,7 +679,7 @@ function PatientNavigationCard({
                   <div className="bg-gray-50 px-4 py-2 border-b">
                     <div className="flex items-center justify-between">
                       <span className="font-semibold">
-                        {JOURNEY_STAGE_LABELS[stage] || stage}
+                        {JOURNEY_STAGE_LABELS[stage as JourneyStage] || stage}
                       </span>
                       <span className="text-sm text-gray-600">
                         {stageCompleted}/{steps.length} concluídas
@@ -627,8 +753,10 @@ function StepCard({ step, apiUrl }: StepCardProps) {
     step.dueDate ? new Date(step.dueDate).toISOString().split('T')[0] : ''
   );
 
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const updateStep = useUpdateNavigationStep();
   const uploadFile = useUploadStepFile();
+  const deleteStep = useDeleteNavigationStep();
 
   const files = ((step.metadata as { files?: FileMetadata[] })?.files ||
     []) as FileMetadata[];
@@ -770,6 +898,39 @@ function StepCard({ step, apiUrl }: StepCardProps) {
             >
               <Edit className="h-4 w-4 text-gray-600" />
             </button>
+            {/* Botão de excluir */}
+            {confirmDelete ? (
+              <div className="flex items-center gap-1 bg-red-50 border border-red-200 rounded px-2 py-1">
+                <span className="text-xs text-red-700 font-medium">Excluir?</span>
+                <button
+                  onClick={async () => {
+                    await deleteStep.mutateAsync({ stepId: step.id, patientId: step.patientId });
+                    toast.success('Etapa excluída');
+                    setConfirmDelete(false);
+                  }}
+                  disabled={deleteStep.isPending}
+                  className="p-0.5 hover:bg-red-200 rounded transition-colors text-red-700 disabled:opacity-50"
+                  title="Confirmar exclusão"
+                >
+                  <Check className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  onClick={() => setConfirmDelete(false)}
+                  className="p-0.5 hover:bg-gray-200 rounded transition-colors text-gray-600"
+                  title="Cancelar"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setConfirmDelete(true)}
+                className="p-1.5 hover:bg-red-100 rounded transition-colors"
+                title="Excluir etapa"
+              >
+                <Trash2 className="h-4 w-4 text-red-500" />
+              </button>
+            )}
           </div>
         </div>
 

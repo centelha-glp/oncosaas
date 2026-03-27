@@ -9,19 +9,34 @@ import { CreateNavigationStepDto } from './dto/create-navigation-step.dto';
 import { UpdateNavigationStepDto } from './dto/update-navigation-step.dto';
 import {
   JourneyStage,
+  NavigationStep,
   NavigationStepStatus,
   PatientStatus,
+  Prisma,
 } from '@prisma/client';
 import { AlertsService } from '../alerts/alerts.service';
 import { AlertType, AlertSeverity } from '@prisma/client';
 
+/** Configuração de uma etapa de navegação com dependência relativa */
+export interface StepConfig {
+  journeyStage: JourneyStage;
+  stepKey: string;
+  stepName: string;
+  stepDescription: string;
+  isRequired: boolean;
+  dependsOnStepKey: string | null;
+  relativeDaysMin: number | null;
+  relativeDaysMax: number | null;
+  stepOrder: number;
+}
+
 /** Ordem dos estágios da jornada (para comparar "fase atual" vs "fase futura") */
 const JOURNEY_STAGE_ORDER: Record<JourneyStage, number> = {
   [JourneyStage.SCREENING]: 0,
-  [JourneyStage.NAVIGATION]: 1,
-  [JourneyStage.DIAGNOSIS]: 2,
-  [JourneyStage.TREATMENT]: 3,
-  [JourneyStage.FOLLOW_UP]: 4,
+  [JourneyStage.DIAGNOSIS]: 1,
+  [JourneyStage.TREATMENT]: 2,
+  [JourneyStage.FOLLOW_UP]: 3,
+  [JourneyStage.PALLIATIVE]: 4,
 };
 
 @Injectable()
@@ -40,7 +55,7 @@ export class OncologyNavigationService {
   async getPatientNavigationSteps(
     patientId: string,
     tenantId: string
-  ): Promise<any[]> {
+  ): Promise<NavigationStep[]> {
     const steps = await this.prisma.navigationStep.findMany({
       where: {
         patientId,
@@ -48,93 +63,12 @@ export class OncologyNavigationService {
       },
       orderBy: [
         { journeyStage: 'asc' },
-        { expectedDate: 'asc' },
+        { stepOrder: 'asc' } as any,
         { createdAt: 'asc' },
       ],
     });
 
-    // Verificar se há etapas para todos os estágios da jornada
-    const allStages = [
-      JourneyStage.SCREENING,
-      JourneyStage.DIAGNOSIS,
-      JourneyStage.TREATMENT,
-      JourneyStage.FOLLOW_UP,
-    ];
-
-    const stagesWithSteps = new Set(steps.map((step) => step.journeyStage));
-
-    // Se não houver etapas para todos os estágios, verificar se precisa criar
-    const missingStages = allStages.filter(
-      (stage) => !stagesWithSteps.has(stage)
-    );
-
-    // Se há estágios faltantes e o paciente tem pelo menos uma etapa,
-    // significa que foi criado com a lógica antiga - re-inicializar completamente
-    if (missingStages.length > 0 && steps.length > 0) {
-      // Buscar informações do paciente para re-inicializar
-      const patient = await this.prisma.patient.findFirst({
-        where: {
-          id: patientId,
-          tenantId,
-        },
-        select: {
-          cancerType: true,
-          currentStage: true,
-          cancerDiagnoses: {
-            select: {
-              cancerType: true,
-            },
-            take: 1,
-          },
-        },
-      });
-
-      if (patient) {
-        // Determinar tipo de câncer
-        const cancerTypeRaw =
-          patient.cancerType ||
-          patient.cancerDiagnoses?.[0]?.cancerType ||
-          null;
-
-        if (cancerTypeRaw) {
-          const cancerType = String(cancerTypeRaw).toLowerCase();
-          const currentStage = patient.currentStage || JourneyStage.SCREENING;
-
-          // Re-inicializar todas as etapas (isso vai deletar as antigas e criar novas para todos os estágios)
-          await this.initializeNavigationSteps(
-            patientId,
-            tenantId,
-            cancerType,
-            currentStage
-          );
-
-          // Buscar novamente as etapas após re-inicialização
-          const reinitializedSteps = await this.prisma.navigationStep.findMany({
-            where: {
-              patientId,
-              tenantId,
-            },
-            orderBy: [
-              { journeyStage: 'asc' },
-              { expectedDate: 'asc' },
-              { createdAt: 'asc' },
-            ],
-          });
-
-          // Garantir que journeyStage seja retornado como string
-          return reinitializedSteps.map((step) => ({
-            ...step,
-            journeyStage: String(step.journeyStage),
-          }));
-        }
-      }
-    }
-
-    // Garantir que journeyStage seja retornado como string (Prisma pode retornar como enum)
-    return steps.map((step) => ({
-      ...step,
-      journeyStage: String(step.journeyStage),
-    }));
+    return steps;
   }
 
   /**
@@ -144,7 +78,7 @@ export class OncologyNavigationService {
     patientId: string,
     tenantId: string,
     journeyStage: JourneyStage
-  ): Promise<any[]> {
+  ): Promise<NavigationStep[]> {
     return this.prisma.navigationStep.findMany({
       where: {
         patientId,
@@ -162,7 +96,7 @@ export class OncologyNavigationService {
   /**
    * Obtém uma etapa específica por ID
    */
-  async getStepById(stepId: string, tenantId: string): Promise<any> {
+  async getStepById(stepId: string, tenantId: string): Promise<NavigationStep> {
     const step = await this.prisma.navigationStep.findFirst({
       where: {
         id: stepId,
@@ -183,7 +117,7 @@ export class OncologyNavigationService {
   async createStep(
     createDto: CreateNavigationStepDto,
     tenantId: string
-  ): Promise<any> {
+  ): Promise<NavigationStep> {
     // Verificar se paciente existe
     const patient = await this.prisma.patient.findFirst({
       where: {
@@ -244,7 +178,7 @@ export class OncologyNavigationService {
     stepId: string,
     updateDto: UpdateNavigationStepDto,
     tenantId: string
-  ): Promise<any> {
+  ): Promise<NavigationStep> {
     const existingStep = await this.prisma.navigationStep.findFirst({
       where: {
         id: stepId,
@@ -256,7 +190,7 @@ export class OncologyNavigationService {
       throw new NotFoundException('Navigation step not found');
     }
 
-    const updateData: any = { ...updateDto };
+    const updateData: Prisma.NavigationStepUpdateInput = { ...updateDto };
 
     // Se marcando como completa, atualizar campos relacionados
     if (updateDto.isCompleted !== undefined) {
@@ -309,7 +243,7 @@ export class OncologyNavigationService {
     }
 
     const updatedStep = await this.prisma.navigationStep.update({
-      where: { id: stepId },
+      where: { id: stepId, tenantId },
       data: updateData,
     });
 
@@ -332,7 +266,7 @@ export class OncologyNavigationService {
           updateDto.isCompleted !== true
         ) {
           await this.prisma.navigationStep.update({
-            where: { id: stepId },
+            where: { id: stepId, tenantId },
             data: { status: NavigationStepStatus.OVERDUE },
           });
           updatedStep.status = NavigationStepStatus.OVERDUE;
@@ -346,12 +280,26 @@ export class OncologyNavigationService {
           updateDto.isCompleted !== true
         ) {
           await this.prisma.navigationStep.update({
-            where: { id: stepId },
+            where: { id: stepId, tenantId },
             data: { status: NavigationStepStatus.PENDING },
           });
           updatedStep.status = NavigationStepStatus.PENDING;
         }
       }
+    }
+
+    // Cascade de prazos e bifurcação ao completar
+    if (updateDto.isCompleted && !existingStep.isCompleted) {
+      // Criar steps da próxima fase se ainda não existirem (ex: conclusão de SCREENING → cria DIAGNOSIS)
+      await this.maybeCreateNextStageSteps(updatedStep, tenantId);
+      await this.cascadeDependentStepDates(updatedStep, tenantId);
+      await this.applyBladderCancerBifurcation(updatedStep, tenantId);
+      await this.checkLegalCheckpoints(updatedStep, tenantId);
+    }
+
+    // Resetar prazos de dependentes ao desmarcar conclusão
+    if (updateDto.isCompleted === false && existingStep.isCompleted) {
+      await this.resetDependentStepDates(updatedStep, tenantId);
     }
 
     return updatedStep;
@@ -368,7 +316,7 @@ export class OncologyNavigationService {
       throw new NotFoundException('Navigation step not found');
     }
     await this.prisma.navigationStep.delete({
-      where: { id: stepId },
+      where: { id: stepId, tenantId },
     });
   }
 
@@ -414,6 +362,7 @@ export class OncologyNavigationService {
     await this.prisma.navigationStep.updateMany({
       where: {
         id: { in: toClear.map((s) => s.id) },
+        tenantId,
       },
       data: { dueDate: null, expectedDate: null },
     });
@@ -462,7 +411,7 @@ export class OncologyNavigationService {
     // Remover etapas existentes: por diagnóstico (se informado) ou por paciente + tipo de câncer
     if (diagnosisId) {
       await this.prisma.navigationStep.deleteMany({
-        where: { diagnosisId },
+        where: { diagnosisId, tenantId },
       });
     } else {
       await this.prisma.navigationStep.deleteMany({
@@ -474,19 +423,21 @@ export class OncologyNavigationService {
       });
     }
 
-    // Se paciente está em tratamento paliativo, usar etapas específicas
-    // Modificado para sempre criar etapas de TODOS os estágios da jornada,
-    // não apenas do estágio atual, para ter visibilidade completa da jornada
-    const steps =
-      patient.status === PatientStatus.PALLIATIVE_CARE
-        ? this.getPalliativeCareSteps(stage)
-        : this.getNavigationStepsForAllStages(
-            cancerType.toLowerCase(),
-            patient.status
-          );
+    // Obter configurações de etapas com prazos relativos
+    const allSteps = this.getStepConfigs(
+      cancerType.toLowerCase(),
+      patient.status,
+      stage,
+    );
+
+    // Filtrar: criar apenas etapas da fase atual e fases anteriores
+    const currentStageOrder = JOURNEY_STAGE_ORDER[stage] ?? 0;
+    const steps = allSteps.filter(
+      (s) => (JOURNEY_STAGE_ORDER[s.journeyStage] ?? 0) <= currentStageOrder,
+    );
 
     this.logger.log(
-      `Encontradas ${steps.length} etapas para ${cancerType} no estágio ${stage}`
+      `Encontradas ${steps.length} etapas para ${cancerType} no estágio ${stage} (de ${allSteps.length} totais)`
     );
 
     if (steps.length === 0) {
@@ -501,12 +452,14 @@ export class OncologyNavigationService {
       where: { patientId },
     });
 
-    // Criar todas as etapas; etapas de fases futuras não recebem prazo para não serem destacadas como "próximas"
+    // Criar todas as etapas.
+    // Etapas sem dependência (dependsOnStepKey === null) são raíz — recebem dueDate = hoje
+    // como marcador de início. Etapas com dependência ficam com datas null até a predecessora concluir.
     let createdCount = 0;
     for (const stepConfig of steps) {
       try {
-        const isFuture = this.isFutureStage(stepConfig.journeyStage, stage);
-        const step = await this.prisma.navigationStep.create({
+        const isRootStep = stepConfig.dependsOnStepKey === null;
+        await this.prisma.navigationStep.create({
           data: {
             tenantId,
             patientId,
@@ -518,25 +471,18 @@ export class OncologyNavigationService {
             stepName: stepConfig.stepName,
             stepDescription: stepConfig.stepDescription,
             isRequired: stepConfig.isRequired ?? true,
-            expectedDate: isFuture ? null : stepConfig.expectedDate ?? null,
-            dueDate: isFuture ? null : stepConfig.dueDate ?? null,
+            dependsOnStepKey: stepConfig.dependsOnStepKey,
+            relativeDaysMin: stepConfig.relativeDaysMin,
+            relativeDaysMax: stepConfig.relativeDaysMax,
+            stepOrder: stepConfig.stepOrder,
+            // Etapas raíz recebem data de hoje como ponto de partida; dependentes recebem null
+            expectedDate: isRootStep ? new Date() : null,
+            dueDate: isRootStep ? new Date() : null,
             status: NavigationStepStatus.PENDING,
             isCompleted: false,
-          },
+          } as any,
         });
         createdCount++;
-
-        // Verificar imediatamente se a etapa já está atrasada ao ser criada
-        if (step.dueDate && !step.isCompleted) {
-          const stepDueDate = new Date(step.dueDate);
-          stepDueDate.setHours(0, 0, 0, 0);
-          const today = new Date();
-          today.setHours(0, 0, 0, 0);
-
-          if (stepDueDate < today) {
-            await this.checkAndCreateAlertForStep(step, tenantId);
-          }
-        }
       } catch (error) {
         this.logger.error(
           `Erro ao criar etapa ${stepConfig.stepKey}:`,
@@ -552,13 +498,78 @@ export class OncologyNavigationService {
   }
 
   /**
+   * Retorna todos os templates de etapas para uma fase, com contagem de instâncias existentes
+   */
+  async getAvailableStepTemplates(
+    patientId: string,
+    tenantId: string,
+    journeyStage: JourneyStage
+  ): Promise<
+    (Pick<
+      StepConfig,
+      'stepKey' | 'stepName' | 'stepDescription' | 'journeyStage' | 'isRequired'
+    > & { existingCount: number })[]
+  > {
+    const patient = await this.prisma.patient.findFirst({
+      where: { id: patientId, tenantId },
+      select: {
+        cancerType: true,
+        status: true,
+        cancerDiagnoses: {
+          select: { cancerType: true },
+          where: { isActive: true, isPrimary: true },
+          take: 1,
+        },
+      },
+    });
+
+    if (!patient) {
+      throw new NotFoundException(`Patient with ID ${patientId} not found`);
+    }
+
+    const cancerTypeRaw =
+      patient.cancerType || patient.cancerDiagnoses?.[0]?.cancerType || null;
+
+    if (!cancerTypeRaw) {
+      throw new BadRequestException(
+        'Patient does not have a cancer type defined'
+      );
+    }
+
+    const cancerType = String(cancerTypeRaw).toLowerCase();
+
+    const existingSteps = await this.prisma.navigationStep.findMany({
+      where: { patientId, tenantId, journeyStage },
+      select: { stepKey: true },
+    });
+
+    const existingCountMap = new Map<string, number>();
+    for (const s of existingSteps) {
+      const baseKey = s.stepKey.replace(/-\d+$/, '');
+      existingCountMap.set(baseKey, (existingCountMap.get(baseKey) || 0) + 1);
+    }
+
+    return this.getStepConfigs(cancerType, patient.status, journeyStage)
+      .filter((c) => c.journeyStage === journeyStage)
+      .map(({ stepKey, stepName, stepDescription, journeyStage: js, isRequired }) => ({
+        stepKey,
+        stepName,
+        stepDescription,
+        journeyStage: js,
+        isRequired,
+        existingCount: existingCountMap.get(stepKey) || 0,
+      }));
+  }
+
+  /**
    * Cria apenas as etapas faltantes para um estágio específico da jornada
    * Não altera ou deleta etapas existentes
    */
   async createMissingStepsForStage(
     patientId: string,
     tenantId: string,
-    journeyStage: JourneyStage
+    journeyStage: JourneyStage,
+    onlyStepKey?: string
   ): Promise<{
     created: number;
     skipped: number;
@@ -615,33 +626,23 @@ export class OncologyNavigationService {
 
     const existingStepKeys = new Set(existingSteps.map((s) => s.stepKey));
 
-    // Obter etapas esperadas para este estágio e tipo de câncer
-    let expectedSteps: Array<{
-      journeyStage: JourneyStage;
-      stepKey: string;
-      stepName: string;
-      stepDescription: string;
-      isRequired: boolean;
-      expectedDate?: Date;
-      dueDate?: Date;
-    }> = [];
+    // Obter configs de etapas e filtrar pelo estágio solicitado
+    const allConfigs = this.getStepConfigs(
+      cancerType,
+      patient.status,
+      journeyStage,
+    );
+    const expectedSteps = allConfigs.filter(
+      (step) => step.journeyStage === journeyStage
+    );
 
-    if (patient.status === PatientStatus.PALLIATIVE_CARE) {
-      expectedSteps = this.getPalliativeCareSteps(journeyStage);
-    } else {
-      // Usar getNavigationStepsForAllStages e filtrar apenas o estágio solicitado
-      const allSteps = this.getNavigationStepsForAllStages(
-        cancerType,
-        patient.status
-      );
-      expectedSteps = allSteps.filter(
-        (step) => step.journeyStage === journeyStage
-      );
-    }
-
-    // Filtrar apenas as etapas que não existem
+    // Filtrar apenas as etapas que não existem (e opcionalmente uma chave específica)
     const missingSteps = expectedSteps.filter(
-      (step) => !existingStepKeys.has(step.stepKey)
+      (step) =>
+        !existingStepKeys.has(step.stepKey) &&
+        (onlyStepKey === undefined ||
+          onlyStepKey === null ||
+          step.stepKey === onlyStepKey)
     );
 
     if (missingSteps.length === 0) {
@@ -657,7 +658,8 @@ export class OncologyNavigationService {
     let createdCount = 0;
     for (const stepConfig of missingSteps) {
       try {
-        const step = await this.prisma.navigationStep.create({
+        const isRootStep = stepConfig.dependsOnStepKey === null;
+        await this.prisma.navigationStep.create({
           data: {
             tenantId,
             patientId,
@@ -668,25 +670,17 @@ export class OncologyNavigationService {
             stepName: stepConfig.stepName,
             stepDescription: stepConfig.stepDescription,
             isRequired: stepConfig.isRequired ?? true,
-            expectedDate: stepConfig.expectedDate,
-            dueDate: stepConfig.dueDate,
+            dependsOnStepKey: stepConfig.dependsOnStepKey,
+            relativeDaysMin: stepConfig.relativeDaysMin,
+            relativeDaysMax: stepConfig.relativeDaysMax,
+            stepOrder: stepConfig.stepOrder,
+            expectedDate: isRootStep ? new Date() : null,
+            dueDate: isRootStep ? new Date() : null,
             status: NavigationStepStatus.PENDING,
             isCompleted: false,
-          },
+          } as any,
         });
         createdCount++;
-
-        // Verificar se a etapa já está atrasada ao ser criada
-        if (step.dueDate && !step.isCompleted) {
-          const stepDueDate = new Date(step.dueDate);
-          stepDueDate.setHours(0, 0, 0, 0);
-          const today = new Date();
-          today.setHours(0, 0, 0, 0);
-
-          if (stepDueDate < today) {
-            await this.checkAndCreateAlertForStep(step, tenantId);
-          }
-        }
       } catch (error) {
         this.logger.error(
           `Erro ao criar etapa ${stepConfig.stepKey}:`,
@@ -703,8 +697,95 @@ export class OncologyNavigationService {
   }
 
   /**
+   * Cria uma instância adicional de um step a partir de um template existente.
+   * Gera stepKey único com sufixo numérico (ex: rtu-2, rtu-3).
+   */
+  async createStepFromTemplate(
+    patientId: string,
+    tenantId: string,
+    journeyStage: JourneyStage,
+    stepKey: string
+  ): Promise<NavigationStep> {
+    const patient = await this.prisma.patient.findFirst({
+      where: { id: patientId, tenantId },
+      select: {
+        cancerType: true,
+        status: true,
+        cancerDiagnoses: {
+          select: { cancerType: true },
+          where: { isActive: true, isPrimary: true },
+          take: 1,
+        },
+      },
+    });
+
+    if (!patient) {
+      throw new NotFoundException(`Patient with ID ${patientId} not found`);
+    }
+
+    const cancerTypeRaw =
+      patient.cancerType || patient.cancerDiagnoses?.[0]?.cancerType || null;
+
+    if (!cancerTypeRaw) {
+      throw new BadRequestException(
+        'Patient does not have a cancer type defined'
+      );
+    }
+
+    const cancerType = String(cancerTypeRaw).toLowerCase();
+
+    const allConfigs = this.getStepConfigs(cancerType, patient.status);
+    const templateConfig = allConfigs.find(
+      (c) => c.stepKey === stepKey && c.journeyStage === journeyStage
+    );
+
+    if (!templateConfig) {
+      throw new NotFoundException(
+        `Template with stepKey "${stepKey}" not found for stage ${journeyStage}`
+      );
+    }
+
+    const existingSteps = await this.prisma.navigationStep.findMany({
+      where: {
+        patientId,
+        tenantId,
+        journeyStage,
+        OR: [{ stepKey }, { stepKey: { startsWith: `${stepKey}-` } }],
+      },
+      select: { stepKey: true },
+    });
+
+    const nextSuffix = existingSteps.length + 1;
+    const newStepKey = nextSuffix === 1 ? stepKey : `${stepKey}-${nextSuffix}`;
+
+    const journey = await this.prisma.patientJourney.findUnique({
+      where: { patientId },
+    });
+
+    const step = await this.prisma.navigationStep.create({
+      data: {
+        tenantId,
+        patientId,
+        journeyId: journey?.id,
+        cancerType,
+        journeyStage: templateConfig.journeyStage,
+        stepKey: newStepKey,
+        stepName: templateConfig.stepName,
+        stepDescription: templateConfig.stepDescription,
+        isRequired: templateConfig.isRequired ?? true,
+        expectedDate: null,
+        dueDate: null,
+        status: NavigationStepStatus.PENDING,
+        isCompleted: false,
+      },
+    });
+
+    return step;
+  }
+
+  /**
    * Inicializa etapas de navegação para todos os pacientes que têm tipo de câncer
-   * mas ainda não têm etapas definidas
+   * ou que possuem etapas legadas sem metadados de dependência/prazo relativos.
    */
   async initializeAllPatientsSteps(tenantId: string): Promise<{
     initialized: number;
@@ -756,36 +837,39 @@ export class OncologyNavigationService {
           continue;
         }
 
-        // Verificar se já tem etapas para todos os estágios da jornada
-        const allStages = [
-          JourneyStage.SCREENING,
-          JourneyStage.DIAGNOSIS,
-          JourneyStage.TREATMENT,
-          JourneyStage.FOLLOW_UP,
-        ];
+        const hasAnyStep = (patient.navigationSteps?.length ?? 0) > 0;
 
-        // Buscar todas as etapas do paciente (não apenas uma)
-        const allPatientSteps = await this.prisma.navigationStep.findMany({
-          where: {
-            patientId: patient.id,
-            tenantId,
-          },
-          select: {
-            journeyStage: true,
-          },
-        });
+        // Se já houver etapas, reinitialize apenas quando detectar assinatura legada.
+        const legacyStep = hasAnyStep
+          ? await this.prisma.navigationStep.findFirst({
+              where: {
+                patientId: patient.id,
+                tenantId,
+                OR: [
+                  // Fluxo antigo criava com default stepOrder=0
+                  { stepOrder: 0 },
+                  // Etapa dependente sem janela relativa completa
+                  {
+                    AND: [
+                      { dependsOnStepKey: { not: null } },
+                      {
+                        OR: [
+                          { relativeDaysMin: null },
+                          { relativeDaysMax: null },
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              } as any,
+              select: { id: true },
+            })
+          : null;
 
-        const stagesWithSteps = new Set(
-          allPatientSteps.map((step) => step.journeyStage)
-        );
-
-        // Verificar se há estágios faltantes
-        const missingStages = allStages.filter(
-          (stage) => !stagesWithSteps.has(stage)
-        );
-
-        // Se não tem etapas ou tem etapas incompletas, re-inicializar
-        if (allPatientSteps.length === 0 || missingStages.length > 0) {
+        // Inicializar quando:
+        // 1) não há etapas ainda; ou
+        // 2) há etapas, mas ao menos uma é legada e precisa migrar para grafo relativo.
+        if (!hasAnyStep || !!legacyStep) {
           // Converter para minúsculas para garantir consistência
           const cancerType = String(cancerTypeRaw).toLowerCase();
 
@@ -802,7 +886,7 @@ export class OncologyNavigationService {
 
           initialized++;
         } else {
-          // Já tem todas as etapas necessárias
+          // Já possui grafo moderno (não-legado)
           skipped++;
         }
       } catch (error) {
@@ -860,7 +944,7 @@ export class OncologyNavigationService {
       // Marcar como atrasada se ainda não estiver marcada
       if (step.status !== NavigationStepStatus.OVERDUE) {
         await this.prisma.navigationStep.update({
-          where: { id: step.id },
+          where: { id: step.id, tenantId },
           data: { status: NavigationStepStatus.OVERDUE },
         });
         markedOverdue++;
@@ -923,7 +1007,7 @@ export class OncologyNavigationService {
       // Marcar como atrasada se ainda não estiver marcada
       if (step.status !== NavigationStepStatus.OVERDUE) {
         await this.prisma.navigationStep.update({
-          where: { id: step.id },
+          where: { id: step.id, tenantId },
           data: { status: NavigationStepStatus.OVERDUE },
         });
         markedOverdue++;
@@ -952,16 +1036,15 @@ export class OncologyNavigationService {
    * Método auxiliar usado ao criar/atualizar etapas
    */
   private async checkAndCreateAlertForStep(
-    step: any,
+    step: NavigationStep,
     tenantId: string
   ): Promise<boolean> {
     if (!step.dueDate || step.isCompleted) {
       return false;
     }
 
-    const now = new Date();
     // Comparar apenas data (sem hora) para evitar problemas de timezone
-    const stepDueDate = new Date(step.dueDate);
+    const stepDueDate = new Date(step.dueDate!);
     stepDueDate.setHours(0, 0, 0, 0);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -1038,1437 +1121,2088 @@ export class OncologyNavigationService {
   }
 
   /**
-   * Retorna as etapas esperadas para cada tipo de câncer em TODOS os estágios da jornada
-   * Isso garante visibilidade completa da jornada do paciente
+   * Retorna as configurações de etapas para um tipo de câncer.
+   * Cada etapa define dependência relativa (stepKey da predecessora + dias).
+   * Datas são calculadas em runtime quando a dependência é concluída.
    */
-  private getNavigationStepsForAllStages(
+  private getStepConfigs(
     cancerType: string,
-    patientStatus?: PatientStatus
-  ): Array<{
-    journeyStage: JourneyStage;
-    stepKey: string;
-    stepName: string;
-    stepDescription: string;
-    isRequired: boolean;
-    expectedDate?: Date;
-    dueDate?: Date;
-  }> {
-    // Se paciente está em tratamento paliativo, usar etapas específicas
-    if (patientStatus === PatientStatus.PALLIATIVE_CARE) {
-      // Para paliativo, retornar etapas de todos os estágios também
-      const allStages = [
-        JourneyStage.SCREENING,
-        JourneyStage.DIAGNOSIS,
-        JourneyStage.TREATMENT,
-        JourneyStage.FOLLOW_UP,
-      ];
-      const allSteps: Array<{
-        journeyStage: JourneyStage;
-        stepKey: string;
-        stepName: string;
-        stepDescription: string;
-        isRequired: boolean;
-        expectedDate?: Date;
-        dueDate?: Date;
-      }> = [];
-
-      allStages.forEach((stage) => {
-        const steps = this.getPalliativeCareSteps(stage);
-        allSteps.push(...steps);
-      });
-
-      return allSteps;
+    patientStatus?: PatientStatus,
+    currentStage?: JourneyStage,
+  ): StepConfig[] {
+    // New JourneyStage PALLIATIVE must provision palliative templates
+    // even when patient.status is not yet synchronized to PALLIATIVE_CARE.
+    if (
+      currentStage === JourneyStage.PALLIATIVE ||
+      patientStatus === PatientStatus.PALLIATIVE_CARE
+    ) {
+      return this.getPalliativeStepConfigs();
     }
 
-    const type = cancerType.toLowerCase();
-    const allStages = [
-      JourneyStage.SCREENING,
-      JourneyStage.DIAGNOSIS,
-      JourneyStage.TREATMENT,
-      JourneyStage.FOLLOW_UP,
-    ];
+    switch (cancerType.toLowerCase()) {
+      case 'colorectal':
+        return this.getColorectalStepConfigs();
+      case 'breast':
+        return this.getBreastStepConfigs();
+      case 'lung':
+        return this.getLungStepConfigs();
+      case 'prostate':
+        return this.getProstateStepConfigs();
+      case 'kidney':
+        return this.getKidneyStepConfigs();
+      case 'bladder':
+        return this.getBladderStepConfigs();
+      case 'testicular':
+        return this.getTesticularStepConfigs();
+      default:
+        return this.getGenericStepConfigs();
+    }
+  }
 
-    const allSteps: Array<{
-      journeyStage: JourneyStage;
-      stepKey: string;
-      stepName: string;
-      stepDescription: string;
-      isRequired: boolean;
-      expectedDate?: Date;
-      dueDate?: Date;
-    }> = [];
 
-    // Coletar etapas de todos os estágios
-    allStages.forEach((stage) => {
-      let steps: Array<{
-        journeyStage: JourneyStage;
-        stepKey: string;
-        stepName: string;
-        stepDescription: string;
-        isRequired: boolean;
-        expectedDate?: Date;
-        dueDate?: Date;
-      }> = [];
+  // =========================================================================
+  // BIFURCAÇÃO CLÍNICA — Câncer de Bexiga NMIBC/MIBC
+  // =========================================================================
 
-      switch (type) {
-        case 'colorectal':
-          steps = this.getColorectalCancerSteps(stage);
-          break;
-        case 'breast':
-          steps = this.getBreastCancerSteps(stage);
-          break;
-        case 'lung':
-          steps = this.getLungCancerSteps(stage);
-          break;
-        case 'prostate':
-          steps = this.getProstateCancerSteps(stage);
-          break;
-        case 'kidney':
-          steps = this.getKidneyCancerSteps(stage);
-          break;
-        case 'bladder':
-          steps = this.getBladderCancerSteps(stage);
-          break;
-        case 'testicular':
-          steps = this.getTesticularCancerSteps(stage);
-          break;
-        default:
-          steps = this.getGenericCancerSteps(stage);
-      }
+  /**
+   * Aplica bifurcação NMIBC/MIBC ao concluir o laudo anatomopatológico de bexiga.
+   * NMIBC (não-músculo-invasivo) → BCG intravesical (cirurgia radical NOT_APPLICABLE)
+   * MIBC (músculo-invasivo) → Cistectomia radical (BCG NOT_APPLICABLE)
+   */
+  private async applyBladderCancerBifurcation(
+    completedStep: NavigationStep,
+    tenantId: string
+  ): Promise<void> {
+    if (
+      completedStep.cancerType !== 'bladder' ||
+      completedStep.stepKey !== 'pathology_report'
+    ) {
+      return;
+    }
 
-      allSteps.push(...steps);
+    const result = ((completedStep.result as string) || '').toLowerCase();
+    const metadata = completedStep.metadata as Record<string, unknown> | null;
+    const muscleInvasive = metadata?.muscleInvasive as boolean | undefined;
+
+    const isNMIBC =
+      muscleInvasive === false ||
+      result.includes('nmibc') ||
+      result.includes('não-músculo') ||
+      result.includes('nao-musculo') ||
+      result.includes('non-muscle') ||
+      result.includes('superficial');
+
+    const isMIBC =
+      muscleInvasive === true ||
+      result.includes('mibc') ||
+      result.includes('músculo-invasivo') ||
+      result.includes('musculo-invasivo') ||
+      result.includes('muscle-invasive');
+
+    if (!isNMIBC && !isMIBC) {
+      this.logger.log(
+        `Bifurcação bexiga: laudo sem indicação clara de NMIBC/MIBC para paciente ${completedStep.patientId}`
+      );
+      return;
+    }
+
+    const stepsToDisable = isNMIBC
+      ? ['radical_cystectomy', 'neobladder_or_urostomy']
+      : ['intravesical_bcg'];
+
+    const disabledNote = isNMIBC
+      ? 'Não aplicável: tumor não-músculo-invasivo (NMIBC) — via BCG selecionada'
+      : 'Não aplicável: tumor músculo-invasivo (MIBC) — via cistectomia selecionada';
+
+    await this.prisma.navigationStep.updateMany({
+      where: {
+        patientId: completedStep.patientId,
+        tenantId,
+        stepKey: { in: stepsToDisable },
+        status: { notIn: [NavigationStepStatus.COMPLETED] },
+      },
+      data: {
+        status: NavigationStepStatus.NOT_APPLICABLE,
+        notes: disabledNote,
+      },
     });
 
-    return allSteps;
+    // MIBC: QT adjuvante depende da cistectomia (T+42), não do laudo (T+30)
+    if (isMIBC) {
+      await this.prisma.navigationStep.updateMany({
+        where: {
+          patientId: completedStep.patientId,
+          tenantId,
+          stepKey: 'chemotherapy',
+          status: {
+            notIn: [
+              NavigationStepStatus.COMPLETED,
+              NavigationStepStatus.NOT_APPLICABLE,
+              NavigationStepStatus.CANCELLED,
+            ],
+          },
+        },
+        data: {
+          dependsOnStepKey: 'radical_cystectomy',
+          relativeDaysMin: 42,
+          relativeDaysMax: 56,
+          notes:
+            'QT adjuvante pós-cistectomia (MIBC): 6-8 semanas após cirurgia',
+        } as any,
+      });
+      this.logger.log(
+        `Bifurcação bexiga MIBC: chemotherapy reatribuída → dependsOn=radical_cystectomy, T+42-56`,
+      );
+    }
+
+    this.logger.log(
+      `Bifurcação bexiga: ${isNMIBC ? 'NMIBC' : 'MIBC'} → ${stepsToDisable.join(', ')} marcados como NOT_APPLICABLE`
+    );
   }
 
+  // =========================================================================
+  // CHECKPOINTS LEGAIS — Lei 30 dias e Lei 60 dias
+  // =========================================================================
+
   /**
-   * Etapas para câncer colorretal
-   * Modificado para sempre retornar etapas do estágio solicitado,
-   * independente do estágio atual do paciente
+   * Verifica conformidade com a Lei 13.896/2019 (30 dias suspeita→diagnóstico)
+   * e Lei 12.732/2012 (60 dias diagnóstico→tratamento).
+   * Cria alertas quando prazos são excedidos ou estão próximos de expirar.
    */
-  private getColorectalCancerSteps(requestedStage: JourneyStage): Array<{
-    journeyStage: JourneyStage;
-    stepKey: string;
-    stepName: string;
-    stepDescription: string;
-    isRequired: boolean;
-    expectedDate?: Date;
-    dueDate?: Date;
-  }> {
-    const steps: Array<{
-      journeyStage: JourneyStage;
-      stepKey: string;
-      stepName: string;
-      stepDescription: string;
-      isRequired: boolean;
-      expectedDate?: Date;
-      dueDate?: Date;
-    }> = [];
-
-    // RASTREIO (SCREENING)
-    if (requestedStage === JourneyStage.SCREENING) {
-      steps.push({
-        journeyStage: JourneyStage.SCREENING,
-        stepKey: 'fecal_occult_blood',
-        stepName: 'Pesquisa de Sangue Oculto nas Fezes',
-        stepDescription:
-          'Exame de rastreio inicial para detecção de sangue oculto nas fezes',
-        isRequired: true,
-        dueDate: this.addDays(new Date(), 30), // Prazo de 30 dias
+  private async checkLegalCheckpoints(
+    completedStep: NavigationStep,
+    tenantId: string
+  ): Promise<void> {
+    // Lei 30 dias: ao concluir o laudo (diagnóstico confirmado)
+    if (completedStep.stepKey === 'pathology_report') {
+      const firstStep = await this.prisma.navigationStep.findFirst({
+        where: {
+          patientId: completedStep.patientId,
+          tenantId,
+          stepOrder: 1,
+        } as any,
       });
 
-      steps.push({
-        journeyStage: JourneyStage.SCREENING,
-        stepKey: 'colonoscopy',
-        stepName: 'Colonoscopia',
-        stepDescription:
-          'Exame de rastreio ou diagnóstico. Se PSOF positivo ou sintomas, realizar colonoscopia',
-        isRequired: false, // Depende do resultado do PSOF
-        dueDate: this.addDays(new Date(), 60), // Prazo de 60 dias se necessário
-      });
+      if (firstStep?.createdAt) {
+        const actualDate = completedStep.actualDate
+          ? new Date(completedStep.actualDate)
+          : new Date();
+        const daysDiff = Math.floor(
+          (actualDate.getTime() - new Date(firstStep.createdAt).getTime()) /
+            (1000 * 60 * 60 * 24)
+        );
+
+        if (daysDiff > 30) {
+          try {
+            await this.alertsService.create(
+              {
+                patientId: completedStep.patientId,
+                type: AlertType.NAVIGATION_DELAY,
+                severity: AlertSeverity.HIGH,
+                message: `Lei 30 dias: diagnóstico confirmado em ${daysDiff} dias após suspeita (limite legal: 30 dias)`,
+                context: {
+                  checkpoint: 'LEI_30_DIAS',
+                  daysDiff,
+                  limit: 30,
+                  stepKey: completedStep.stepKey,
+                },
+              },
+              tenantId
+            );
+            this.logger.warn(
+              `Lei 30 dias excedida: ${daysDiff} dias para paciente ${completedStep.patientId}`
+            );
+          } catch (e) {
+            this.logger.error('Erro ao criar alerta Lei 30 dias', e);
+          }
+        } else if (daysDiff >= 20) {
+          // Alerta preventivo quando restam ≤10 dias
+          this.logger.log(
+            `Lei 30 dias: ${daysDiff} dias decorridos — dentro do prazo para paciente ${completedStep.patientId}`
+          );
+        }
+      }
     }
 
-    // DIAGNÓSTICO (DIAGNOSIS)
-    if (requestedStage === JourneyStage.DIAGNOSIS) {
-      steps.push({
-        journeyStage: JourneyStage.DIAGNOSIS,
-        stepKey: 'colonoscopy_with_biopsy',
-        stepName: 'Colonoscopia com Biópsia',
-        stepDescription:
-          'Colonoscopia com coleta de material para análise anatomopatológica',
-        isRequired: true,
-        dueDate: this.addDays(new Date(), 14), // Urgente: 14 dias
+    // Lei 60 dias: ao concluir a primeira etapa de tratamento
+    const treatmentFirstSteps = [
+      'intravesical_bcg',
+      'radical_cystectomy',
+      'chemotherapy',
+      'radiotherapy',
+      'colectomy',
+      'mastectomy_or_lumpectomy',
+      'lobectomy_or_pneumonectomy',
+      'radical_prostatectomy',
+      'partial_or_radical_nephrectomy',
+      'radical_orchiectomy',
+      'first_treatment',
+    ];
+
+    if (treatmentFirstSteps.includes(completedStep.stepKey)) {
+      const pathologyStep = await this.prisma.navigationStep.findFirst({
+        where: {
+          patientId: completedStep.patientId,
+          tenantId,
+          stepKey: 'pathology_report',
+          isCompleted: true,
+        },
       });
 
-      steps.push({
-        journeyStage: JourneyStage.DIAGNOSIS,
-        stepKey: 'pathology_report',
-        stepName: 'Laudo Anatomopatológico',
-        stepDescription:
-          'Resultado da biópsia confirmando diagnóstico e tipo histológico',
-        isRequired: true,
-        dueDate: this.addDays(new Date(), 21), // 21 dias após biópsia
-      });
+      if (pathologyStep?.actualDate) {
+        const actualDate = completedStep.actualDate
+          ? new Date(completedStep.actualDate)
+          : new Date();
+        const daysDiff = Math.floor(
+          (actualDate.getTime() -
+            new Date(pathologyStep.actualDate).getTime()) /
+            (1000 * 60 * 60 * 24)
+        );
 
-      steps.push({
-        journeyStage: JourneyStage.DIAGNOSIS,
-        stepKey: 'staging_ct_abdomen',
-        stepName: 'TC de Abdome e Pelve',
-        stepDescription:
-          'Tomografia computadorizada para estadiamento (avaliar metástases)',
-        isRequired: true,
-        dueDate: this.addDays(new Date(), 28), // 28 dias após diagnóstico
-      });
-
-      steps.push({
-        journeyStage: JourneyStage.DIAGNOSIS,
-        stepKey: 'staging_ct_thorax',
-        stepName: 'TC de Tórax',
-        stepDescription:
-          'Tomografia de tórax para avaliar metástases pulmonares',
-        isRequired: true,
-        dueDate: this.addDays(new Date(), 28),
-      });
-
-      steps.push({
-        journeyStage: JourneyStage.DIAGNOSIS,
-        stepKey: 'genetic_testing',
-        stepName: 'Teste Genético (MSI, KRAS, NRAS, BRAF)',
-        stepDescription:
-          'Testes moleculares para orientar tratamento (especialmente se estágio avançado)',
-        isRequired: false, // Depende do estadiamento
-        dueDate: this.addDays(new Date(), 35),
-      });
-
-      steps.push({
-        journeyStage: JourneyStage.DIAGNOSIS,
-        stepKey: 'cea_baseline',
-        stepName: 'CEA Basal',
-        stepDescription:
-          'Dosagem de CEA (antígeno carcinoembrionário) como marcador tumoral basal',
-        isRequired: true,
-        dueDate: this.addDays(new Date(), 14),
-      });
+        if (daysDiff > 60) {
+          try {
+            await this.alertsService.create(
+              {
+                patientId: completedStep.patientId,
+                type: AlertType.NAVIGATION_DELAY,
+                severity: AlertSeverity.HIGH,
+                message: `Lei 60 dias: tratamento iniciado em ${daysDiff} dias após diagnóstico (limite legal: 60 dias)`,
+                context: {
+                  checkpoint: 'LEI_60_DIAS',
+                  daysDiff,
+                  limit: 60,
+                  stepKey: completedStep.stepKey,
+                },
+              },
+              tenantId
+            );
+            this.logger.warn(
+              `Lei 60 dias excedida: ${daysDiff} dias para paciente ${completedStep.patientId}`
+            );
+          } catch (e) {
+            this.logger.error('Erro ao criar alerta Lei 60 dias', e);
+          }
+        }
+      }
     }
-
-    // TRATAMENTO (TREATMENT)
-    if (requestedStage === JourneyStage.TREATMENT) {
-      steps.push({
-        journeyStage: JourneyStage.TREATMENT,
-        stepKey: 'surgical_evaluation',
-        stepName: 'Avaliação Cirúrgica',
-        stepDescription:
-          'Consulta com cirurgião para planejamento da ressecção',
-        isRequired: true,
-        dueDate: this.addDays(new Date(), 14),
-      });
-
-      steps.push({
-        journeyStage: JourneyStage.TREATMENT,
-        stepKey: 'colectomy',
-        stepName: 'Colectomia (Cirurgia)',
-        stepDescription:
-          'Ressecção cirúrgica do tumor. Timing depende do estadiamento',
-        isRequired: true,
-        dueDate: this.addDays(new Date(), 42), // 6 semanas após diagnóstico
-      });
-
-      steps.push({
-        journeyStage: JourneyStage.TREATMENT,
-        stepKey: 'adjuvant_chemotherapy',
-        stepName: 'Quimioterapia Adjuvante',
-        stepDescription:
-          'QT adjuvante (FOLFOX ou CAPOX) se estágio III ou alto risco estágio II',
-        isRequired: false, // Depende do estadiamento pós-cirúrgico
-        dueDate: this.addDays(new Date(), 90), // Iniciar 4-8 semanas pós-cirurgia
-      });
-
-      steps.push({
-        journeyStage: JourneyStage.TREATMENT,
-        stepKey: 'radiotherapy',
-        stepName: 'Radioterapia',
-        stepDescription:
-          'RT neoadjuvante ou adjuvante para câncer retal (T3-T4 ou N+)',
-        isRequired: false, // Apenas para reto
-        dueDate: this.addDays(new Date(), 60),
-      });
-    }
-
-    // SEGUIMENTO (FOLLOW_UP)
-    if (requestedStage === JourneyStage.FOLLOW_UP) {
-      steps.push({
-        journeyStage: JourneyStage.FOLLOW_UP,
-        stepKey: 'cea_3months',
-        stepName: 'CEA aos 3 meses',
-        stepDescription: 'Primeira dosagem de CEA pós-tratamento',
-        isRequired: true,
-        dueDate: this.addDays(new Date(), 90),
-      });
-
-      steps.push({
-        journeyStage: JourneyStage.FOLLOW_UP,
-        stepKey: 'colonoscopy_1year',
-        stepName: 'Colonoscopia de Controle (1 ano)',
-        stepDescription:
-          'Primeira colonoscopia de seguimento 1 ano após cirurgia',
-        isRequired: true,
-        dueDate: this.addDays(new Date(), 365),
-      });
-
-      steps.push({
-        journeyStage: JourneyStage.FOLLOW_UP,
-        stepKey: 'ct_abdomen_annual',
-        stepName: 'TC Abdome/Pelve Anual',
-        stepDescription: 'TC anual para rastreio de recidiva (por 3-5 anos)',
-        isRequired: true,
-        dueDate: this.addDays(new Date(), 365),
-      });
-
-      steps.push({
-        journeyStage: JourneyStage.FOLLOW_UP,
-        stepKey: 'colonoscopy_3years',
-        stepName: 'Colonoscopia de Controle (3 anos)',
-        stepDescription: 'Segunda colonoscopia de seguimento',
-        isRequired: true,
-        dueDate: this.addDays(new Date(), 1095), // 3 anos
-      });
-    }
-
-    return steps;
   }
 
-  /**
-   * Etapas para câncer de mama
-   */
-  private getBreastCancerSteps(requestedStage: JourneyStage): Array<{
-    journeyStage: JourneyStage;
-    stepKey: string;
-    stepName: string;
-    stepDescription: string;
-    isRequired: boolean;
-    expectedDate?: Date;
-    dueDate?: Date;
-  }> {
-    const steps: Array<{
-      journeyStage: JourneyStage;
-      stepKey: string;
-      stepName: string;
-      stepDescription: string;
-      isRequired: boolean;
-      expectedDate?: Date;
-      dueDate?: Date;
-    }> = [];
-
-    // RASTREIO (SCREENING)
-    if (requestedStage === JourneyStage.SCREENING) {
-      steps.push({
-        journeyStage: JourneyStage.SCREENING,
-        stepKey: 'mammography',
-        stepName: 'Mamografia',
-        stepDescription: 'Exame de rastreio para detecção precoce',
-        isRequired: true,
-        dueDate: this.addDays(new Date(), 30),
-      });
-
-      steps.push({
-        journeyStage: JourneyStage.SCREENING,
-        stepKey: 'breast_ultrasound',
-        stepName: 'Ultrassonografia de Mama',
-        stepDescription: 'Complementar à mamografia em mamas densas',
-        isRequired: false,
-        dueDate: this.addDays(new Date(), 45),
-      });
-    }
-
-    // DIAGNÓSTICO (DIAGNOSIS)
-    if (requestedStage === JourneyStage.DIAGNOSIS) {
-      steps.push({
-        journeyStage: JourneyStage.DIAGNOSIS,
-        stepKey: 'breast_biopsy',
-        stepName: 'Biópsia de Mama',
-        stepDescription:
-          'Biópsia core ou excisional para confirmação diagnóstica',
-        isRequired: true,
-        dueDate: this.addDays(new Date(), 14),
-      });
-
-      steps.push({
-        journeyStage: JourneyStage.DIAGNOSIS,
-        stepKey: 'pathology_report',
-        stepName: 'Laudo Anatomopatológico',
-        stepDescription: 'Tipo histológico, grau, receptor hormonal, HER2',
-        isRequired: true,
-        dueDate: this.addDays(new Date(), 21),
-      });
-
-      steps.push({
-        journeyStage: JourneyStage.DIAGNOSIS,
-        stepKey: 'breast_mri',
-        stepName: 'Ressonância Magnética de Mama',
-        stepDescription: 'Avaliar extensão e multifocalidade (se indicado)',
-        isRequired: false,
-        dueDate: this.addDays(new Date(), 28),
-      });
-
-      steps.push({
-        journeyStage: JourneyStage.DIAGNOSIS,
-        stepKey: 'staging_ct_thorax_abdomen',
-        stepName: 'TC de Tórax, Abdome e Pelve',
-        stepDescription: 'Estadiamento para avaliar metástases',
-        isRequired: true,
-        dueDate: this.addDays(new Date(), 28),
-      });
-
-      steps.push({
-        journeyStage: JourneyStage.DIAGNOSIS,
-        stepKey: 'bone_scan',
-        stepName: 'Cintilografia Óssea',
-        stepDescription:
-          'Avaliar metástases ósseas (se sintomas ou estágio avançado)',
-        isRequired: false,
-        dueDate: this.addDays(new Date(), 35),
-      });
-
-      steps.push({
-        journeyStage: JourneyStage.DIAGNOSIS,
-        stepKey: 'genetic_counseling',
-        stepName: 'Aconselhamento Genético',
-        stepDescription: 'Avaliar risco hereditário (BRCA1/BRCA2) se indicado',
-        isRequired: false,
-        dueDate: this.addDays(new Date(), 42),
-      });
-    }
-
-    // TRATAMENTO (TREATMENT)
-    if (requestedStage === JourneyStage.TREATMENT) {
-      steps.push({
-        journeyStage: JourneyStage.TREATMENT,
-        stepKey: 'surgical_evaluation',
-        stepName: 'Avaliação Cirúrgica',
-        stepDescription: 'Consulta com cirurgião para planejamento',
-        isRequired: true,
-        dueDate: this.addDays(new Date(), 14),
-      });
-
-      steps.push({
-        journeyStage: JourneyStage.TREATMENT,
-        stepKey: 'neoadjuvant_chemotherapy',
-        stepName: 'Quimioterapia Neoadjuvante',
-        stepDescription: 'QT antes da cirurgia (se tumor grande ou HER2+)',
-        isRequired: false,
-        dueDate: this.addDays(new Date(), 21),
-      });
-
-      steps.push({
-        journeyStage: JourneyStage.TREATMENT,
-        stepKey: 'mastectomy_or_lumpectomy',
-        stepName: 'Mastectomia ou Quadrantectomia',
-        stepDescription: 'Cirurgia de ressecção do tumor',
-        isRequired: true,
-        dueDate: this.addDays(new Date(), 42),
-      });
-
-      steps.push({
-        journeyStage: JourneyStage.TREATMENT,
-        stepKey: 'sentinel_lymph_node',
-        stepName: 'Biópsia de Linfonodo Sentinela',
-        stepDescription: 'Avaliar comprometimento linfonodal',
-        isRequired: true,
-        dueDate: this.addDays(new Date(), 42),
-      });
-
-      steps.push({
-        journeyStage: JourneyStage.TREATMENT,
-        stepKey: 'adjuvant_chemotherapy',
-        stepName: 'Quimioterapia Adjuvante',
-        stepDescription: 'QT após cirurgia (se indicado pelo estadiamento)',
-        isRequired: false,
-        dueDate: this.addDays(new Date(), 90),
-      });
-
-      steps.push({
-        journeyStage: JourneyStage.TREATMENT,
-        stepKey: 'radiotherapy',
-        stepName: 'Radioterapia',
-        stepDescription:
-          'RT após cirurgia conservadora ou mastectomia com risco',
-        isRequired: false,
-        dueDate: this.addDays(new Date(), 120),
-      });
-
-      steps.push({
-        journeyStage: JourneyStage.TREATMENT,
-        stepKey: 'hormonal_therapy',
-        stepName: 'Hormonioterapia',
-        stepDescription:
-          'Tamoxifeno ou inibidor de aromatase (se receptor positivo)',
-        isRequired: false,
-        dueDate: this.addDays(new Date(), 90),
-      });
-
-      steps.push({
-        journeyStage: JourneyStage.TREATMENT,
-        stepKey: 'targeted_therapy',
-        stepName: 'Terapia Alvo (Trastuzumab)',
-        stepDescription: 'Se HER2 positivo',
-        isRequired: false,
-        dueDate: this.addDays(new Date(), 90),
-      });
-    }
-
-    // SEGUIMENTO (FOLLOW_UP)
-    if (requestedStage === JourneyStage.FOLLOW_UP) {
-      steps.push({
-        journeyStage: JourneyStage.FOLLOW_UP,
-        stepKey: 'mammography_6months',
-        stepName: 'Mamografia aos 6 meses',
-        stepDescription: 'Primeira mamografia pós-tratamento',
-        isRequired: true,
-        dueDate: this.addDays(new Date(), 180),
-      });
-
-      steps.push({
-        journeyStage: JourneyStage.FOLLOW_UP,
-        stepKey: 'mammography_annual',
-        stepName: 'Mamografia Anual',
-        stepDescription: 'Mamografia anual por 5 anos',
-        isRequired: true,
-        dueDate: this.addDays(new Date(), 365),
-      });
-
-      steps.push({
-        journeyStage: JourneyStage.FOLLOW_UP,
-        stepKey: 'clinical_exam_6months',
-        stepName: 'Exame Clínico a cada 6 meses',
-        stepDescription: 'Avaliação clínica por 3 anos, depois anual',
-        isRequired: true,
-        dueDate: this.addDays(new Date(), 180),
-      });
-    }
-
-    return steps;
-  }
+  // =========================================================================
+  // STEP CONFIGS — prazos relativos conforme guidelines clínicos internacionais
+  // Cada StepConfig define a etapa predecessora (dependsOnStepKey) e o intervalo
+  // de dias esperado. As datas são calculadas em runtime quando a predecessora conclui.
+  // =========================================================================
 
   /**
-   * Etapas para câncer de pulmão
+   * Câncer de Bexiga — MVP ATIVO (13 etapas, EAU/AUA/NCCN)
+   * Bifurcação NMIBC/MIBC aplicada via applyBladderCancerBifurcation()
+   * ao concluir pathology_report.
    */
-  private getLungCancerSteps(requestedStage: JourneyStage): Array<{
-    journeyStage: JourneyStage;
-    stepKey: string;
-    stepName: string;
-    stepDescription: string;
-    isRequired: boolean;
-    expectedDate?: Date;
-    dueDate?: Date;
-  }> {
-    const steps: Array<{
-      journeyStage: JourneyStage;
-      stepKey: string;
-      stepName: string;
-      stepDescription: string;
-      isRequired: boolean;
-      expectedDate?: Date;
-      dueDate?: Date;
-    }> = [];
-
-    // RASTREIO (SCREENING)
-    if (requestedStage === JourneyStage.SCREENING) {
-      steps.push({
-        journeyStage: JourneyStage.SCREENING,
-        stepKey: 'low_dose_ct',
-        stepName: 'TC de Tórax de Baixa Dose',
-        stepDescription: 'Rastreio em pacientes de alto risco (tabagistas)',
-        isRequired: true,
-        dueDate: this.addDays(new Date(), 30),
-      });
-    }
-
-    // DIAGNÓSTICO (DIAGNOSIS)
-    if (requestedStage === JourneyStage.DIAGNOSIS) {
-      steps.push({
-        journeyStage: JourneyStage.DIAGNOSIS,
-        stepKey: 'ct_thorax_contrast',
-        stepName: 'TC de Tórax com Contraste',
-        stepDescription: 'Avaliar lesão pulmonar e linfonodos',
-        isRequired: true,
-        dueDate: this.addDays(new Date(), 7),
-      });
-
-      steps.push({
-        journeyStage: JourneyStage.DIAGNOSIS,
-        stepKey: 'bronchoscopy_biopsy',
-        stepName: 'Broncoscopia com Biópsia',
-        stepDescription: 'Coleta de material para diagnóstico',
-        isRequired: true,
-        dueDate: this.addDays(new Date(), 14),
-      });
-
-      steps.push({
-        journeyStage: JourneyStage.DIAGNOSIS,
-        stepKey: 'pathology_report',
-        stepName: 'Laudo Anatomopatológico',
-        stepDescription: 'Tipo histológico (adenocarcinoma, escamoso, etc.)',
-        isRequired: true,
-        dueDate: this.addDays(new Date(), 21),
-      });
-
-      steps.push({
-        journeyStage: JourneyStage.DIAGNOSIS,
-        stepKey: 'pet_ct',
-        stepName: 'PET-CT',
-        stepDescription: 'Estadiamento completo (metástases)',
-        isRequired: true,
-        dueDate: this.addDays(new Date(), 28),
-      });
-
-      steps.push({
-        journeyStage: JourneyStage.DIAGNOSIS,
-        stepKey: 'molecular_testing',
-        stepName: 'Testes Moleculares (EGFR, ALK, ROS1, PD-L1)',
-        stepDescription: 'Biomarcadores para terapia alvo e imunoterapia',
-        isRequired: true,
-        dueDate: this.addDays(new Date(), 28),
-      });
-
-      steps.push({
-        journeyStage: JourneyStage.DIAGNOSIS,
-        stepKey: 'brain_mri',
-        stepName: 'Ressonância Magnética de Crânio',
-        stepDescription:
-          'Avaliar metástases cerebrais (se sintomas ou estágio avançado)',
-        isRequired: false,
-        dueDate: this.addDays(new Date(), 35),
-      });
-    }
-
-    // TRATAMENTO (TREATMENT)
-    if (requestedStage === JourneyStage.TREATMENT) {
-      steps.push({
-        journeyStage: JourneyStage.TREATMENT,
-        stepKey: 'surgical_evaluation',
-        stepName: 'Avaliação Cirúrgica',
-        stepDescription: 'Avaliar ressecabilidade (estágios I-II)',
-        isRequired: false,
-        dueDate: this.addDays(new Date(), 14),
-      });
-
-      steps.push({
-        journeyStage: JourneyStage.TREATMENT,
-        stepKey: 'lobectomy_or_pneumonectomy',
-        stepName: 'Lobectomia ou Pneumonectomia',
-        stepDescription: 'Cirurgia de ressecção (se estágio inicial)',
-        isRequired: false,
-        dueDate: this.addDays(new Date(), 42),
-      });
-
-      steps.push({
-        journeyStage: JourneyStage.TREATMENT,
-        stepKey: 'chemotherapy',
-        stepName: 'Quimioterapia',
-        stepDescription: 'QT adjuvante ou paliativa conforme estadiamento',
-        isRequired: false,
-        dueDate: this.addDays(new Date(), 28),
-      });
-
-      steps.push({
-        journeyStage: JourneyStage.TREATMENT,
-        stepKey: 'radiotherapy',
-        stepName: 'Radioterapia',
-        stepDescription: 'RT adjuvante ou paliativa',
-        isRequired: false,
-        dueDate: this.addDays(new Date(), 42),
-      });
-
-      steps.push({
-        journeyStage: JourneyStage.TREATMENT,
-        stepKey: 'targeted_therapy',
-        stepName: 'Terapia Alvo',
-        stepDescription: 'Inibidores de tirosina quinase (se mutação presente)',
-        isRequired: false,
-        dueDate: this.addDays(new Date(), 28),
-      });
-
-      steps.push({
-        journeyStage: JourneyStage.TREATMENT,
-        stepKey: 'immunotherapy',
-        stepName: 'Imunoterapia',
-        stepDescription: 'Anti-PD-1/PD-L1 (se PD-L1 positivo)',
-        isRequired: false,
-        dueDate: this.addDays(new Date(), 28),
-      });
-    }
-
-    // SEGUIMENTO (FOLLOW_UP)
-    if (requestedStage === JourneyStage.FOLLOW_UP) {
-      steps.push({
-        journeyStage: JourneyStage.FOLLOW_UP,
-        stepKey: 'ct_thorax_3months',
-        stepName: 'TC de Tórax aos 3 meses',
-        stepDescription: 'Primeira TC pós-tratamento',
-        isRequired: true,
-        dueDate: this.addDays(new Date(), 90),
-      });
-
-      steps.push({
-        journeyStage: JourneyStage.FOLLOW_UP,
-        stepKey: 'ct_thorax_6months',
-        stepName: 'TC de Tórax aos 6 meses',
-        stepDescription: 'Segunda TC de seguimento',
-        isRequired: true,
-        dueDate: this.addDays(new Date(), 180),
-      });
-
-      steps.push({
-        journeyStage: JourneyStage.FOLLOW_UP,
-        stepKey: 'ct_thorax_annual',
-        stepName: 'TC de Tórax Anual',
-        stepDescription: 'TC anual por 2-3 anos, depois conforme necessário',
-        isRequired: true,
-        dueDate: this.addDays(new Date(), 365),
-      });
-    }
-
-    return steps;
-  }
-
-  /**
-   * Etapas para câncer de próstata
-   */
-  private getProstateCancerSteps(requestedStage: JourneyStage): Array<{
-    journeyStage: JourneyStage;
-    stepKey: string;
-    stepName: string;
-    stepDescription: string;
-    isRequired: boolean;
-    expectedDate?: Date;
-    dueDate?: Date;
-  }> {
-    const steps: Array<{
-      journeyStage: JourneyStage;
-      stepKey: string;
-      stepName: string;
-      stepDescription: string;
-      isRequired: boolean;
-      expectedDate?: Date;
-      dueDate?: Date;
-    }> = [];
-
-    // RASTREIO (SCREENING)
-    if (requestedStage === JourneyStage.SCREENING) {
-      steps.push({
-        journeyStage: JourneyStage.SCREENING,
-        stepKey: 'psa_test',
-        stepName: 'Dosagem de PSA',
-        stepDescription: 'Antígeno prostático específico',
-        isRequired: true,
-        dueDate: this.addDays(new Date(), 30),
-      });
-
-      steps.push({
-        journeyStage: JourneyStage.SCREENING,
-        stepKey: 'digital_rectal_exam',
-        stepName: 'Toque Retal',
-        stepDescription: 'Exame físico da próstata',
-        isRequired: true,
-        dueDate: this.addDays(new Date(), 30),
-      });
-    }
-
-    // DIAGNÓSTICO (DIAGNOSIS)
-    if (requestedStage === JourneyStage.DIAGNOSIS) {
-      steps.push({
-        journeyStage: JourneyStage.DIAGNOSIS,
-        stepKey: 'prostate_biopsy',
-        stepName: 'Biópsia de Próstata',
-        stepDescription: 'Biópsia guiada por ultrassom transretal',
-        isRequired: true,
-        dueDate: this.addDays(new Date(), 14),
-      });
-
-      steps.push({
-        journeyStage: JourneyStage.DIAGNOSIS,
-        stepKey: 'pathology_report',
-        stepName: 'Laudo Anatomopatológico',
-        stepDescription: 'Gleason score, extensão, margens',
-        isRequired: true,
-        dueDate: this.addDays(new Date(), 21),
-      });
-
-      steps.push({
-        journeyStage: JourneyStage.DIAGNOSIS,
-        stepKey: 'prostate_mri',
-        stepName: 'Ressonância Magnética de Próstata',
-        stepDescription: 'Avaliar extensão local e planejar tratamento',
-        isRequired: false,
-        dueDate: this.addDays(new Date(), 28),
-      });
-
-      steps.push({
-        journeyStage: JourneyStage.DIAGNOSIS,
-        stepKey: 'bone_scan',
-        stepName: 'Cintilografia Óssea',
-        stepDescription: 'Avaliar metástases ósseas (se PSA alto ou sintomas)',
-        isRequired: false,
-        dueDate: this.addDays(new Date(), 35),
-      });
-
-      steps.push({
-        journeyStage: JourneyStage.DIAGNOSIS,
-        stepKey: 'ct_abdomen_pelvis',
-        stepName: 'TC de Abdome e Pelve',
-        stepDescription: 'Avaliar linfonodos e metástases viscerais',
-        isRequired: false,
-        dueDate: this.addDays(new Date(), 35),
-      });
-    }
-
-    // TRATAMENTO (TREATMENT)
-    if (requestedStage === JourneyStage.TREATMENT) {
-      steps.push({
-        journeyStage: JourneyStage.TREATMENT,
-        stepKey: 'treatment_decision',
-        stepName: 'Decisão de Tratamento',
-        stepDescription: 'Cirurgia, radioterapia ou vigilância ativa',
-        isRequired: true,
-        dueDate: this.addDays(new Date(), 14),
-      });
-
-      steps.push({
-        journeyStage: JourneyStage.TREATMENT,
-        stepKey: 'radical_prostatectomy',
-        stepName: 'Prostatectomia Radical',
-        stepDescription: 'Cirurgia de remoção da próstata (se escolhida)',
-        isRequired: false,
-        dueDate: this.addDays(new Date(), 60),
-      });
-
-      steps.push({
-        journeyStage: JourneyStage.TREATMENT,
-        stepKey: 'radiotherapy',
-        stepName: 'Radioterapia',
-        stepDescription: 'RT externa ou braquiterapia (se escolhida)',
-        isRequired: false,
-        dueDate: this.addDays(new Date(), 60),
-      });
-
-      steps.push({
-        journeyStage: JourneyStage.TREATMENT,
-        stepKey: 'hormonal_therapy',
-        stepName: 'Hormonioterapia',
-        stepDescription: 'Bloqueio androgênico (se doença avançada)',
-        isRequired: false,
-        dueDate: this.addDays(new Date(), 30),
-      });
-    }
-
-    // SEGUIMENTO (FOLLOW_UP)
-    if (requestedStage === JourneyStage.FOLLOW_UP) {
-      steps.push({
-        journeyStage: JourneyStage.FOLLOW_UP,
-        stepKey: 'psa_3months',
-        stepName: 'PSA aos 3 meses',
-        stepDescription: 'Primeira dosagem pós-tratamento',
-        isRequired: true,
-        dueDate: this.addDays(new Date(), 90),
-      });
-
-      steps.push({
-        journeyStage: JourneyStage.FOLLOW_UP,
-        stepKey: 'psa_6months',
-        stepName: 'PSA aos 6 meses',
-        stepDescription: 'Segunda dosagem de seguimento',
-        isRequired: true,
-        dueDate: this.addDays(new Date(), 180),
-      });
-
-      steps.push({
-        journeyStage: JourneyStage.FOLLOW_UP,
-        stepKey: 'psa_annual',
-        stepName: 'PSA Anual',
-        stepDescription: 'Dosagem anual por 5 anos',
-        isRequired: true,
-        dueDate: this.addDays(new Date(), 365),
-      });
-    }
-
-    return steps;
-  }
-
-  /**
-   * Etapas para câncer de rim (renal)
-   */
-  private getKidneyCancerSteps(requestedStage: JourneyStage): Array<{
-    journeyStage: JourneyStage;
-    stepKey: string;
-    stepName: string;
-    stepDescription: string;
-    isRequired: boolean;
-    expectedDate?: Date;
-    dueDate?: Date;
-  }> {
-    const steps: Array<{
-      journeyStage: JourneyStage;
-      stepKey: string;
-      stepName: string;
-      stepDescription: string;
-      isRequired: boolean;
-      expectedDate?: Date;
-      dueDate?: Date;
-    }> = [];
-
-    // RASTREIO (SCREENING)
-    if (requestedStage === JourneyStage.SCREENING) {
-      steps.push({
-        journeyStage: JourneyStage.SCREENING,
-        stepKey: 'abdominal_ultrasound',
-        stepName: 'Ultrassonografia de Abdome',
-        stepDescription: 'Rastreio de massa renal',
-        isRequired: true,
-        dueDate: this.addDays(new Date(), 30),
-      });
-    }
-
-    // DIAGNÓSTICO (DIAGNOSIS)
-    if (requestedStage === JourneyStage.DIAGNOSIS) {
-      steps.push({
-        journeyStage: JourneyStage.DIAGNOSIS,
-        stepKey: 'ct_abdomen_contrast',
-        stepName: 'TC de Abdome com Contraste',
-        stepDescription: 'Caracterizar massa renal e estadiamento',
-        isRequired: true,
-        dueDate: this.addDays(new Date(), 14),
-      });
-
-      steps.push({
-        journeyStage: JourneyStage.DIAGNOSIS,
-        stepKey: 'biopsy_or_surgery',
-        stepName: 'Biópsia ou Cirurgia Diagnóstica',
-        stepDescription: 'Biópsia percutânea ou nefrectomia parcial/total',
-        isRequired: true,
-        dueDate: this.addDays(new Date(), 21),
-      });
-
-      steps.push({
-        journeyStage: JourneyStage.DIAGNOSIS,
-        stepKey: 'pathology_report',
-        stepName: 'Laudo Anatomopatológico',
-        stepDescription: 'Tipo histológico (carcinoma de células claras, etc.)',
-        isRequired: true,
-        dueDate: this.addDays(new Date(), 28),
-      });
-
-      steps.push({
-        journeyStage: JourneyStage.DIAGNOSIS,
-        stepKey: 'ct_thorax',
-        stepName: 'TC de Tórax',
-        stepDescription: 'Avaliar metástases pulmonares',
-        isRequired: true,
-        dueDate: this.addDays(new Date(), 28),
-      });
-
-      steps.push({
-        journeyStage: JourneyStage.DIAGNOSIS,
-        stepKey: 'bone_scan',
-        stepName: 'Cintilografia Óssea',
-        stepDescription: 'Avaliar metástases ósseas (se sintomas)',
-        isRequired: false,
-        dueDate: this.addDays(new Date(), 35),
-      });
-    }
-
-    // TRATAMENTO (TREATMENT)
-    if (requestedStage === JourneyStage.TREATMENT) {
-      steps.push({
-        journeyStage: JourneyStage.TREATMENT,
-        stepKey: 'surgical_evaluation',
-        stepName: 'Avaliação Cirúrgica',
-        stepDescription: 'Planejamento de nefrectomia parcial ou total',
-        isRequired: true,
-        dueDate: this.addDays(new Date(), 14),
-      });
-
-      steps.push({
-        journeyStage: JourneyStage.TREATMENT,
-        stepKey: 'partial_or_radical_nephrectomy',
-        stepName: 'Nefrectomia Parcial ou Radical',
-        stepDescription: 'Cirurgia de ressecção do tumor',
-        isRequired: true,
-        dueDate: this.addDays(new Date(), 42),
-      });
-
-      steps.push({
-        journeyStage: JourneyStage.TREATMENT,
-        stepKey: 'targeted_therapy',
-        stepName: 'Terapia Alvo',
-        stepDescription:
-          'Sunitinibe, pazopanibe ou outros (se doença avançada)',
-        isRequired: false,
-        dueDate: this.addDays(new Date(), 60),
-      });
-
-      steps.push({
-        journeyStage: JourneyStage.TREATMENT,
-        stepKey: 'immunotherapy',
-        stepName: 'Imunoterapia',
-        stepDescription: 'Nivolumabe, ipilimumabe (se doença avançada)',
-        isRequired: false,
-        dueDate: this.addDays(new Date(), 60),
-      });
-    }
-
-    // SEGUIMENTO (FOLLOW_UP)
-    if (requestedStage === JourneyStage.FOLLOW_UP) {
-      steps.push({
-        journeyStage: JourneyStage.FOLLOW_UP,
-        stepKey: 'ct_abdomen_3months',
-        stepName: 'TC de Abdome aos 3 meses',
-        stepDescription: 'Primeira TC pós-cirurgia',
-        isRequired: true,
-        dueDate: this.addDays(new Date(), 90),
-      });
-
-      steps.push({
-        journeyStage: JourneyStage.FOLLOW_UP,
-        stepKey: 'ct_abdomen_6months',
-        stepName: 'TC de Abdome aos 6 meses',
-        stepDescription: 'Segunda TC de seguimento',
-        isRequired: true,
-        dueDate: this.addDays(new Date(), 180),
-      });
-
-      steps.push({
-        journeyStage: JourneyStage.FOLLOW_UP,
-        stepKey: 'ct_abdomen_annual',
-        stepName: 'TC de Abdome Anual',
-        stepDescription: 'TC anual por 3-5 anos',
-        isRequired: true,
-        dueDate: this.addDays(new Date(), 365),
-      });
-    }
-
-    return steps;
-  }
-
-  /**
-   * Etapas para câncer de bexiga
-   */
-  private getBladderCancerSteps(requestedStage: JourneyStage): Array<{
-    journeyStage: JourneyStage;
-    stepKey: string;
-    stepName: string;
-    stepDescription: string;
-    isRequired: boolean;
-    expectedDate?: Date;
-    dueDate?: Date;
-  }> {
-    const steps: Array<{
-      journeyStage: JourneyStage;
-      stepKey: string;
-      stepName: string;
-      stepDescription: string;
-      isRequired: boolean;
-      expectedDate?: Date;
-      dueDate?: Date;
-    }> = [];
-
-    // RASTREIO (SCREENING)
-    if (requestedStage === JourneyStage.SCREENING) {
-      steps.push({
+  private getBladderStepConfigs(): StepConfig[] {
+    return [
+      {
         journeyStage: JourneyStage.SCREENING,
         stepKey: 'urine_cytology',
         stepName: 'Citologia Urinária',
-        stepDescription: 'Rastreio de células neoplásicas na urina',
+        stepDescription: 'Rastreio de células neoplásicas na urina (marcador inicial)',
         isRequired: true,
-        dueDate: this.addDays(new Date(), 30),
-      });
-    }
-
-    // DIAGNÓSTICO (DIAGNOSIS)
-    if (requestedStage === JourneyStage.DIAGNOSIS) {
-      steps.push({
+        dependsOnStepKey: null,
+        relativeDaysMin: null,
+        relativeDaysMax: null,
+        stepOrder: 1,
+      },
+      {
+        journeyStage: JourneyStage.SCREENING,
+        stepKey: 'clinical_suspicion',
+        stepName: 'Suspeita Clínica',
+        stepDescription:
+          'Sintomas clínicos sugestivos (hematúria, disúria, urgência miccional). Complementar ao exame de rastreio — prazo de 30 dias para diagnóstico.',
+        isRequired: false,
+        dependsOnStepKey: null,
+        relativeDaysMin: null,
+        relativeDaysMax: null,
+        stepOrder: 2,
+      },
+      {
         journeyStage: JourneyStage.DIAGNOSIS,
         stepKey: 'cystoscopy',
         stepName: 'Cistoscopia',
-        stepDescription: 'Visualização da bexiga e biópsia',
+        stepDescription: 'Visualização endoscópica da bexiga para avaliação diagnóstica. Prazo: até 30 dias após suspeita clínica ou exame de rastreio alterado.',
         isRequired: true,
-        dueDate: this.addDays(new Date(), 14),
-      });
-
-      steps.push({
+        dependsOnStepKey: 'urine_cytology',
+        relativeDaysMin: 14,
+        relativeDaysMax: 30,
+        stepOrder: 3,
+      },
+      {
         journeyStage: JourneyStage.DIAGNOSIS,
         stepKey: 'transurethral_resection',
         stepName: 'Ressecção Transuretral de Bexiga (RTU)',
-        stepDescription: 'Remoção do tumor e confirmação diagnóstica',
+        stepDescription: 'Remoção endoscópica do tumor com material para anatomopatológico',
         isRequired: true,
-        dueDate: this.addDays(new Date(), 21),
-      });
-
-      steps.push({
+        dependsOnStepKey: 'cystoscopy',
+        relativeDaysMin: 14,
+        relativeDaysMax: 21,
+        stepOrder: 4,
+      },
+      {
         journeyStage: JourneyStage.DIAGNOSIS,
         stepKey: 'pathology_report',
         stepName: 'Laudo Anatomopatológico',
-        stepDescription: 'Grau (baixo/alto), invasão muscular',
+        stepDescription: 'Grau histológico (baixo/alto), invasão muscular (NMIBC vs MIBC), estadiamento patológico',
         isRequired: true,
-        dueDate: this.addDays(new Date(), 28),
-      });
-
-      steps.push({
+        dependsOnStepKey: 'transurethral_resection',
+        relativeDaysMin: 0,
+        relativeDaysMax: 7,
+        stepOrder: 5,
+      },
+      {
         journeyStage: JourneyStage.DIAGNOSIS,
         stepKey: 'ct_urography',
         stepName: 'Urografia por TC',
-        stepDescription: 'Avaliar trato urinário superior e estadiamento',
+        stepDescription: 'Avaliação do trato urinário superior por tomografia computadorizada',
         isRequired: true,
-        dueDate: this.addDays(new Date(), 28),
-      });
-
-      steps.push({
+        dependsOnStepKey: 'pathology_report',
+        relativeDaysMin: 0,
+        relativeDaysMax: 14,
+        stepOrder: 6,
+      },
+      {
         journeyStage: JourneyStage.DIAGNOSIS,
         stepKey: 'ct_thorax',
         stepName: 'TC de Tórax',
-        stepDescription: 'Avaliar metástases pulmonares',
+        stepDescription: 'Avaliação de metástases pulmonares (paralelo à urografia)',
         isRequired: true,
-        dueDate: this.addDays(new Date(), 28),
-      });
-    }
-
-    // TRATAMENTO (TREATMENT)
-    if (requestedStage === JourneyStage.TREATMENT) {
-      steps.push({
+        dependsOnStepKey: 'pathology_report',
+        relativeDaysMin: 0,
+        relativeDaysMax: 14,
+        stepOrder: 7,
+      },
+      {
         journeyStage: JourneyStage.TREATMENT,
         stepKey: 'intravesical_bcg',
         stepName: 'BCG Intravesical',
-        stepDescription:
-          'Imunoterapia intravesical (tumores não-musculares invasivos)',
+        stepDescription: 'Imunoterapia intravesical — NMIBC alto risco (indução 6 semanas)',
         isRequired: false,
-        dueDate: this.addDays(new Date(), 42),
-      });
-
-      steps.push({
+        dependsOnStepKey: 'pathology_report',
+        relativeDaysMin: 14,
+        relativeDaysMax: 42,
+        stepOrder: 8,
+      },
+      {
         journeyStage: JourneyStage.TREATMENT,
         stepKey: 'radical_cystectomy',
         stepName: 'Cistectomia Radical',
-        stepDescription: 'Remoção da bexiga (tumores musculares invasivos)',
+        stepDescription: 'Remoção cirúrgica da bexiga — MIBC (músculo-invasivo)',
         isRequired: false,
-        dueDate: this.addDays(new Date(), 60),
-      });
-
-      steps.push({
+        dependsOnStepKey: 'pathology_report',
+        relativeDaysMin: 30,
+        relativeDaysMax: 42,
+        stepOrder: 9,
+      },
+      {
         journeyStage: JourneyStage.TREATMENT,
         stepKey: 'neobladder_or_urostomy',
         stepName: 'Neobexiga ou Urostomia',
-        stepDescription: 'Reconstrução do trato urinário após cistectomia',
+        stepDescription: 'Reconstrução urinária — simultânea à cistectomia radical',
         isRequired: false,
-        dueDate: this.addDays(new Date(), 90),
-      });
-
-      steps.push({
+        dependsOnStepKey: 'radical_cystectomy',
+        relativeDaysMin: 0,
+        relativeDaysMax: 0,
+        stepOrder: 10,
+      },
+      {
         journeyStage: JourneyStage.TREATMENT,
         stepKey: 'chemotherapy',
         stepName: 'Quimioterapia',
-        stepDescription: 'QT neoadjuvante ou adjuvante (MVAC ou GC)',
+        stepDescription: 'QT neoadjuvante (MIBC pré-cistectomia) ou adjuvante pós-cirurgia',
         isRequired: false,
-        dueDate: this.addDays(new Date(), 60),
-      });
-    }
-
-    // SEGUIMENTO (FOLLOW_UP)
-    if (requestedStage === JourneyStage.FOLLOW_UP) {
-      steps.push({
+        dependsOnStepKey: 'pathology_report',
+        relativeDaysMin: 30,
+        relativeDaysMax: 30,
+        stepOrder: 11,
+      },
+      {
         journeyStage: JourneyStage.FOLLOW_UP,
         stepKey: 'cystoscopy_3months',
-        stepName: 'Cistoscopia aos 3 meses',
-        stepDescription: 'Primeira cistoscopia pós-tratamento',
+        stepName: 'Cistoscopia 3 Meses',
+        stepDescription: 'Seguimento pós-tratamento — avaliação de recidiva a 3 meses',
         isRequired: true,
-        dueDate: this.addDays(new Date(), 90),
-      });
-
-      steps.push({
+        dependsOnStepKey: 'intravesical_bcg',
+        relativeDaysMin: 90,
+        relativeDaysMax: 90,
+        stepOrder: 12,
+      },
+      {
         journeyStage: JourneyStage.FOLLOW_UP,
         stepKey: 'cystoscopy_6months',
-        stepName: 'Cistoscopia aos 6 meses',
-        stepDescription: 'Segunda cistoscopia de seguimento',
+        stepName: 'Cistoscopia 6 Meses',
+        stepDescription: 'Seguimento pós-tratamento — avaliação de recidiva a 6 meses',
         isRequired: true,
-        dueDate: this.addDays(new Date(), 180),
-      });
-
-      steps.push({
+        dependsOnStepKey: 'intravesical_bcg',
+        relativeDaysMin: 180,
+        relativeDaysMax: 180,
+        stepOrder: 13,
+      },
+      {
         journeyStage: JourneyStage.FOLLOW_UP,
         stepKey: 'cystoscopy_annual',
         stepName: 'Cistoscopia Anual',
-        stepDescription: 'Cistoscopia anual por 5 anos',
+        stepDescription: 'Seguimento pós-tratamento — avaliação de recidiva anual',
         isRequired: true,
-        dueDate: this.addDays(new Date(), 365),
-      });
-    }
-
-    return steps;
+        dependsOnStepKey: 'intravesical_bcg',
+        relativeDaysMin: 365,
+        relativeDaysMax: 365,
+        stepOrder: 14,
+      },
+    ];
   }
 
   /**
-   * Etapas para câncer de testículo
+   * Câncer Colorretal — OCULTO no MVP (16 etapas, NCCN/CONITEC)
    */
-  private getTesticularCancerSteps(requestedStage: JourneyStage): Array<{
-    journeyStage: JourneyStage;
-    stepKey: string;
-    stepName: string;
-    stepDescription: string;
-    isRequired: boolean;
-    expectedDate?: Date;
-    dueDate?: Date;
-  }> {
-    const steps: Array<{
-      journeyStage: JourneyStage;
-      stepKey: string;
-      stepName: string;
-      stepDescription: string;
-      isRequired: boolean;
-      expectedDate?: Date;
-      dueDate?: Date;
-    }> = [];
-
-    // RASTREIO (SCREENING)
-    if (requestedStage === JourneyStage.SCREENING) {
-      steps.push({
+  private getColorectalStepConfigs(): StepConfig[] {
+    return [
+      {
         journeyStage: JourneyStage.SCREENING,
-        stepKey: 'testicular_ultrasound',
-        stepName: 'Ultrassonografia de Testículo',
-        stepDescription: 'Avaliar massa testicular',
+        stepKey: 'fecal_occult_blood',
+        stepName: 'Pesquisa de Sangue Oculto nas Fezes',
+        stepDescription: 'Exame de rastreio inicial para detecção de sangue oculto nas fezes',
         isRequired: true,
-        dueDate: this.addDays(new Date(), 7),
-      });
-    }
-
-    // DIAGNÓSTICO (DIAGNOSIS)
-    if (requestedStage === JourneyStage.DIAGNOSIS) {
-      steps.push({
-        journeyStage: JourneyStage.DIAGNOSIS,
-        stepKey: 'radical_orchiectomy',
-        stepName: 'Orquiectomia Radical',
+        dependsOnStepKey: null,
+        relativeDaysMin: null,
+        relativeDaysMax: null,
+        stepOrder: 1,
+      },
+      {
+        journeyStage: JourneyStage.SCREENING,
+        stepKey: 'clinical_suspicion',
+        stepName: 'Suspeita Clínica',
         stepDescription:
-          'Remoção do testículo (diagnóstico e tratamento inicial)',
+          'Sintomas clínicos sugestivos (alteração do hábito intestinal, sangramento retal, dor abdominal). Complementar ao exame de rastreio — prazo de 30 dias para diagnóstico.',
+        isRequired: false,
+        dependsOnStepKey: null,
+        relativeDaysMin: null,
+        relativeDaysMax: null,
+        stepOrder: 2,
+      },
+      {
+        journeyStage: JourneyStage.SCREENING,
+        stepKey: 'colonoscopy',
+        stepName: 'Colonoscopia de Rastreio',
+        stepDescription: 'Colonoscopia de rastreio (se PSOF positivo)',
+        isRequired: false,
+        dependsOnStepKey: 'fecal_occult_blood',
+        relativeDaysMin: 0,
+        relativeDaysMax: 30,
+        stepOrder: 3,
+      },
+      {
+        journeyStage: JourneyStage.DIAGNOSIS,
+        stepKey: 'colonoscopy_with_biopsy',
+        stepName: 'Colonoscopia com Biópsia',
+        stepDescription: 'Colonoscopia diagnóstica com coleta de material para análise. Prazo: até 30 dias após suspeita clínica ou exame de rastreio alterado.',
         isRequired: true,
-        dueDate: this.addDays(new Date(), 7),
-      });
-
-      steps.push({
+        dependsOnStepKey: 'fecal_occult_blood',
+        relativeDaysMin: 0,
+        relativeDaysMax: 30,
+        stepOrder: 4,
+      },
+      {
         journeyStage: JourneyStage.DIAGNOSIS,
         stepKey: 'pathology_report',
         stepName: 'Laudo Anatomopatológico',
-        stepDescription: 'Tipo histológico (seminoma vs não-seminoma)',
+        stepDescription: 'Confirmação do diagnóstico e tipo histológico',
         isRequired: true,
-        dueDate: this.addDays(new Date(), 14),
-      });
-
-      steps.push({
+        dependsOnStepKey: 'colonoscopy_with_biopsy',
+        relativeDaysMin: 0,
+        relativeDaysMax: 7,
+        stepOrder: 5,
+      },
+      {
         journeyStage: JourneyStage.DIAGNOSIS,
-        stepKey: 'tumor_markers',
-        stepName: 'Marcadores Tumorais (AFP, HCG, LDH)',
-        stepDescription: 'Dosagem pré e pós-operatória',
-        isRequired: true,
-        dueDate: this.addDays(new Date(), 7),
-      });
-
-      steps.push({
-        journeyStage: JourneyStage.DIAGNOSIS,
-        stepKey: 'ct_abdomen_pelvis',
+        stepKey: 'staging_ct_abdomen',
         stepName: 'TC de Abdome e Pelve',
-        stepDescription: 'Avaliar linfonodos retroperitoneais',
+        stepDescription: 'Tomografia para estadiamento — avaliação de metástases abdominais',
         isRequired: true,
-        dueDate: this.addDays(new Date(), 14),
-      });
-
-      steps.push({
+        dependsOnStepKey: 'pathology_report',
+        relativeDaysMin: 0,
+        relativeDaysMax: 14,
+        stepOrder: 6,
+      },
+      {
         journeyStage: JourneyStage.DIAGNOSIS,
-        stepKey: 'ct_thorax',
+        stepKey: 'staging_ct_thorax',
         stepName: 'TC de Tórax',
-        stepDescription: 'Avaliar metástases pulmonares',
+        stepDescription: 'Avaliação de metástases pulmonares (paralelo ao TC abdome)',
         isRequired: true,
-        dueDate: this.addDays(new Date(), 14),
-      });
-    }
-
-    // TRATAMENTO (TREATMENT)
-    if (requestedStage === JourneyStage.TREATMENT) {
-      steps.push({
-        journeyStage: JourneyStage.TREATMENT,
-        stepKey: 'retroperitoneal_lymph_node_dissection',
-        stepName: 'Linfadenectomia Retroperitoneal',
-        stepDescription: 'Remoção de linfonodos (se indicado)',
+        dependsOnStepKey: 'pathology_report',
+        relativeDaysMin: 0,
+        relativeDaysMax: 14,
+        stepOrder: 7,
+      },
+      {
+        journeyStage: JourneyStage.DIAGNOSIS,
+        stepKey: 'genetic_testing',
+        stepName: 'Teste Genético (MSI, KRAS, NRAS, BRAF)',
+        stepDescription: 'Testes moleculares para orientar tratamento em estágio avançado',
         isRequired: false,
-        dueDate: this.addDays(new Date(), 60),
-      });
-
-      steps.push({
+        dependsOnStepKey: 'pathology_report',
+        relativeDaysMin: 0,
+        relativeDaysMax: 14,
+        stepOrder: 8,
+      },
+      {
+        journeyStage: JourneyStage.DIAGNOSIS,
+        stepKey: 'cea_baseline',
+        stepName: 'CEA Basal',
+        stepDescription: 'Dosagem de CEA como marcador tumoral basal',
+        isRequired: true,
+        dependsOnStepKey: 'pathology_report',
+        relativeDaysMin: 0,
+        relativeDaysMax: 14,
+        stepOrder: 9,
+      },
+      {
         journeyStage: JourneyStage.TREATMENT,
-        stepKey: 'chemotherapy',
-        stepName: 'Quimioterapia',
-        stepDescription: 'BEP ou EP (bleomicina, etoposido, cisplatina)',
+        stepKey: 'surgical_evaluation',
+        stepName: 'Avaliação Cirúrgica',
+        stepDescription: 'Consulta com cirurgião para planejamento da ressecção',
+        isRequired: true,
+        dependsOnStepKey: 'staging_ct_abdomen',
+        relativeDaysMin: 0,
+        relativeDaysMax: 14,
+        stepOrder: 10,
+      },
+      {
+        journeyStage: JourneyStage.TREATMENT,
+        stepKey: 'colectomy',
+        stepName: 'Colectomia (Cirurgia)',
+        stepDescription: 'Ressecção cirúrgica do tumor colorretal',
+        isRequired: true,
+        dependsOnStepKey: 'surgical_evaluation',
+        relativeDaysMin: 21,
+        relativeDaysMax: 30,
+        stepOrder: 11,
+      },
+      {
+        journeyStage: JourneyStage.TREATMENT,
+        stepKey: 'adjuvant_chemotherapy',
+        stepName: 'Quimioterapia Adjuvante',
+        stepDescription: 'QT adjuvante (FOLFOX ou CAPOX) se estágio III ou alto risco estágio II',
         isRequired: false,
-        dueDate: this.addDays(new Date(), 30),
-      });
-
-      steps.push({
+        dependsOnStepKey: 'colectomy',
+        relativeDaysMin: 42,
+        relativeDaysMax: 56,
+        stepOrder: 12,
+      },
+      {
         journeyStage: JourneyStage.TREATMENT,
         stepKey: 'radiotherapy',
         stepName: 'Radioterapia',
-        stepDescription: 'RT para seminoma estágio I-II',
+        stepDescription: 'RT neoadjuvante ou adjuvante para câncer retal (T3-T4 ou N+)',
         isRequired: false,
-        dueDate: this.addDays(new Date(), 30),
-      });
-    }
-
-    // SEGUIMENTO (FOLLOW_UP)
-    if (requestedStage === JourneyStage.FOLLOW_UP) {
-      steps.push({
+        dependsOnStepKey: 'colectomy',
+        relativeDaysMin: 42,
+        relativeDaysMax: 56,
+        stepOrder: 13,
+      },
+      {
         journeyStage: JourneyStage.FOLLOW_UP,
-        stepKey: 'tumor_markers_1month',
-        stepName: 'Marcadores Tumorais aos 1 mês',
-        stepDescription: 'Primeira dosagem pós-tratamento',
+        stepKey: 'cea_3months',
+        stepName: 'CEA aos 3 meses',
+        stepDescription: 'Dosagem de CEA para acompanhamento pós-cirúrgico',
         isRequired: true,
-        dueDate: this.addDays(new Date(), 30),
-      });
-
-      steps.push({
+        dependsOnStepKey: 'colectomy',
+        relativeDaysMin: 90,
+        relativeDaysMax: 90,
+        stepOrder: 14,
+      },
+      {
         journeyStage: JourneyStage.FOLLOW_UP,
-        stepKey: 'ct_abdomen_3months',
-        stepName: 'TC de Abdome aos 3 meses',
-        stepDescription: 'Primeira TC pós-tratamento',
+        stepKey: 'colonoscopy_1year',
+        stepName: 'Colonoscopia de Controle (1 ano)',
+        stepDescription: 'Vigilância endoscópica pós-cirúrgica no primeiro ano',
         isRequired: true,
-        dueDate: this.addDays(new Date(), 90),
-      });
-
-      steps.push({
-        journeyStage: JourneyStage.FOLLOW_UP,
-        stepKey: 'ct_abdomen_6months',
-        stepName: 'TC de Abdome aos 6 meses',
-        stepDescription: 'Segunda TC de seguimento',
-        isRequired: true,
-        dueDate: this.addDays(new Date(), 180),
-      });
-
-      steps.push({
+        dependsOnStepKey: 'colectomy',
+        relativeDaysMin: 365,
+        relativeDaysMax: 365,
+        stepOrder: 15,
+      },
+      {
         journeyStage: JourneyStage.FOLLOW_UP,
         stepKey: 'ct_abdomen_annual',
-        stepName: 'TC de Abdome Anual',
-        stepDescription: 'TC anual por 5 anos',
+        stepName: 'TC Abdome/Pelve Anual',
+        stepDescription: 'Tomografia anual para vigilância de metástases',
         isRequired: true,
-        dueDate: this.addDays(new Date(), 365),
-      });
-    }
-
-    return steps;
+        dependsOnStepKey: 'colectomy',
+        relativeDaysMin: 365,
+        relativeDaysMax: 365,
+        stepOrder: 16,
+      },
+      {
+        journeyStage: JourneyStage.FOLLOW_UP,
+        stepKey: 'colonoscopy_3years',
+        stepName: 'Colonoscopia de Controle (3 anos)',
+        stepDescription: 'Vigilância endoscópica pós-cirúrgica a 3 anos',
+        isRequired: true,
+        dependsOnStepKey: 'colectomy',
+        relativeDaysMin: 1095,
+        relativeDaysMax: 1095,
+        stepOrder: 17,
+      },
+    ];
   }
 
   /**
-   * Etapas genéricas para tipos de câncer não especificados
+   * Câncer de Mama — OCULTO no MVP (19 etapas, NCCN/ASCO/ESMO)
    */
-  private getGenericCancerSteps(requestedStage: JourneyStage): Array<{
-    journeyStage: JourneyStage;
-    stepKey: string;
-    stepName: string;
-    stepDescription: string;
-    isRequired: boolean;
-    expectedDate?: Date;
-    dueDate?: Date;
-  }> {
-    const steps: Array<{
-      journeyStage: JourneyStage;
-      stepKey: string;
-      stepName: string;
-      stepDescription: string;
-      isRequired: boolean;
-      expectedDate?: Date;
-      dueDate?: Date;
-    }> = [];
-
-    // RASTREIO (SCREENING)
-    if (requestedStage === JourneyStage.SCREENING) {
-      steps.push({
+  private getBreastStepConfigs(): StepConfig[] {
+    return [
+      {
         journeyStage: JourneyStage.SCREENING,
-        stepKey: 'screening_exam',
-        stepName: 'Exame de Rastreio',
+        stepKey: 'mammography',
+        stepName: 'Mamografia',
+        stepDescription: 'Exame de imagem para rastreio de lesões mamárias',
+        isRequired: true,
+        dependsOnStepKey: null,
+        relativeDaysMin: null,
+        relativeDaysMax: null,
+        stepOrder: 1,
+      },
+      {
+        journeyStage: JourneyStage.SCREENING,
+        stepKey: 'clinical_suspicion',
+        stepName: 'Suspeita Clínica',
         stepDescription:
-          'Exame de rastreio conforme indicação para o tipo de câncer',
-        isRequired: true,
-        dueDate: this.addDays(new Date(), 30),
-      });
-    }
-
-    // DIAGNÓSTICO (DIAGNOSIS)
-    if (requestedStage === JourneyStage.DIAGNOSIS) {
-      steps.push({
+          'Sintomas clínicos sugestivos (nódulo palpável, retração cutânea, descarga papilar). Complementar ao exame de rastreio — prazo de 30 dias para diagnóstico.',
+        isRequired: false,
+        dependsOnStepKey: null,
+        relativeDaysMin: null,
+        relativeDaysMax: null,
+        stepOrder: 2,
+      },
+      {
+        journeyStage: JourneyStage.SCREENING,
+        stepKey: 'breast_ultrasound',
+        stepName: 'USG de Mama',
+        stepDescription: 'Ultrassonografia para complementação da mamografia',
+        isRequired: false,
+        dependsOnStepKey: 'mammography',
+        relativeDaysMin: 0,
+        relativeDaysMax: 14,
+        stepOrder: 3,
+      },
+      {
         journeyStage: JourneyStage.DIAGNOSIS,
-        stepKey: 'biopsy',
-        stepName: 'Biópsia',
-        stepDescription: 'Coleta de material para diagnóstico',
+        stepKey: 'breast_biopsy',
+        stepName: 'Biópsia de Mama',
+        stepDescription: 'Biópsia percutânea para confirmação histológica. Prazo: até 30 dias após suspeita clínica ou exame de rastreio alterado.',
         isRequired: true,
-        dueDate: this.addDays(new Date(), 14),
-      });
-
-      steps.push({
+        dependsOnStepKey: 'breast_ultrasound',
+        relativeDaysMin: 0,
+        relativeDaysMax: 30,
+        stepOrder: 4,
+      },
+      {
         journeyStage: JourneyStage.DIAGNOSIS,
         stepKey: 'pathology_report',
         stepName: 'Laudo Anatomopatológico',
-        stepDescription: 'Confirmação diagnóstica e tipo histológico',
+        stepDescription: 'Tipo histológico, grau, receptores hormonais (RE, RP, HER2)',
         isRequired: true,
-        dueDate: this.addDays(new Date(), 21),
-      });
+        dependsOnStepKey: 'breast_biopsy',
+        relativeDaysMin: 0,
+        relativeDaysMax: 7,
+        stepOrder: 5,
+      },
+      {
+        journeyStage: JourneyStage.DIAGNOSIS,
+        stepKey: 'breast_mri',
+        stepName: 'RM de Mama',
+        stepDescription: 'Ressonância magnética para avaliação de extensão local',
+        isRequired: false,
+        dependsOnStepKey: 'pathology_report',
+        relativeDaysMin: 0,
+        relativeDaysMax: 14,
+        stepOrder: 6,
+      },
+      {
+        journeyStage: JourneyStage.DIAGNOSIS,
+        stepKey: 'staging_ct_thorax_abdomen',
+        stepName: 'TC Tórax, Abdome e Pelve',
+        stepDescription: 'Estadiamento sistêmico — avaliação de metástases',
+        isRequired: true,
+        dependsOnStepKey: 'pathology_report',
+        relativeDaysMin: 0,
+        relativeDaysMax: 14,
+        stepOrder: 7,
+      },
+      {
+        journeyStage: JourneyStage.DIAGNOSIS,
+        stepKey: 'bone_scan',
+        stepName: 'Cintilografia Óssea',
+        stepDescription: 'Rastreio de metástases ósseas (paralelo ao TC)',
+        isRequired: false,
+        dependsOnStepKey: 'pathology_report',
+        relativeDaysMin: 0,
+        relativeDaysMax: 14,
+        stepOrder: 8,
+      },
+      {
+        journeyStage: JourneyStage.DIAGNOSIS,
+        stepKey: 'genetic_counseling',
+        stepName: 'Aconselhamento Genético',
+        stepDescription: 'Avaliação de BRCA1/BRCA2 e outras mutações hereditárias',
+        isRequired: false,
+        dependsOnStepKey: 'pathology_report',
+        relativeDaysMin: 14,
+        relativeDaysMax: 30,
+        stepOrder: 9,
+      },
+      {
+        journeyStage: JourneyStage.TREATMENT,
+        stepKey: 'surgical_evaluation',
+        stepName: 'Avaliação Cirúrgica',
+        stepDescription: 'Consulta com mastologista/oncologista para decisão cirúrgica',
+        isRequired: true,
+        dependsOnStepKey: 'staging_ct_thorax_abdomen',
+        relativeDaysMin: 0,
+        relativeDaysMax: 14,
+        stepOrder: 10,
+      },
+      {
+        journeyStage: JourneyStage.TREATMENT,
+        stepKey: 'neoadjuvant_chemotherapy',
+        stepName: 'QT Neoadjuvante',
+        stepDescription: 'Quimioterapia pré-cirúrgica para redução tumoral (se indicada)',
+        isRequired: false,
+        dependsOnStepKey: 'surgical_evaluation',
+        relativeDaysMin: 14,
+        relativeDaysMax: 21,
+        stepOrder: 11,
+      },
+      {
+        journeyStage: JourneyStage.TREATMENT,
+        stepKey: 'mastectomy_or_lumpectomy',
+        stepName: 'Mastectomia ou Quadrantectomia',
+        stepDescription: 'Ressecção cirúrgica do tumor mamário',
+        isRequired: true,
+        dependsOnStepKey: 'neoadjuvant_chemotherapy',
+        relativeDaysMin: 14,
+        relativeDaysMax: 35,
+        stepOrder: 12,
+      },
+      {
+        journeyStage: JourneyStage.TREATMENT,
+        stepKey: 'sentinel_lymph_node',
+        stepName: 'Biópsia de Linfonodo Sentinela',
+        stepDescription: 'Avaliação do linfonodo sentinela — simultânea à cirurgia',
+        isRequired: true,
+        dependsOnStepKey: 'mastectomy_or_lumpectomy',
+        relativeDaysMin: 0,
+        relativeDaysMax: 0,
+        stepOrder: 13,
+      },
+      {
+        journeyStage: JourneyStage.TREATMENT,
+        stepKey: 'adjuvant_chemotherapy',
+        stepName: 'QT Adjuvante',
+        stepDescription: 'Quimioterapia pós-cirúrgica (se indicada)',
+        isRequired: false,
+        dependsOnStepKey: 'mastectomy_or_lumpectomy',
+        relativeDaysMin: 28,
+        relativeDaysMax: 56,
+        stepOrder: 14,
+      },
+      {
+        journeyStage: JourneyStage.TREATMENT,
+        stepKey: 'radiotherapy',
+        stepName: 'Radioterapia',
+        stepDescription: 'RT pós-cirúrgica ou pós-QT adjuvante',
+        isRequired: false,
+        dependsOnStepKey: 'mastectomy_or_lumpectomy',
+        relativeDaysMin: 42,
+        relativeDaysMax: 56,
+        stepOrder: 15,
+      },
+      {
+        journeyStage: JourneyStage.TREATMENT,
+        stepKey: 'hormonal_therapy',
+        stepName: 'Hormonioterapia',
+        stepDescription: 'Terapia hormonal (tamoxifeno/inibidores de aromatase) se RE/RP+',
+        isRequired: false,
+        dependsOnStepKey: 'radiotherapy',
+        relativeDaysMin: 0,
+        relativeDaysMax: 14,
+        stepOrder: 16,
+      },
+      {
+        journeyStage: JourneyStage.TREATMENT,
+        stepKey: 'targeted_therapy',
+        stepName: 'Terapia Alvo (Trastuzumabe)',
+        stepDescription: 'Trastuzumabe se HER2+ (paralelo à QT adjuvante)',
+        isRequired: false,
+        dependsOnStepKey: 'adjuvant_chemotherapy',
+        relativeDaysMin: 0,
+        relativeDaysMax: 0,
+        stepOrder: 17,
+      },
+      {
+        journeyStage: JourneyStage.FOLLOW_UP,
+        stepKey: 'mammography_6months',
+        stepName: 'Mamografia 6 meses',
+        stepDescription: 'Mamografia de vigilância aos 6 meses pós-tratamento',
+        isRequired: true,
+        dependsOnStepKey: 'mastectomy_or_lumpectomy',
+        relativeDaysMin: 180,
+        relativeDaysMax: 180,
+        stepOrder: 18,
+      },
+      {
+        journeyStage: JourneyStage.FOLLOW_UP,
+        stepKey: 'mammography_annual',
+        stepName: 'Mamografia Anual',
+        stepDescription: 'Mamografia anual de vigilância',
+        isRequired: true,
+        dependsOnStepKey: 'mastectomy_or_lumpectomy',
+        relativeDaysMin: 365,
+        relativeDaysMax: 365,
+        stepOrder: 19,
+      },
+      {
+        journeyStage: JourneyStage.FOLLOW_UP,
+        stepKey: 'clinical_exam_6months',
+        stepName: 'Exame Clínico 6 meses',
+        stepDescription: 'Consulta clínica semestral para vigilância',
+        isRequired: true,
+        dependsOnStepKey: 'mastectomy_or_lumpectomy',
+        relativeDaysMin: 180,
+        relativeDaysMax: 180,
+        stepOrder: 20,
+      },
+    ];
+  }
 
-      steps.push({
+  /**
+   * Câncer de Pulmão — OCULTO no MVP (16 etapas, NCCN/IASLC)
+   */
+  private getLungStepConfigs(): StepConfig[] {
+    return [
+      {
+        journeyStage: JourneyStage.SCREENING,
+        stepKey: 'low_dose_ct',
+        stepName: 'TC de Tórax Baixa Dose',
+        stepDescription: 'Rastreio de nódulos pulmonares em fumantes de alto risco',
+        isRequired: true,
+        dependsOnStepKey: null,
+        relativeDaysMin: null,
+        relativeDaysMax: null,
+        stepOrder: 1,
+      },
+      {
+        journeyStage: JourneyStage.SCREENING,
+        stepKey: 'clinical_suspicion',
+        stepName: 'Suspeita Clínica',
+        stepDescription:
+          'Sintomas clínicos sugestivos (tosse persistente, hemoptise, dispneia, dor torácica). Complementar ao exame de rastreio — prazo de 30 dias para diagnóstico.',
+        isRequired: false,
+        dependsOnStepKey: null,
+        relativeDaysMin: null,
+        relativeDaysMax: null,
+        stepOrder: 2,
+      },
+      {
+        journeyStage: JourneyStage.DIAGNOSIS,
+        stepKey: 'ct_thorax_contrast',
+        stepName: 'TC de Tórax com Contraste',
+        stepDescription: 'Caracterização detalhada da lesão pulmonar. Prazo: até 30 dias após suspeita clínica ou exame de rastreio alterado.',
+        isRequired: true,
+        dependsOnStepKey: 'low_dose_ct',
+        relativeDaysMin: 0,
+        relativeDaysMax: 30,
+        stepOrder: 3,
+      },
+      {
+        journeyStage: JourneyStage.DIAGNOSIS,
+        stepKey: 'bronchoscopy_biopsy',
+        stepName: 'Broncoscopia com Biópsia',
+        stepDescription: 'Coleta de material para análise anatomopatológica',
+        isRequired: true,
+        dependsOnStepKey: 'ct_thorax_contrast',
+        relativeDaysMin: 0,
+        relativeDaysMax: 14,
+        stepOrder: 4,
+      },
+      {
+        journeyStage: JourneyStage.DIAGNOSIS,
+        stepKey: 'pathology_report',
+        stepName: 'Laudo Anatomopatológico',
+        stepDescription: 'Tipo histológico (adenocarcinoma, escamoso, CPCP), grau',
+        isRequired: true,
+        dependsOnStepKey: 'bronchoscopy_biopsy',
+        relativeDaysMin: 0,
+        relativeDaysMax: 7,
+        stepOrder: 5,
+      },
+      {
+        journeyStage: JourneyStage.DIAGNOSIS,
+        stepKey: 'pet_ct',
+        stepName: 'PET-CT',
+        stepDescription: 'Estadiamento metabólico e avaliação de acometimento linfonodal',
+        isRequired: true,
+        dependsOnStepKey: 'pathology_report',
+        relativeDaysMin: 0,
+        relativeDaysMax: 14,
+        stepOrder: 6,
+      },
+      {
+        journeyStage: JourneyStage.DIAGNOSIS,
+        stepKey: 'molecular_testing',
+        stepName: 'Testes Moleculares (EGFR, ALK, ROS1, PD-L1)',
+        stepDescription: 'Perfil molecular para terapia alvo e imunoterapia (meta IASLC: 14 dias)',
+        isRequired: true,
+        dependsOnStepKey: 'pathology_report',
+        relativeDaysMin: 0,
+        relativeDaysMax: 14,
+        stepOrder: 7,
+      },
+      {
+        journeyStage: JourneyStage.DIAGNOSIS,
+        stepKey: 'brain_mri',
+        stepName: 'RM de Crânio',
+        stepDescription: 'Avaliação de metástases cerebrais (paralelo ao PET-CT)',
+        isRequired: false,
+        dependsOnStepKey: 'pathology_report',
+        relativeDaysMin: 0,
+        relativeDaysMax: 14,
+        stepOrder: 8,
+      },
+      {
+        journeyStage: JourneyStage.TREATMENT,
+        stepKey: 'surgical_evaluation',
+        stepName: 'Avaliação Cirúrgica',
+        stepDescription: 'Avaliação de ressecabilidade após estadiamento completo',
+        isRequired: false,
+        dependsOnStepKey: 'pet_ct',
+        relativeDaysMin: 0,
+        relativeDaysMax: 14,
+        stepOrder: 9,
+      },
+      {
+        journeyStage: JourneyStage.TREATMENT,
+        stepKey: 'lobectomy_or_pneumonectomy',
+        stepName: 'Lobectomia ou Pneumonectomia',
+        stepDescription: 'Ressecção cirúrgica do tumor pulmonar',
+        isRequired: false,
+        dependsOnStepKey: 'surgical_evaluation',
+        relativeDaysMin: 21,
+        relativeDaysMax: 42,
+        stepOrder: 10,
+      },
+      {
+        journeyStage: JourneyStage.TREATMENT,
+        stepKey: 'chemotherapy',
+        stepName: 'Quimioterapia',
+        stepDescription: 'QT adjuvante ou para doença inoperável/metastática',
+        isRequired: false,
+        dependsOnStepKey: 'lobectomy_or_pneumonectomy',
+        relativeDaysMin: 42,
+        relativeDaysMax: 56,
+        stepOrder: 11,
+      },
+      {
+        journeyStage: JourneyStage.TREATMENT,
+        stepKey: 'radiotherapy',
+        stepName: 'Radioterapia',
+        stepDescription: 'RT concomitante à QT (se indicado)',
+        isRequired: false,
+        dependsOnStepKey: 'chemotherapy',
+        relativeDaysMin: 0,
+        relativeDaysMax: 0,
+        stepOrder: 12,
+      },
+      {
+        journeyStage: JourneyStage.TREATMENT,
+        stepKey: 'targeted_therapy',
+        stepName: 'Terapia Alvo',
+        stepDescription: 'TKI (erlotinibe/osimertinibe se EGFR+, crizotinibe se ALK+)',
+        isRequired: false,
+        dependsOnStepKey: 'molecular_testing',
+        relativeDaysMin: 0,
+        relativeDaysMax: 21,
+        stepOrder: 13,
+      },
+      {
+        journeyStage: JourneyStage.TREATMENT,
+        stepKey: 'immunotherapy',
+        stepName: 'Imunoterapia',
+        stepDescription: 'Pembrolizumabe ou nivolumabe (se PD-L1+)',
+        isRequired: false,
+        dependsOnStepKey: 'molecular_testing',
+        relativeDaysMin: 0,
+        relativeDaysMax: 21,
+        stepOrder: 14,
+      },
+      {
+        journeyStage: JourneyStage.FOLLOW_UP,
+        stepKey: 'ct_thorax_3months',
+        stepName: 'TC de Tórax 3 meses',
+        stepDescription: 'Avaliação de resposta ao tratamento a 3 meses',
+        isRequired: true,
+        dependsOnStepKey: 'chemotherapy',
+        relativeDaysMin: 90,
+        relativeDaysMax: 90,
+        stepOrder: 15,
+      },
+      {
+        journeyStage: JourneyStage.FOLLOW_UP,
+        stepKey: 'ct_thorax_6months',
+        stepName: 'TC de Tórax 6 meses',
+        stepDescription: 'Avaliação de resposta ao tratamento a 6 meses',
+        isRequired: true,
+        dependsOnStepKey: 'chemotherapy',
+        relativeDaysMin: 180,
+        relativeDaysMax: 180,
+        stepOrder: 16,
+      },
+      {
+        journeyStage: JourneyStage.FOLLOW_UP,
+        stepKey: 'ct_thorax_annual',
+        stepName: 'TC de Tórax Anual',
+        stepDescription: 'Vigilância anual pós-tratamento',
+        isRequired: true,
+        dependsOnStepKey: 'chemotherapy',
+        relativeDaysMin: 365,
+        relativeDaysMax: 365,
+        stepOrder: 17,
+      },
+    ];
+  }
+
+  /**
+   * Câncer de Próstata — OCULTO no MVP (14 etapas, EAU/NCCN/CONITEC)
+   */
+  private getProstateStepConfigs(): StepConfig[] {
+    return [
+      {
+        journeyStage: JourneyStage.SCREENING,
+        stepKey: 'psa_test',
+        stepName: 'Dosagem de PSA',
+        stepDescription: 'Antígeno prostático específico — rastreio inicial',
+        isRequired: true,
+        dependsOnStepKey: null,
+        relativeDaysMin: null,
+        relativeDaysMax: null,
+        stepOrder: 1,
+      },
+      {
+        journeyStage: JourneyStage.SCREENING,
+        stepKey: 'clinical_suspicion',
+        stepName: 'Suspeita Clínica',
+        stepDescription:
+          'Sintomas clínicos sugestivos (disúria, jato fraco, noctúria, dor pélvica). Complementar ao exame de rastreio — prazo de 30 dias para diagnóstico.',
+        isRequired: false,
+        dependsOnStepKey: null,
+        relativeDaysMin: null,
+        relativeDaysMax: null,
+        stepOrder: 2,
+      },
+      {
+        journeyStage: JourneyStage.SCREENING,
+        stepKey: 'digital_rectal_exam',
+        stepName: 'Toque Retal',
+        stepDescription: 'Exame digital retal — simultâneo ao PSA',
+        isRequired: true,
+        dependsOnStepKey: 'psa_test',
+        relativeDaysMin: 0,
+        relativeDaysMax: 0,
+        stepOrder: 3,
+      },
+      {
+        journeyStage: JourneyStage.DIAGNOSIS,
+        stepKey: 'prostate_mri',
+        stepName: 'RM Multiparamétrica de Próstata',
+        stepDescription: 'Avaliação de lesões suspeitas (PI-RADS) antes da biópsia. Prazo: até 30 dias após suspeita clínica ou exame de rastreio alterado.',
+        isRequired: false,
+        dependsOnStepKey: 'psa_test',
+        relativeDaysMin: 0,
+        relativeDaysMax: 30,
+        stepOrder: 4,
+      },
+      {
+        journeyStage: JourneyStage.DIAGNOSIS,
+        stepKey: 'prostate_biopsy',
+        stepName: 'Biópsia de Próstata',
+        stepDescription: 'Biópsia transretal ou transperineal guiada por imagem',
+        isRequired: true,
+        dependsOnStepKey: 'prostate_mri',
+        relativeDaysMin: 0,
+        relativeDaysMax: 30,
+        stepOrder: 5,
+      },
+      {
+        journeyStage: JourneyStage.DIAGNOSIS,
+        stepKey: 'pathology_report',
+        stepName: 'Laudo Anatomopatológico',
+        stepDescription: 'Score de Gleason, estadiamento patológico',
+        isRequired: true,
+        dependsOnStepKey: 'prostate_biopsy',
+        relativeDaysMin: 0,
+        relativeDaysMax: 7,
+        stepOrder: 6,
+      },
+      {
+        journeyStage: JourneyStage.DIAGNOSIS,
+        stepKey: 'bone_scan',
+        stepName: 'Cintilografia Óssea',
+        stepDescription: 'Avaliação de metástases ósseas (se Gleason ≥7 ou PSA >20)',
+        isRequired: false,
+        dependsOnStepKey: 'pathology_report',
+        relativeDaysMin: 0,
+        relativeDaysMax: 21,
+        stepOrder: 7,
+      },
+      {
+        journeyStage: JourneyStage.DIAGNOSIS,
+        stepKey: 'ct_abdomen_pelvis',
+        stepName: 'TC de Abdome e Pelve',
+        stepDescription: 'Estadiamento linfonodal e abdominal (paralelo à cintilografia)',
+        isRequired: false,
+        dependsOnStepKey: 'pathology_report',
+        relativeDaysMin: 0,
+        relativeDaysMax: 21,
+        stepOrder: 8,
+      },
+      {
+        journeyStage: JourneyStage.TREATMENT,
+        stepKey: 'treatment_decision',
+        stepName: 'Decisão de Tratamento',
+        stepDescription: 'Reunião multidisciplinar para definição da conduta terapêutica',
+        isRequired: true,
+        dependsOnStepKey: 'pathology_report',
+        relativeDaysMin: 14,
+        relativeDaysMax: 30,
+        stepOrder: 9,
+      },
+      {
+        journeyStage: JourneyStage.TREATMENT,
+        stepKey: 'radical_prostatectomy',
+        stepName: 'Prostatectomia Radical',
+        stepDescription: 'Remoção cirúrgica da próstata',
+        isRequired: false,
+        dependsOnStepKey: 'treatment_decision',
+        relativeDaysMin: 30,
+        relativeDaysMax: 42,
+        stepOrder: 10,
+      },
+      {
+        journeyStage: JourneyStage.TREATMENT,
+        stepKey: 'radiotherapy',
+        stepName: 'Radioterapia',
+        stepDescription: 'RT externa ou braquiterapia (alternativa à cirurgia)',
+        isRequired: false,
+        dependsOnStepKey: 'treatment_decision',
+        relativeDaysMin: 30,
+        relativeDaysMax: 42,
+        stepOrder: 11,
+      },
+      {
+        journeyStage: JourneyStage.TREATMENT,
+        stepKey: 'hormonal_therapy',
+        stepName: 'Hormonioterapia',
+        stepDescription: 'Bloqueio androgênico (se indicado)',
+        isRequired: false,
+        dependsOnStepKey: 'treatment_decision',
+        relativeDaysMin: 0,
+        relativeDaysMax: 14,
+        stepOrder: 12,
+      },
+      {
+        journeyStage: JourneyStage.FOLLOW_UP,
+        stepKey: 'psa_3months',
+        stepName: 'PSA 3 meses',
+        stepDescription: 'PSA pós-tratamento para avaliação de resposta',
+        isRequired: true,
+        dependsOnStepKey: 'radical_prostatectomy',
+        relativeDaysMin: 42,
+        relativeDaysMax: 90,
+        stepOrder: 13,
+      },
+      {
+        journeyStage: JourneyStage.FOLLOW_UP,
+        stepKey: 'psa_6months',
+        stepName: 'PSA 6 meses',
+        stepDescription: 'PSA semestral de vigilância',
+        isRequired: true,
+        dependsOnStepKey: 'radical_prostatectomy',
+        relativeDaysMin: 180,
+        relativeDaysMax: 180,
+        stepOrder: 14,
+      },
+      {
+        journeyStage: JourneyStage.FOLLOW_UP,
+        stepKey: 'psa_annual',
+        stepName: 'PSA Anual',
+        stepDescription: 'PSA anual de vigilância',
+        isRequired: true,
+        dependsOnStepKey: 'radical_prostatectomy',
+        relativeDaysMin: 365,
+        relativeDaysMax: 365,
+        stepOrder: 15,
+      },
+    ];
+  }
+
+  /**
+   * Câncer de Rim — OCULTO no MVP (13 etapas, EAU/NCCN)
+   */
+  private getKidneyStepConfigs(): StepConfig[] {
+    return [
+      {
+        journeyStage: JourneyStage.SCREENING,
+        stepKey: 'abdominal_ultrasound',
+        stepName: 'USG de Abdome',
+        stepDescription: 'Avaliação inicial de lesões renais',
+        isRequired: true,
+        dependsOnStepKey: null,
+        relativeDaysMin: null,
+        relativeDaysMax: null,
+        stepOrder: 1,
+      },
+      {
+        journeyStage: JourneyStage.SCREENING,
+        stepKey: 'clinical_suspicion',
+        stepName: 'Suspeita Clínica',
+        stepDescription:
+          'Sintomas clínicos sugestivos (hematúria, dor lombar, massa palpável). Complementar ao exame de rastreio — prazo de 30 dias para diagnóstico.',
+        isRequired: false,
+        dependsOnStepKey: null,
+        relativeDaysMin: null,
+        relativeDaysMax: null,
+        stepOrder: 2,
+      },
+      {
+        journeyStage: JourneyStage.DIAGNOSIS,
+        stepKey: 'ct_abdomen_contrast',
+        stepName: 'TC de Abdome com Contraste',
+        stepDescription: 'Caracterização da lesão renal — avaliação de vascularização. Prazo: até 30 dias após suspeita clínica ou exame de rastreio alterado.',
+        isRequired: true,
+        dependsOnStepKey: 'abdominal_ultrasound',
+        relativeDaysMin: 0,
+        relativeDaysMax: 30,
+        stepOrder: 3,
+      },
+      {
+        journeyStage: JourneyStage.DIAGNOSIS,
+        stepKey: 'ct_thorax',
+        stepName: 'TC de Tórax',
+        stepDescription: 'Avaliação de metástases pulmonares (paralelo ao TC abdome)',
+        isRequired: true,
+        dependsOnStepKey: 'abdominal_ultrasound',
+        relativeDaysMin: 0,
+        relativeDaysMax: 21,
+        stepOrder: 4,
+      },
+      {
+        journeyStage: JourneyStage.DIAGNOSIS,
+        stepKey: 'biopsy_or_surgery',
+        stepName: 'Biópsia ou Cirurgia Diagnóstica',
+        stepDescription: 'Confirmação histológica por biópsia percutânea ou cirurgia',
+        isRequired: true,
+        dependsOnStepKey: 'ct_abdomen_contrast',
+        relativeDaysMin: 0,
+        relativeDaysMax: 21,
+        stepOrder: 5,
+      },
+      {
+        journeyStage: JourneyStage.DIAGNOSIS,
+        stepKey: 'pathology_report',
+        stepName: 'Laudo Anatomopatológico',
+        stepDescription: 'Tipo histológico (carcinoma células claras, papilar, cromófobo)',
+        isRequired: true,
+        dependsOnStepKey: 'biopsy_or_surgery',
+        relativeDaysMin: 0,
+        relativeDaysMax: 7,
+        stepOrder: 6,
+      },
+      {
+        journeyStage: JourneyStage.DIAGNOSIS,
+        stepKey: 'bone_scan',
+        stepName: 'Cintilografia Óssea',
+        stepDescription: 'Avaliação de metástases ósseas (se sintomas)',
+        isRequired: false,
+        dependsOnStepKey: 'pathology_report',
+        relativeDaysMin: 0,
+        relativeDaysMax: 14,
+        stepOrder: 7,
+      },
+      {
+        journeyStage: JourneyStage.TREATMENT,
+        stepKey: 'surgical_evaluation',
+        stepName: 'Avaliação Cirúrgica',
+        stepDescription: 'Planejamento para nefrectomia parcial ou radical',
+        isRequired: true,
+        dependsOnStepKey: 'pathology_report',
+        relativeDaysMin: 0,
+        relativeDaysMax: 14,
+        stepOrder: 8,
+      },
+      {
+        journeyStage: JourneyStage.TREATMENT,
+        stepKey: 'partial_or_radical_nephrectomy',
+        stepName: 'Nefrectomia Parcial ou Radical',
+        stepDescription: 'Ressecção cirúrgica do rim ou parte dele',
+        isRequired: true,
+        dependsOnStepKey: 'surgical_evaluation',
+        relativeDaysMin: 30,
+        relativeDaysMax: 42,
+        stepOrder: 9,
+      },
+      {
+        journeyStage: JourneyStage.TREATMENT,
+        stepKey: 'targeted_therapy',
+        stepName: 'Terapia Alvo',
+        stepDescription: 'Inibidores de VEGFR/mTOR (sunitinibe, pazopanibe) se indicado',
+        isRequired: false,
+        dependsOnStepKey: 'partial_or_radical_nephrectomy',
+        relativeDaysMin: 28,
+        relativeDaysMax: 42,
+        stepOrder: 10,
+      },
+      {
+        journeyStage: JourneyStage.TREATMENT,
+        stepKey: 'immunotherapy',
+        stepName: 'Imunoterapia',
+        stepDescription: 'Nivolumabe/ipilimumabe (combinação) se indicado',
+        isRequired: false,
+        dependsOnStepKey: 'partial_or_radical_nephrectomy',
+        relativeDaysMin: 28,
+        relativeDaysMax: 42,
+        stepOrder: 11,
+      },
+      {
+        journeyStage: JourneyStage.FOLLOW_UP,
+        stepKey: 'ct_abdomen_3months',
+        stepName: 'TC Abdome 3 meses',
+        stepDescription: 'Avaliação de resposta e vigilância precoce',
+        isRequired: true,
+        dependsOnStepKey: 'partial_or_radical_nephrectomy',
+        relativeDaysMin: 90,
+        relativeDaysMax: 90,
+        stepOrder: 12,
+      },
+      {
+        journeyStage: JourneyStage.FOLLOW_UP,
+        stepKey: 'ct_abdomen_6months',
+        stepName: 'TC Abdome 6 meses',
+        stepDescription: 'Vigilância semestral pós-nefrectomia',
+        isRequired: true,
+        dependsOnStepKey: 'partial_or_radical_nephrectomy',
+        relativeDaysMin: 180,
+        relativeDaysMax: 180,
+        stepOrder: 13,
+      },
+      {
+        journeyStage: JourneyStage.FOLLOW_UP,
+        stepKey: 'ct_abdomen_annual',
+        stepName: 'TC Abdome Anual',
+        stepDescription: 'Vigilância anual pós-nefrectomia',
+        isRequired: true,
+        dependsOnStepKey: 'partial_or_radical_nephrectomy',
+        relativeDaysMin: 365,
+        relativeDaysMax: 365,
+        stepOrder: 14,
+      },
+    ];
+  }
+
+  /**
+   * Câncer de Testículo — OCULTO no MVP (13 etapas, EAU/NCCN — prazos mais curtos, urgência)
+   */
+  private getTesticularStepConfigs(): StepConfig[] {
+    return [
+      {
+        journeyStage: JourneyStage.SCREENING,
+        stepKey: 'testicular_ultrasound',
+        stepName: 'USG de Testículo',
+        stepDescription: 'Avaliação urgente de massa testicular',
+        isRequired: true,
+        dependsOnStepKey: null,
+        relativeDaysMin: null,
+        relativeDaysMax: null,
+        stepOrder: 1,
+      },
+      {
+        journeyStage: JourneyStage.SCREENING,
+        stepKey: 'clinical_suspicion',
+        stepName: 'Suspeita Clínica',
+        stepDescription:
+          'Sintomas clínicos sugestivos (massa testicular palpável, dor escrotal, ginecomastia). Complementar ao exame de rastreio — prazo de 30 dias para diagnóstico.',
+        isRequired: false,
+        dependsOnStepKey: null,
+        relativeDaysMin: null,
+        relativeDaysMax: null,
+        stepOrder: 2,
+      },
+      {
+        journeyStage: JourneyStage.DIAGNOSIS,
+        stepKey: 'radical_orchiectomy',
+        stepName: 'Orquiectomia Radical',
+        stepDescription: 'Remoção cirúrgica do testículo afetado — diagnóstico e tratamento inicial (URGENTE). Prazo: até 30 dias após suspeita clínica ou exame de rastreio alterado.',
+        isRequired: true,
+        dependsOnStepKey: 'testicular_ultrasound',
+        relativeDaysMin: 7,
+        relativeDaysMax: 30,
+        stepOrder: 3,
+      },
+      {
+        journeyStage: JourneyStage.DIAGNOSIS,
+        stepKey: 'pathology_report',
+        stepName: 'Laudo Anatomopatológico',
+        stepDescription: 'Tipo histológico (seminoma vs não-seminoma), invasão vascular',
+        isRequired: true,
+        dependsOnStepKey: 'radical_orchiectomy',
+        relativeDaysMin: 0,
+        relativeDaysMax: 7,
+        stepOrder: 4,
+      },
+      {
+        journeyStage: JourneyStage.DIAGNOSIS,
+        stepKey: 'tumor_markers',
+        stepName: 'Marcadores Tumorais (AFP, HCG, LDH)',
+        stepDescription: 'Marcadores séricos — paralelo ao anatomopatológico',
+        isRequired: true,
+        dependsOnStepKey: 'radical_orchiectomy',
+        relativeDaysMin: 0,
+        relativeDaysMax: 7,
+        stepOrder: 5,
+      },
+      {
+        journeyStage: JourneyStage.DIAGNOSIS,
+        stepKey: 'ct_abdomen_pelvis',
+        stepName: 'TC de Abdome e Pelve',
+        stepDescription: 'Estadiamento retroperitoneal e abdominal',
+        isRequired: true,
+        dependsOnStepKey: 'radical_orchiectomy',
+        relativeDaysMin: 0,
+        relativeDaysMax: 14,
+        stepOrder: 6,
+      },
+      {
+        journeyStage: JourneyStage.DIAGNOSIS,
+        stepKey: 'ct_thorax',
+        stepName: 'TC de Tórax',
+        stepDescription: 'Avaliação de metástases pulmonares (paralelo ao TC abdome)',
+        isRequired: true,
+        dependsOnStepKey: 'radical_orchiectomy',
+        relativeDaysMin: 0,
+        relativeDaysMax: 14,
+        stepOrder: 7,
+      },
+      {
+        journeyStage: JourneyStage.TREATMENT,
+        stepKey: 'retroperitoneal_lymph_node_dissection',
+        stepName: 'Linfadenectomia Retroperitoneal',
+        stepDescription: 'LNRP — para estadio II de não-seminoma',
+        isRequired: false,
+        dependsOnStepKey: 'pathology_report',
+        relativeDaysMin: 14,
+        relativeDaysMax: 28,
+        stepOrder: 8,
+      },
+      {
+        journeyStage: JourneyStage.TREATMENT,
+        stepKey: 'chemotherapy',
+        stepName: 'Quimioterapia',
+        stepDescription: 'BEP (bleomicina, etoposídeo, cisplatina) se indicado',
+        isRequired: false,
+        dependsOnStepKey: 'pathology_report',
+        relativeDaysMin: 7,
+        relativeDaysMax: 21,
+        stepOrder: 9,
+      },
+      {
+        journeyStage: JourneyStage.TREATMENT,
+        stepKey: 'radiotherapy',
+        stepName: 'Radioterapia',
+        stepDescription: 'RT para seminoma estádio II (alternativa à QT)',
+        isRequired: false,
+        dependsOnStepKey: 'pathology_report',
+        relativeDaysMin: 14,
+        relativeDaysMax: 28,
+        stepOrder: 10,
+      },
+      {
+        journeyStage: JourneyStage.FOLLOW_UP,
+        stepKey: 'tumor_markers_1month',
+        stepName: 'Marcadores 1 mês',
+        stepDescription: 'AFP, HCG e LDH pós-tratamento para avaliação de resposta',
+        isRequired: true,
+        dependsOnStepKey: 'chemotherapy',
+        relativeDaysMin: 30,
+        relativeDaysMax: 30,
+        stepOrder: 11,
+      },
+      {
+        journeyStage: JourneyStage.FOLLOW_UP,
+        stepKey: 'ct_abdomen_3months',
+        stepName: 'TC Abdome 3 meses',
+        stepDescription: 'Avaliação de resposta ao tratamento',
+        isRequired: true,
+        dependsOnStepKey: 'chemotherapy',
+        relativeDaysMin: 90,
+        relativeDaysMax: 90,
+        stepOrder: 12,
+      },
+      {
+        journeyStage: JourneyStage.FOLLOW_UP,
+        stepKey: 'ct_abdomen_6months',
+        stepName: 'TC Abdome 6 meses',
+        stepDescription: 'Vigilância semestral pós-tratamento',
+        isRequired: true,
+        dependsOnStepKey: 'chemotherapy',
+        relativeDaysMin: 180,
+        relativeDaysMax: 180,
+        stepOrder: 13,
+      },
+      {
+        journeyStage: JourneyStage.FOLLOW_UP,
+        stepKey: 'ct_abdomen_annual',
+        stepName: 'TC Abdome Anual',
+        stepDescription: 'Vigilância anual pós-tratamento',
+        isRequired: true,
+        dependsOnStepKey: 'chemotherapy',
+        relativeDaysMin: 365,
+        relativeDaysMax: 365,
+        stepOrder: 14,
+      },
+    ];
+  }
+
+  /**
+   * Tipo genérico — fallback para tipos de câncer não mapeados especificamente
+   */
+  private getGenericStepConfigs(): StepConfig[] {
+    return [
+      {
+        journeyStage: JourneyStage.SCREENING,
+        stepKey: 'initial_evaluation',
+        stepName: 'Avaliação Inicial',
+        stepDescription: 'Avaliação clínica inicial e triagem oncológica',
+        isRequired: true,
+        dependsOnStepKey: null,
+        relativeDaysMin: null,
+        relativeDaysMax: null,
+        stepOrder: 1,
+      },
+      {
+        journeyStage: JourneyStage.SCREENING,
+        stepKey: 'clinical_suspicion',
+        stepName: 'Suspeita Clínica',
+        stepDescription:
+          'Sintomas clínicos sugestivos de neoplasia. Complementar ao exame de rastreio — prazo de 30 dias para diagnóstico.',
+        isRequired: false,
+        dependsOnStepKey: null,
+        relativeDaysMin: null,
+        relativeDaysMax: null,
+        stepOrder: 2,
+      },
+      {
+        journeyStage: JourneyStage.DIAGNOSIS,
+        stepKey: 'biopsy',
+        stepName: 'Biópsia',
+        stepDescription: 'Coleta de material para análise anatomopatológica. Prazo: até 30 dias após suspeita clínica ou exame de rastreio alterado.',
+        isRequired: true,
+        dependsOnStepKey: 'initial_evaluation',
+        relativeDaysMin: 0,
+        relativeDaysMax: 30,
+        stepOrder: 3,
+      },
+      {
+        journeyStage: JourneyStage.DIAGNOSIS,
+        stepKey: 'pathology_report',
+        stepName: 'Laudo Anatomopatológico',
+        stepDescription: 'Confirmação do diagnóstico oncológico',
+        isRequired: true,
+        dependsOnStepKey: 'biopsy',
+        relativeDaysMin: 0,
+        relativeDaysMax: 7,
+        stepOrder: 4,
+      },
+      {
         journeyStage: JourneyStage.DIAGNOSIS,
         stepKey: 'staging_imaging',
         stepName: 'Exames de Estadiamento',
-        stepDescription: 'TC ou PET-CT para avaliar extensão da doença',
+        stepDescription: 'Tomografia e/ou PET-CT para estadiamento',
         isRequired: true,
-        dueDate: this.addDays(new Date(), 28),
-      });
-    }
-
-    // TRATAMENTO (TREATMENT)
-    if (requestedStage === JourneyStage.TREATMENT) {
-      steps.push({
+        dependsOnStepKey: 'pathology_report',
+        relativeDaysMin: 0,
+        relativeDaysMax: 14,
+        stepOrder: 5,
+      },
+      {
         journeyStage: JourneyStage.TREATMENT,
         stepKey: 'treatment_planning',
         stepName: 'Planejamento de Tratamento',
-        stepDescription: 'Definir estratégia terapêutica',
+        stepDescription: 'Decisão multidisciplinar sobre conduta terapêutica',
         isRequired: true,
-        dueDate: this.addDays(new Date(), 14),
-      });
-    }
-
-    // SEGUIMENTO (FOLLOW_UP)
-    if (requestedStage === JourneyStage.FOLLOW_UP) {
-      steps.push({
+        dependsOnStepKey: 'staging_imaging',
+        relativeDaysMin: 0,
+        relativeDaysMax: 14,
+        stepOrder: 6,
+      },
+      {
+        journeyStage: JourneyStage.TREATMENT,
+        stepKey: 'first_treatment',
+        stepName: 'Início do Tratamento',
+        stepDescription: 'Primeiro tratamento oncológico (cirurgia, QT, RT ou combinação)',
+        isRequired: true,
+        dependsOnStepKey: 'treatment_planning',
+        relativeDaysMin: 0,
+        relativeDaysMax: 30,
+        stepOrder: 7,
+      },
+      {
         journeyStage: JourneyStage.FOLLOW_UP,
         stepKey: 'follow_up_3months',
-        stepName: 'Consulta de Seguimento aos 3 meses',
-        stepDescription: 'Primeira consulta pós-tratamento',
+        stepName: 'Seguimento 3 meses',
+        stepDescription: 'Avaliação de resposta pós-tratamento',
         isRequired: true,
-        dueDate: this.addDays(new Date(), 90),
+        dependsOnStepKey: 'first_treatment',
+        relativeDaysMin: 90,
+        relativeDaysMax: 90,
+        stepOrder: 8,
+      },
+      {
+        journeyStage: JourneyStage.FOLLOW_UP,
+        stepKey: 'follow_up_annual',
+        stepName: 'Seguimento Anual',
+        stepDescription: 'Vigilância anual pós-tratamento',
+        isRequired: true,
+        dependsOnStepKey: 'first_treatment',
+        relativeDaysMin: 365,
+        relativeDaysMax: 365,
+        stepOrder: 9,
+      },
+    ];
+  }
+
+  /**
+   * Cuidados Paliativos — ativo quando patient.status === PALLIATIVE_CARE
+   * Etapas com journeyStage PALLIATIVE — transversal a qualquer tipo de câncer.
+   * T+0 = data de transição para cuidados paliativos.
+   */
+  private getPalliativeStepConfigs(): StepConfig[] {
+    return [
+      {
+        journeyStage: JourneyStage.PALLIATIVE,
+        stepKey: 'palliative_comfort_care',
+        stepName: 'Cuidados de Conforto',
+        stepDescription: 'Início imediato de cuidados de conforto — controle de dor, dispneia e outros sintomas',
+        isRequired: true,
+        dependsOnStepKey: null,
+        relativeDaysMin: null,
+        relativeDaysMax: null,
+        stepOrder: 1,
+      },
+      {
+        journeyStage: JourneyStage.PALLIATIVE,
+        stepKey: 'palliative_symptom_assessment',
+        stepName: 'Avaliação de Sintomas',
+        stepDescription: 'Avaliação sistemática de sintomas (ESAS ou Edmonton Symptom Assessment)',
+        isRequired: true,
+        dependsOnStepKey: 'palliative_comfort_care',
+        relativeDaysMin: 3,
+        relativeDaysMax: 7,
+        stepOrder: 2,
+      },
+      {
+        journeyStage: JourneyStage.PALLIATIVE,
+        stepKey: 'palliative_medication_review',
+        stepName: 'Revisão de Medicação',
+        stepDescription: 'Revisão e ajuste do esquema medicamentoso para conforto',
+        isRequired: true,
+        dependsOnStepKey: 'palliative_comfort_care',
+        relativeDaysMin: 0,
+        relativeDaysMax: 7,
+        stepOrder: 3,
+      },
+      {
+        journeyStage: JourneyStage.PALLIATIVE,
+        stepKey: 'palliative_quality_of_life_assessment',
+        stepName: 'Avaliação de Qualidade de Vida',
+        stepDescription: 'Instrumento padronizado de avaliação de qualidade de vida (FACT-G ou similar)',
+        isRequired: true,
+        dependsOnStepKey: 'palliative_symptom_assessment',
+        relativeDaysMin: 0,
+        relativeDaysMax: 7,
+        stepOrder: 4,
+      },
+      {
+        journeyStage: JourneyStage.PALLIATIVE,
+        stepKey: 'palliative_family_support_assessment',
+        stepName: 'Avaliação de Suporte Familiar',
+        stepDescription: 'Avaliação das necessidades de suporte à família e cuidadores',
+        isRequired: true,
+        dependsOnStepKey: 'palliative_comfort_care',
+        relativeDaysMin: 0,
+        relativeDaysMax: 7,
+        stepOrder: 5,
+      },
+      {
+        journeyStage: JourneyStage.PALLIATIVE,
+        stepKey: 'palliative_multidisciplinary_team',
+        stepName: 'Coordenação Equipe Multidisciplinar',
+        stepDescription: 'Reunião multidisciplinar: oncologia, paliativismo, psicologia, nutrição, enfermagem',
+        isRequired: true,
+        dependsOnStepKey: 'palliative_comfort_care',
+        relativeDaysMin: 0,
+        relativeDaysMax: 14,
+        stepOrder: 6,
+      },
+      {
+        journeyStage: JourneyStage.PALLIATIVE,
+        stepKey: 'palliative_nutritional_assessment',
+        stepName: 'Avaliação Nutricional',
+        stepDescription: 'Avaliação nutricional e planejamento de suporte nutricional paliativo',
+        isRequired: true,
+        dependsOnStepKey: 'palliative_comfort_care',
+        relativeDaysMin: 0,
+        relativeDaysMax: 14,
+        stepOrder: 7,
+      },
+      {
+        journeyStage: JourneyStage.PALLIATIVE,
+        stepKey: 'palliative_advance_care_planning',
+        stepName: 'Planejamento de Cuidados Avançados',
+        stepDescription: 'Discussão de diretivas antecipadas de vontade e planejamento de cuidados',
+        isRequired: false,
+        dependsOnStepKey: 'palliative_comfort_care',
+        relativeDaysMin: 0,
+        relativeDaysMax: 30,
+        stepOrder: 8,
+      },
+      {
+        journeyStage: JourneyStage.PALLIATIVE,
+        stepKey: 'palliative_spiritual_support',
+        stepName: 'Avaliação Espiritual',
+        stepDescription: 'Avaliação e suporte às necessidades espirituais e existenciais',
+        isRequired: false,
+        dependsOnStepKey: 'palliative_comfort_care',
+        relativeDaysMin: 0,
+        relativeDaysMax: 30,
+        stepOrder: 9,
+      },
+    ];
+  }
+
+  /**
+   * Ao concluir um step, cria os steps da PRÓXIMA fase se ainda não existirem.
+   * Ex: completar um step de SCREENING → cria steps de DIAGNOSIS para o cascade funcionar.
+   */
+  private async maybeCreateNextStageSteps(
+    completedStep: NavigationStep,
+    tenantId: string
+  ): Promise<void> {
+    const STAGE_PROGRESSION: Partial<Record<JourneyStage, JourneyStage>> = {
+      [JourneyStage.SCREENING]: JourneyStage.DIAGNOSIS,
+      [JourneyStage.DIAGNOSIS]: JourneyStage.TREATMENT,
+      [JourneyStage.TREATMENT]: JourneyStage.FOLLOW_UP,
+    };
+
+    const nextStage =
+      STAGE_PROGRESSION[completedStep.journeyStage as JourneyStage];
+    if (!nextStage) { return; }
+
+    const existingCount = await this.prisma.navigationStep.count({
+      where: {
+        patientId: completedStep.patientId,
+        tenantId,
+        journeyStage: nextStage,
+      },
+    });
+
+    if (existingCount === 0) {
+      try {
+        await this.createMissingStepsForStage(
+          completedStep.patientId,
+          tenantId,
+          nextStage
+        );
+        this.logger.log(
+          `Criadas etapas de ${nextStage} para paciente ${completedStep.patientId} após conclusão de ${completedStep.stepKey}`
+        );
+      } catch (error) {
+        this.logger.warn(
+          `Falha ao criar etapas de ${nextStage}: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+    }
+  }
+
+  /**
+   * Cascateia datas para etapas que dependem da etapa concluída.
+   * Chamado após marcar uma etapa como completa.
+   */
+  private async cascadeDependentStepDates(
+    completedStep: NavigationStep,
+    tenantId: string
+  ): Promise<void> {
+    const actualDate =
+      completedStep.actualDate || completedStep.completedAt || new Date();
+
+    // Buscar etapas do mesmo paciente que dependem desta etapa
+    const dependentSteps = await this.prisma.navigationStep.findMany({
+      where: {
+        patientId: completedStep.patientId,
+        tenantId,
+        dependsOnStepKey: completedStep.stepKey,
+        status: {
+          notIn: [
+            NavigationStepStatus.COMPLETED,
+            NavigationStepStatus.NOT_APPLICABLE,
+            NavigationStepStatus.CANCELLED,
+          ],
+        },
+      } as any,
+    });
+
+    for (const dep of dependentSteps) {
+      const updateData: Prisma.NavigationStepUpdateInput = {};
+      const depAny = dep as any;
+
+      if (depAny.relativeDaysMin !== null && depAny.relativeDaysMin !== undefined) {
+        updateData.expectedDate = this.addDays(
+          new Date(actualDate),
+          depAny.relativeDaysMin
+        );
+      }
+      if (depAny.relativeDaysMax !== null && depAny.relativeDaysMax !== undefined) {
+        updateData.dueDate = this.addDays(
+          new Date(actualDate),
+          depAny.relativeDaysMax
+        );
+      }
+      if (dep.status === NavigationStepStatus.PENDING) {
+        updateData.status = NavigationStepStatus.IN_PROGRESS;
+      }
+
+      if (Object.keys(updateData).length > 0) {
+        await this.prisma.navigationStep.update({
+          where: { id: dep.id, tenantId },
+          data: updateData,
+        });
+        this.logger.log(
+          `Cascade: etapa ${dep.stepKey} → expectedDate=${(updateData.expectedDate as Date | undefined)?.toISOString()?.slice(0, 10)}, dueDate=${(updateData.dueDate as Date | undefined)?.toISOString()?.slice(0, 10)}`
+        );
+      }
+    }
+
+    // Caso especial: suspeita clínica é via alternativa ao exame de rastreio.
+    // Ao completar clinical_suspicion, atualizar a primeira etapa de DIAGNOSIS
+    // que não esteja concluída/cancelada. Atualiza mesmo se já tiver datas (re-marcar).
+    // Prazo legal: 30 dias para diagnóstico após suspeita clínica.
+    if (completedStep.stepKey === 'clinical_suspicion') {
+      const firstDiagnosisStep = await this.prisma.navigationStep.findFirst({
+        where: {
+          patientId: completedStep.patientId,
+          tenantId,
+          journeyStage: JourneyStage.DIAGNOSIS,
+          isCompleted: false,
+          status: {
+            notIn: [
+              NavigationStepStatus.COMPLETED,
+              NavigationStepStatus.NOT_APPLICABLE,
+              NavigationStepStatus.CANCELLED,
+            ],
+          },
+        },
+        orderBy: { stepOrder: 'asc' } as any,
       });
 
-      steps.push({
-        journeyStage: JourneyStage.FOLLOW_UP,
-        stepKey: 'follow_up_6months',
-        stepName: 'Consulta de Seguimento aos 6 meses',
-        stepDescription: 'Segunda consulta de seguimento',
-        isRequired: true,
-        dueDate: this.addDays(new Date(), 180),
+      if (firstDiagnosisStep) {
+        const baseDate = new Date(actualDate);
+        const existingMeta =
+          (firstDiagnosisStep.metadata as Record<string, unknown>) ?? {};
+        await this.prisma.navigationStep.update({
+          where: { id: firstDiagnosisStep.id, tenantId },
+          data: {
+            expectedDate: this.addDays(baseDate, 14),
+            dueDate: this.addDays(baseDate, 30),
+            status: NavigationStepStatus.IN_PROGRESS,
+            metadata: { ...existingMeta, unlockedBy: 'clinical_suspicion' },
+          },
+        });
+        this.logger.log(
+          `Cascade: clinical_suspicion → ${firstDiagnosisStep.stepKey} desbloqueada (prazo 30d)`,
+        );
+      }
+    }
+
+    // Caso especial: follow-up de bexiga dependem de BCG OU cistectomia.
+    // Se a etapa concluída é radical_cystectomy e o BCG está NOT_APPLICABLE,
+    // reatribuir o cascade das etapas de follow-up que dependiam de intravesical_bcg.
+    if (
+      completedStep.stepKey === 'radical_cystectomy' &&
+      completedStep.cancerType === 'bladder'
+    ) {
+      await this.cascadeFollowUpFromAlternative(
+        completedStep,
+        tenantId,
+        'intravesical_bcg',
+        actualDate
+      );
+    }
+    // Simetria: se BCG conclui e cistectomia está NOT_APPLICABLE
+    if (
+      completedStep.stepKey === 'intravesical_bcg' &&
+      completedStep.cancerType === 'bladder'
+    ) {
+      await this.cascadeFollowUpFromAlternative(
+        completedStep,
+        tenantId,
+        'radical_cystectomy',
+        actualDate
+      );
+    }
+  }
+
+  /**
+   * Para follow-ups de bexiga que dependem de uma etapa alternativa (BCG ou cistectomia),
+   * atualiza datas usando a etapa realmente concluída como referência.
+   */
+  private async cascadeFollowUpFromAlternative(
+    completedStep: NavigationStep,
+    tenantId: string,
+    alternativeStepKey: string,
+    actualDate: Date | string
+  ): Promise<void> {
+    // Verificar se a etapa alternativa está NOT_APPLICABLE
+    const altStep = await this.prisma.navigationStep.findFirst({
+      where: {
+        patientId: completedStep.patientId,
+        tenantId,
+        stepKey: alternativeStepKey,
+        status: NavigationStepStatus.NOT_APPLICABLE,
+      },
+    });
+
+    if (!altStep) {return;}
+
+    // Reatribuir datas dos follow-ups que dependiam da etapa alternativa
+    const dependentSteps = await this.prisma.navigationStep.findMany({
+      where: {
+        patientId: completedStep.patientId,
+        tenantId,
+        dependsOnStepKey: alternativeStepKey,
+        status: {
+          notIn: [
+            NavigationStepStatus.COMPLETED,
+            NavigationStepStatus.NOT_APPLICABLE,
+            NavigationStepStatus.CANCELLED,
+          ],
+        },
+      } as any,
+    });
+
+    for (const dep of dependentSteps) {
+      const updateData: Prisma.NavigationStepUpdateInput = {};
+      const depAny = dep as any;
+      if (depAny.relativeDaysMin !== null && depAny.relativeDaysMin !== undefined) {
+        updateData.expectedDate = this.addDays(
+          new Date(actualDate),
+          depAny.relativeDaysMin
+        );
+      }
+      if (depAny.relativeDaysMax !== null && depAny.relativeDaysMax !== undefined) {
+        updateData.dueDate = this.addDays(
+          new Date(actualDate),
+          depAny.relativeDaysMax
+        );
+      }
+      if (dep.status === NavigationStepStatus.PENDING) {
+        updateData.status = NavigationStepStatus.IN_PROGRESS;
+      }
+      if (Object.keys(updateData).length > 0) {
+        await this.prisma.navigationStep.update({
+          where: { id: dep.id, tenantId },
+          data: updateData,
+        });
+      }
+    }
+  }
+
+  /**
+   * Reseta datas de etapas dependentes quando uma etapa é desmarcada como concluída.
+   */
+  private async resetDependentStepDates(
+    uncompletedStep: NavigationStep,
+    tenantId: string
+  ): Promise<void> {
+    const dependentSteps = await this.prisma.navigationStep.findMany({
+      where: {
+        patientId: uncompletedStep.patientId,
+        tenantId,
+        dependsOnStepKey: uncompletedStep.stepKey,
+        status: {
+          in: [NavigationStepStatus.PENDING, NavigationStepStatus.IN_PROGRESS],
+        },
+        isCompleted: false,
+      } as any,
+    });
+
+    for (const dep of dependentSteps) {
+      await this.prisma.navigationStep.update({
+        where: { id: dep.id, tenantId },
+        data: {
+          expectedDate: null,
+          dueDate: null,
+          status: NavigationStepStatus.PENDING,
+        },
       });
     }
 
-    return steps;
+    // Caso especial: clinical_suspicion desbloqueia a primeira etapa de DIAGNOSIS
+    // usando metadata.unlockedBy como marcador (sem poluir o campo notes visível)
+    if (uncompletedStep.stepKey === 'clinical_suspicion') {
+      const unlockedByCS = await this.prisma.navigationStep.findMany({
+        where: {
+          patientId: uncompletedStep.patientId,
+          tenantId,
+          journeyStage: JourneyStage.DIAGNOSIS,
+          isCompleted: false,
+          status: {
+            in: [NavigationStepStatus.PENDING, NavigationStepStatus.IN_PROGRESS],
+          },
+          metadata: { path: ['unlockedBy'], equals: 'clinical_suspicion' },
+        },
+      });
+
+      for (const step of unlockedByCS) {
+        const meta = (step.metadata as Record<string, unknown>) ?? {};
+        const { unlockedBy: _removed, ...restMeta } = meta;
+        await this.prisma.navigationStep.update({
+          where: { id: step.id, tenantId },
+          data: {
+            expectedDate: null,
+            dueDate: null,
+            status: NavigationStepStatus.PENDING,
+            metadata: Object.keys(restMeta).length > 0 ? (restMeta as Prisma.JsonObject) : null,
+          },
+        });
+      }
+    }
   }
 
   /**
    * Determina severidade do alerta baseado na etapa
    */
-  private getSeverityForStep(step: any): AlertSeverity {
-    // Etapas críticas de diagnóstico e tratamento são HIGH ou CRITICAL
+  private getSeverityForStep(step: NavigationStep): AlertSeverity {
+    // Etapas críticas de diagnóstico, tratamento e paliativos são HIGH ou CRITICAL
     if (
       step.journeyStage === JourneyStage.DIAGNOSIS ||
-      step.journeyStage === JourneyStage.TREATMENT
+      step.journeyStage === JourneyStage.TREATMENT ||
+      step.journeyStage === JourneyStage.PALLIATIVE
     ) {
       if (step.isRequired) {
         const daysOverdue = Math.floor(
@@ -2485,134 +3219,6 @@ export class OncologyNavigationService {
       return AlertSeverity.MEDIUM;
     }
     return AlertSeverity.LOW;
-  }
-
-  /**
-   * Etapas específicas para pacientes em tratamento paliativo
-   * Focadas em controle de sintomas, conforto e qualidade de vida
-   */
-  private getPalliativeCareSteps(currentStage: JourneyStage): Array<{
-    journeyStage: JourneyStage;
-    stepKey: string;
-    stepName: string;
-    stepDescription: string;
-    isRequired: boolean;
-    expectedDate?: Date;
-    dueDate?: Date;
-  }> {
-    const steps: Array<{
-      journeyStage: JourneyStage;
-      stepKey: string;
-      stepName: string;
-      stepDescription: string;
-      isRequired: boolean;
-      expectedDate?: Date;
-      dueDate?: Date;
-    }> = [];
-
-    // Etapas de cuidados paliativos são aplicáveis independente do estágio da jornada
-    // Mas focamos principalmente em FOLLOW_UP para acompanhamento contínuo
-
-    // Avaliação de sintomas (dor, náusea, dispneia, fadiga)
-    steps.push({
-      journeyStage: JourneyStage.FOLLOW_UP,
-      stepKey: 'palliative_symptom_assessment',
-      stepName: 'Avaliação de Sintomas',
-      stepDescription:
-        'Avaliação completa de sintomas: dor, náusea/vômitos, dispneia, fadiga, constipação, ansiedade, depressão',
-      isRequired: true,
-      dueDate: this.addDays(new Date(), 7), // Reavaliação semanal
-    });
-
-    // Avaliação de suporte familiar/psicossocial
-    steps.push({
-      journeyStage: JourneyStage.FOLLOW_UP,
-      stepKey: 'palliative_family_support_assessment',
-      stepName: 'Avaliação de Suporte Familiar e Psicossocial',
-      stepDescription:
-        'Avaliar necessidade de suporte familiar, recursos disponíveis, sobrecarga do cuidador, necessidade de apoio psicológico',
-      isRequired: true,
-      dueDate: this.addDays(new Date(), 14), // Primeira avaliação em 14 dias
-    });
-
-    // Ajuste de medicação para controle de sintomas
-    steps.push({
-      journeyStage: JourneyStage.FOLLOW_UP,
-      stepKey: 'palliative_medication_review',
-      stepName: 'Revisão e Ajuste de Medicação',
-      stepDescription:
-        'Revisar medicações para controle de sintomas (analgésicos, antieméticos, ansiolíticos), ajustar doses conforme necessidade',
-      isRequired: true,
-      dueDate: this.addDays(new Date(), 7), // Revisão semanal
-    });
-
-    // Avaliação nutricional
-    steps.push({
-      journeyStage: JourneyStage.FOLLOW_UP,
-      stepKey: 'palliative_nutritional_assessment',
-      stepName: 'Avaliação Nutricional',
-      stepDescription:
-        'Avaliar estado nutricional, apetite, capacidade de deglutição, necessidade de suporte nutricional',
-      isRequired: true,
-      dueDate: this.addDays(new Date(), 14), // Primeira avaliação em 14 dias
-    });
-
-    // Cuidados de conforto
-    steps.push({
-      journeyStage: JourneyStage.FOLLOW_UP,
-      stepKey: 'palliative_comfort_care',
-      stepName: 'Cuidados de Conforto',
-      stepDescription:
-        'Avaliar e implementar medidas de conforto: posicionamento, higiene, cuidados de pele, ambiente',
-      isRequired: true,
-      dueDate: this.addDays(new Date(), 3), // Avaliação frequente
-    });
-
-    // Planejamento de cuidados avançados
-    steps.push({
-      journeyStage: JourneyStage.FOLLOW_UP,
-      stepKey: 'palliative_advance_care_planning',
-      stepName: 'Planejamento de Cuidados Avançados',
-      stepDescription:
-        'Discutir diretivas antecipadas de vontade, preferências de cuidados, decisões sobre tratamentos de suporte de vida',
-      isRequired: false, // Opcional mas recomendado
-      dueDate: this.addDays(new Date(), 30), // Inicial em 30 dias
-    });
-
-    // Suporte espiritual (se aplicável)
-    steps.push({
-      journeyStage: JourneyStage.FOLLOW_UP,
-      stepKey: 'palliative_spiritual_support',
-      stepName: 'Avaliação de Necessidades Espirituais',
-      stepDescription:
-        'Avaliar necessidade de suporte espiritual/religioso, se desejado pelo paciente e família',
-      isRequired: false, // Opcional
-      dueDate: this.addDays(new Date(), 30),
-    });
-
-    // Avaliação de qualidade de vida
-    steps.push({
-      journeyStage: JourneyStage.FOLLOW_UP,
-      stepKey: 'palliative_quality_of_life_assessment',
-      stepName: 'Avaliação de Qualidade de Vida',
-      stepDescription:
-        'Aplicar escalas de qualidade de vida (ex: ESAS - Edmonton Symptom Assessment Scale) para monitoramento',
-      isRequired: true,
-      dueDate: this.addDays(new Date(), 7), // Semanal
-    });
-
-    // Coordenação com equipe multidisciplinar
-    steps.push({
-      journeyStage: JourneyStage.FOLLOW_UP,
-      stepKey: 'palliative_multidisciplinary_team',
-      stepName: 'Coordenação com Equipe Multidisciplinar',
-      stepDescription:
-        'Garantir comunicação entre médico, enfermagem, psicologia, nutrição, fisioterapia, assistência social',
-      isRequired: true,
-      dueDate: this.addDays(new Date(), 14), // Reunião quinzenal
-    });
-
-    return steps;
   }
 
   /**

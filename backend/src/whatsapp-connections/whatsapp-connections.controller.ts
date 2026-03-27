@@ -18,6 +18,7 @@ import {
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { TenantGuard } from '../auth/guards/tenant.guard';
 import { Public } from '../auth/decorators/public.decorator';
+import { ConfigService } from '@nestjs/config';
 import { WhatsAppConnectionsService } from './whatsapp-connections.service';
 import { CreateWhatsAppConnectionDto } from './dto/create-whatsapp-connection.dto';
 import { UpdateWhatsAppConnectionDto } from './dto/update-whatsapp-connection.dto';
@@ -29,7 +30,8 @@ export class WhatsAppConnectionsController {
   private readonly logger = new Logger(WhatsAppConnectionsController.name);
 
   constructor(
-    private readonly whatsappConnectionsService: WhatsAppConnectionsService
+    private readonly whatsappConnectionsService: WhatsAppConnectionsService,
+    private readonly configService: ConfigService,
   ) {}
 
   @Get()
@@ -68,8 +70,9 @@ export class WhatsAppConnectionsController {
     @Query('error_description') errorDescription: string,
     @Res() res: Response
   ) {
+    const frontendUrl =
+      this.configService.get<string>('FRONTEND_URL') || 'http://localhost:3000';
     if (error) {
-      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
       return res.redirect(
         `${frontendUrl}/integrations?error=${encodeURIComponent(
           errorDescription || error
@@ -78,7 +81,6 @@ export class WhatsAppConnectionsController {
     }
 
     if (!code || !state) {
-      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
       return res.redirect(
         `${frontendUrl}/integrations?error=${encodeURIComponent(
           'Missing code or state parameter'
@@ -93,7 +95,6 @@ export class WhatsAppConnectionsController {
       );
       return res.redirect(result.redirectUrl);
     } catch (error: any) {
-      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
       // NestJS exceptions have a 'message' property
       const errorMessage =
         error.message || error.response?.data?.message || 'Unknown error';

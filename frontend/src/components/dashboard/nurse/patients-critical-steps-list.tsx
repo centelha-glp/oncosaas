@@ -34,6 +34,7 @@ const JOURNEY_STAGE_LABELS: Record<string, string> = {
   DIAGNOSIS: 'Diagnóstico',
   TREATMENT: 'Tratamento',
   FOLLOW_UP: 'Seguimento',
+  PALLIATIVE: 'Cuidados paliativos',
 };
 
 const PRIORITY_COLORS: Record<string, string> = {

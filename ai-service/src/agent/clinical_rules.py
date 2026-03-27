@@ -430,8 +430,8 @@ class ClinicalRulesEngine:
                                 f.evidence["mascc_score"] = mascc.score
 
                 if scores_result.cisne and not scores_result.cisne.is_high_risk and scores_result.mascc and not scores_result.mascc.is_high_risk:
-                    # Both scores say low risk — annotates R12_FEVER_NO_CHEMO findings with
-                    # ambulatory outpatient note (no disposition change; does not downgrade).
+                    # Both scores say low risk — can downgrade ER_IMMEDIATE to ER_DAYS
+                    # only when fever is not in nadir window and not in active chemo
                     if not in_nadir_window and not in_chemo:
                         findings_to_downgrade = [
                             f for f in findings

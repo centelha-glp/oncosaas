@@ -41,7 +41,8 @@ resource "aws_iam_policy" "github_deploy" {
           "ecr:PutImage",
           "ecr:UploadLayerPart",
           "ecr:BatchGetImage",
-          "ecr:DescribeImages"
+          "ecr:DescribeImages",
+          "ecr:GetDownloadUrlForLayer" # Required for explicit ARM images in deploy workflow (Trivy)
         ],
         Resource = "*"
       },

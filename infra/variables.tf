@@ -110,3 +110,9 @@ variable "db_backup_retention_days" {
   type        = number
   default     = 7
 }
+
+variable "ssh_public_key" {
+  description = "Optional SSH public key content to append to ubuntu authorized_keys"
+  type        = string
+  default     = ""
+}
