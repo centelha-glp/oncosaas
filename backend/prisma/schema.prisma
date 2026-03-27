@@ -74,8 +74,8 @@ model Patient {
 
   // Disposição clínica calculada pelo algoritmo de risco
   clinicalDisposition       ClinicalDisposition? // Disposição clínica atual (output do algoritmo)
-  clinicalDispositionAt     DateTime?            // Quando foi calculada
-  clinicalDispositionReason String?              // Raciocínio clínico (explicabilidade)
+  clinicalDispositionAt     DateTime? // Quando foi calculada
+  clinicalDispositionReason String? // Raciocínio clínico (explicabilidade)
 
   // Hospital de referência para emergência (override do tenant)
   preferredEmergencyHospital String? // Nome do PS preferido (se diferente do padrão do tenant)
@@ -99,24 +99,24 @@ model Patient {
   lastInteraction DateTime? // Última interação com agente
 
   // Relacionamentos
-  tenant                 Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  messages               Message[]
-  alerts                 Alert[]
-  journey                PatientJourney?
-  observations           Observation[]
-  priorityHistory        PriorityScore[]
-  questionnaireResponses QuestionnaireResponse[]
-  cancerDiagnoses        CancerDiagnosis[] // Múltiplos diagnósticos de câncer
-  treatments             Treatment[] // Tratamentos oncológicos
-  navigationSteps        NavigationStep[] // Etapas de navegação oncológica
-  internalNotes          InternalNote[]
-  interventions          Intervention[]
-  conversations          Conversation[] // Conversas do agente IA
-  complementaryExams        ComplementaryExam[]        // Exames complementares (lab, anatomo, imuno, imagem)
-  medications               Medication[]               // Medicamentos em uso (estruturado)
-  comorbidities             Comorbidity[]              // Comorbidades (estruturado)
-  performanceStatusHistory  PerformanceStatusHistory[] // Histórico ECOG para cálculo de delta
-  dispositionFeedback       ClinicalDispositionFeedback[] // Correções de disposição para retraining
+  tenant                   Tenant                        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  messages                 Message[]
+  alerts                   Alert[]
+  journey                  PatientJourney?
+  observations             Observation[]
+  priorityHistory          PriorityScore[]
+  questionnaireResponses   QuestionnaireResponse[]
+  cancerDiagnoses          CancerDiagnosis[] // Múltiplos diagnósticos de câncer
+  treatments               Treatment[] // Tratamentos oncológicos
+  navigationSteps          NavigationStep[] // Etapas de navegação oncológica
+  internalNotes            InternalNote[]
+  interventions            Intervention[]
+  conversations            Conversation[] // Conversas do agente IA
+  complementaryExams       ComplementaryExam[] // Exames complementares (lab, anatomo, imuno, imagem)
+  medications              Medication[] // Medicamentos em uso (estruturado)
+  comorbidities            Comorbidity[] // Comorbidades (estruturado)
+  performanceStatusHistory PerformanceStatusHistory[] // Histórico ECOG para cálculo de delta
+  dispositionFeedback      ClinicalDispositionFeedback[] // Correções de disposição para retraining
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -131,10 +131,10 @@ model Patient {
 }
 
 enum JourneyStage {
-  SCREENING  // Rastreio
-  DIAGNOSIS  // Diagnóstico
-  TREATMENT  // Tratamento
-  FOLLOW_UP  // Seguimento
+  SCREENING // Rastreio
+  DIAGNOSIS // Diagnóstico
+  TREATMENT // Tratamento
+  FOLLOW_UP // Seguimento
   PALLIATIVE // Cuidados paliativos (transversal a qualquer tipo de câncer)
 }
 
@@ -201,10 +201,10 @@ model PatientJourney {
 
 // Etapas de Navegação Oncológica (checklist por tipo de câncer e etapa)
 model NavigationStep {
-  id        String  @id @default(uuid())
-  tenantId  String
-  patientId String
-  journeyId String? // Opcional: referência ao PatientJourney
+  id          String  @id @default(uuid())
+  tenantId    String
+  patientId   String
+  journeyId   String? // Opcional: referência ao PatientJourney
   diagnosisId String? // Vinculado a um diagnóstico específico; ao excluir o diagnóstico, as etapas são excluídas em cascata
 
   // Contexto
@@ -234,8 +234,8 @@ model NavigationStep {
 
   // Dependência e prazos relativos
   dependsOnStepKey String? // stepKey da etapa predecessora (null = etapa inicial ou trigger manual)
-  relativeDaysMin  Int?    // dias mínimos após predecessora concluir → expectedDate
-  relativeDaysMax  Int?    // dias máximos após predecessora concluir → dueDate
+  relativeDaysMin  Int? // dias mínimos após predecessora concluir → expectedDate
+  relativeDaysMax  Int? // dias máximos após predecessora concluir → dueDate
   stepOrder        Int     @default(0) // ordem sequencial dentro do workflow do tipo de câncer
 
   // Metadados
@@ -243,10 +243,10 @@ model NavigationStep {
   notes    String? // Observações
 
   // Relacionamentos
-  tenant     Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  patient    Patient          @relation(fields: [patientId], references: [id], onDelete: Cascade)
-  journey    PatientJourney?  @relation(fields: [journeyId], references: [id], onDelete: Cascade)
-  diagnosis  CancerDiagnosis? @relation(fields: [diagnosisId], references: [id], onDelete: Cascade)
+  tenant    Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  patient   Patient          @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  journey   PatientJourney?  @relation(fields: [journeyId], references: [id], onDelete: Cascade)
+  diagnosis CancerDiagnosis? @relation(fields: [diagnosisId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -310,32 +310,32 @@ model CancerDiagnosis {
   confirmedBy        String? // Médico que confirmou (ID do usuário)
 
   // Biomarcadores - Câncer de Mama
-  her2Status    String? // positivo, negativo, indeterminado
-  erStatus      String? // positivo, negativo (receptor de estrogênio)
-  prStatus      String? // positivo, negativo (receptor de progesterona)
+  her2Status     String? // positivo, negativo, indeterminado
+  erStatus       String? // positivo, negativo (receptor de estrogênio)
+  prStatus       String? // positivo, negativo (receptor de progesterona)
   ki67Percentage Float? // Percentual Ki-67 (0-100)
 
   // Biomarcadores - Câncer de Pulmão/Colorretal
-  egfrMutation     String? // mutado, wild-type, indeterminado
-  alkRearrangement String? // positivo, negativo
+  egfrMutation      String? // mutado, wild-type, indeterminado
+  alkRearrangement  String? // positivo, negativo
   ros1Rearrangement String? // positivo, negativo
-  brafMutation     String? // mutado, wild-type
-  krasMutation     String? // mutado, wild-type
-  nrasMutation     String? // mutado, wild-type
-  pdl1Expression   Float? // Percentual PD-L1 (0-100)
-  msiStatus        String? // MSI-H, MSS, indeterminado
+  brafMutation      String? // mutado, wild-type
+  krasMutation      String? // mutado, wild-type
+  nrasMutation      String? // mutado, wild-type
+  pdl1Expression    Float? // Percentual PD-L1 (0-100)
+  msiStatus         String? // MSI-H, MSS, indeterminado
 
   // Biomarcadores - Câncer de Próstata
   psaBaseline  Float? // PSA inicial (ng/mL)
   gleasonScore String? // ex: "3+4=7", "4+3=7"
 
   // Marcadores Tumorais
-  ceaBaseline  Float? // CEA inicial (ng/mL)
+  ceaBaseline   Float? // CEA inicial (ng/mL)
   ca199Baseline Float? // CA 19-9 inicial (U/mL)
   ca125Baseline Float? // CA 125 inicial (U/mL)
   ca153Baseline Float? // CA 15-3 inicial (U/mL)
-  afpBaseline  Float? // AFP inicial (ng/mL)
-  hcgBaseline  Float? // β-HCG inicial (mUI/mL)
+  afpBaseline   Float? // AFP inicial (ng/mL)
+  hcgBaseline   Float? // β-HCG inicial (mUI/mL)
 
   // Status do diagnóstico
   isPrimary        Boolean   @default(true) // Diagnóstico primário?
@@ -344,15 +344,15 @@ model CancerDiagnosis {
   resolutionReason String? // Motivo da resolução
 
   // Câncer metastático associado ao primário
-  primaryDiagnosisId String? // Se preenchido, este diagnóstico é metastático do primário
-  primaryDiagnosis   CancerDiagnosis?  @relation("PrimaryToMetastatic", fields: [primaryDiagnosisId], references: [id], onDelete: SetNull)
+  primaryDiagnosisId  String? // Se preenchido, este diagnóstico é metastático do primário
+  primaryDiagnosis    CancerDiagnosis?  @relation("PrimaryToMetastatic", fields: [primaryDiagnosisId], references: [id], onDelete: SetNull)
   metastaticDiagnoses CancerDiagnosis[] @relation("PrimaryToMetastatic")
 
   // Relacionamentos
-  tenant           Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  patient          Patient           @relation(fields: [patientId], references: [id], onDelete: Cascade)
-  treatments       Treatment[]       // Tratamentos vinculados a este diagnóstico
-  navigationSteps  NavigationStep[] // Etapas de navegação vinculadas a este diagnóstico (excluídas em cascata)
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  patient         Patient          @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  treatments      Treatment[] // Tratamentos vinculados a este diagnóstico
+  navigationSteps NavigationStep[] // Etapas de navegação vinculadas a este diagnóstico (excluídas em cascata)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -367,17 +367,17 @@ model CancerDiagnosis {
 
 // Tratamento Oncológico (vinculado a um diagnóstico específico)
 model Treatment {
-  id        String @id @default(uuid())
-  tenantId  String
-  patientId String
+  id          String @id @default(uuid())
+  tenantId    String
+  patientId   String
   diagnosisId String // Vinculado a um CancerDiagnosis específico
 
   // Tipo e Protocolo
-  treatmentType   TreatmentType // Quimioterapia, Radioterapia, Cirurgia, etc.
-  treatmentName   String? // Nome do tratamento (ex: "FOLFOX", "AC-T")
-  protocol         String? // Protocolo completo
-  line             Int? // Linha de tratamento (1ª linha, 2ª linha, etc.)
-  intent           TreatmentIntent @default(CURATIVE) // Curativo ou paliativo
+  treatmentType TreatmentType // Quimioterapia, Radioterapia, Cirurgia, etc.
+  treatmentName String? // Nome do tratamento (ex: "FOLFOX", "AC-T")
+  protocol      String? // Protocolo completo
+  line          Int? // Linha de tratamento (1ª linha, 2ª linha, etc.)
+  intent        TreatmentIntent @default(CURATIVE) // Curativo ou paliativo
 
   // Datas
   startDate           DateTime? // Data de início
@@ -387,39 +387,39 @@ model Treatment {
   lastApplicationDate DateTime? // Data da última infusão/aplicação real (D0 para cálculo D+N)
 
   // Ciclos
-  currentCycle     Int? // Ciclo atual
-  totalCycles      Int? // Total de ciclos planejados
-  cyclesCompleted  Int? @default(0) // Ciclos já completados
+  currentCycle    Int? // Ciclo atual
+  totalCycles     Int? // Total de ciclos planejados
+  cyclesCompleted Int? @default(0) // Ciclos já completados
 
   // Status
-  status           TreatmentStatus @default(PLANNED)
-  isActive         Boolean         @default(true)
+  status                TreatmentStatus @default(PLANNED)
+  isActive              Boolean         @default(true)
   discontinuationReason String? // Motivo da descontinuação (se aplicável)
 
   // Detalhes do Tratamento
-  medications      Json? // Array de medicamentos: [{ name: string, dose: string, route: string }]
-  frequency        String? // Frequência (ex: "A cada 21 dias", "Diário")
+  medications         Json? // Array de medicamentos: [{ name: string, dose: string, route: string }]
+  frequency           String? // Frequência (ex: "A cada 21 dias", "Diário")
   administrationRoute String? // Via de administração (IV, VO, SC, etc.)
-  institutionName String? // Instituição onde está sendo realizado
-  physicianName   String? // Médico responsável
+  institutionName     String? // Instituição onde está sendo realizado
+  physicianName       String? // Médico responsável
 
   // Toxicidades e Acompanhamento
-  toxicities       Json? // Array de toxicidades: [{ type: string, grade: number, date: DateTime }]
-  doseReductions   Json? // Histórico de reduções de dose: [{ date: DateTime, reason: string, newDose: string }]
-  delays           Json? // Histórico de atrasos: [{ date: DateTime, reason: string, daysDelayed: number }]
+  toxicities     Json? // Array de toxicidades: [{ type: string, grade: number, date: DateTime }]
+  doseReductions Json? // Histórico de reduções de dose: [{ date: DateTime, reason: string, newDose: string }]
+  delays         Json? // Histórico de atrasos: [{ date: DateTime, reason: string, daysDelayed: number }]
 
   // Resposta ao Tratamento
-  response         TreatmentResponse? // RC, RP, DE, PD
-  responseDate     DateTime? // Data da avaliação de resposta
-  responseNotes    String? // Observações sobre a resposta
+  response      TreatmentResponse? // RC, RP, DE, PD
+  responseDate  DateTime? // Data da avaliação de resposta
+  responseNotes String? // Observações sobre a resposta
 
   // Metadados
-  notes            String? // Observações gerais
-  metadata         Json? // Informações adicionais
+  notes    String? // Observações gerais
+  metadata Json? // Informações adicionais
 
   // Relacionamentos
-  tenant   Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  patient  Patient         @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  tenant    Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  patient   Patient         @relation(fields: [patientId], references: [id], onDelete: Cascade)
   diagnosis CancerDiagnosis @relation(fields: [diagnosisId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
@@ -469,14 +469,14 @@ model Conversation {
   patientId String
 
   // Canal de comunicação
-  channel   ChannelType @default(WHATSAPP)
+  channel ChannelType @default(WHATSAPP)
 
   // Estado da conversa
-  status    ConversationStatus @default(ACTIVE)
+  status ConversationStatus @default(ACTIVE)
 
   // Quem está respondendo
   handledBy       HandledBy @default(AGENT)
-  assumedByUserId String?   // userId que assumiu (se NURSING)
+  assumedByUserId String? // userId que assumiu (se NURSING)
   assumedAt       DateTime?
 
   // Contexto do agente
@@ -488,7 +488,7 @@ model Conversation {
 
   // Metadados
   lastMessageAt DateTime?
-  messageCount  Int @default(0)
+  messageCount  Int       @default(0)
 
   // Relacionamentos
   tenant           Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -515,16 +515,16 @@ enum ChannelType {
 }
 
 enum ConversationStatus {
-  ACTIVE       // Em andamento
-  WAITING      // Aguardando resposta do paciente
-  ESCALATED    // Escalada para enfermagem
-  CLOSED       // Encerrada
+  ACTIVE // Em andamento
+  WAITING // Aguardando resposta do paciente
+  ESCALATED // Escalada para enfermagem
+  CLOSED // Encerrada
 }
 
 enum HandledBy {
-  AGENT    // IA respondendo
-  NURSING  // Enfermagem assumiu
-  HYBRID   // IA + enfermagem
+  AGENT // IA respondendo
+  NURSING // Enfermagem assumiu
+  HYBRID // IA + enfermagem
 }
 
 // Configuração do agente por tenant
@@ -533,8 +533,8 @@ model AgentConfig {
   tenantId String @unique
 
   // Provedor LLM
-  llmProvider         String @default("anthropic") // "anthropic" | "openai"
-  llmModel            String @default("claude-sonnet-4-6")
+  llmProvider         String  @default("anthropic") // "anthropic" | "openai"
+  llmModel            String  @default("claude-sonnet-4-6")
   llmFallbackProvider String? // Fallback se o principal falhar
   llmFallbackModel    String?
 
@@ -554,10 +554,10 @@ model AgentConfig {
   twilioPhoneNumber String?
 
   // Comportamento do agente
-  agentLanguage    String @default("pt-BR")
-  maxAutoReplies   Int    @default(10) // Máx respostas automáticas por conversa antes de escalar
-  escalationRules  Json?  // Regras customizadas de escalação
-  greeting         String? // Mensagem de saudação customizada
+  agentLanguage   String  @default("pt-BR")
+  maxAutoReplies  Int     @default(10) // Máx respostas automáticas por conversa antes de escalar
+  escalationRules Json? // Regras customizadas de escalação
+  greeting        String? // Mensagem de saudação customizada
 
   // Check-in scheduling
   defaultCheckInFrequency Json? // { "TREATMENT": "daily", "FOLLOW_UP": "weekly" }
@@ -580,17 +580,17 @@ model AgentDecisionLog {
   patientId      String
 
   // Decisão
-  decisionType  AgentDecisionType
-  reasoning     String   // Explicação da decisão
-  confidence    Float?   // 0-1 confiança na decisão
-  inputData     Json     // Dados que informaram a decisão
-  outputAction  Json     // Ação tomada
+  decisionType AgentDecisionType
+  reasoning    String // Explicação da decisão
+  confidence   Float? // 0-1 confiança na decisão
+  inputData    Json // Dados que informaram a decisão
+  outputAction Json // Ação tomada
 
   // Aprovação humana (para decisões que precisam)
-  requiresApproval Boolean  @default(false)
-  approvedBy       String?  // userId
+  requiresApproval Boolean   @default(false)
+  approvedBy       String? // userId
   approvedAt       DateTime?
-  rejected         Boolean  @default(false)
+  rejected         Boolean   @default(false)
   rejectionReason  String?
 
   // Relacionamentos
@@ -607,15 +607,15 @@ model AgentDecisionLog {
 }
 
 enum AgentDecisionType {
-  SYMPTOM_DETECTED       // Detectou sintoma
-  CRITICAL_ESCALATION    // Escalou caso crítico
-  QUESTIONNAIRE_STARTED  // Iniciou questionário
-  QUESTIONNAIRE_SCORED   // Pontuou questionário
-  CHECK_IN_SCHEDULED     // Agendou check-in
-  PRIORITY_UPDATED       // Atualizou prioridade
-  HANDOFF_TO_NURSING     // Transferiu para enfermagem
-  ALERT_CREATED          // Criou alerta
-  RESPONSE_GENERATED     // Gerou resposta (rotina)
+  SYMPTOM_DETECTED // Detectou sintoma
+  CRITICAL_ESCALATION // Escalou caso crítico
+  QUESTIONNAIRE_STARTED // Iniciou questionário
+  QUESTIONNAIRE_SCORED // Pontuou questionário
+  CHECK_IN_SCHEDULED // Agendou check-in
+  PRIORITY_UPDATED // Atualizou prioridade
+  HANDOFF_TO_NURSING // Transferiu para enfermagem
+  ALERT_CREATED // Criou alerta
+  RESPONSE_GENERATED // Gerou resposta (rotina)
 }
 
 // Check-ins e lembretes agendados
@@ -626,26 +626,26 @@ model ScheduledAction {
   conversationId String?
 
   // Tipo de ação
-  actionType     ScheduledActionType
-  channel        ChannelType @default(WHATSAPP)
+  actionType ScheduledActionType
+  channel    ChannelType         @default(WHATSAPP)
 
   // Agendamento
-  scheduledAt    DateTime
-  executedAt     DateTime?
-  status         ScheduledActionStatus @default(PENDING)
+  scheduledAt DateTime
+  executedAt  DateTime?
+  status      ScheduledActionStatus @default(PENDING)
 
   // Conteúdo
-  payload        Json // { message, questionnaireId, protocol, etc. }
+  payload Json // { message, questionnaireId, protocol, etc. }
 
   // Recorrência
-  isRecurring    Boolean @default(false)
+  isRecurring    Boolean   @default(false)
   recurrenceRule String? // cron expression ou "daily", "weekly", etc.
   nextOccurrence DateTime?
 
   // Metadados
-  retryCount     Int @default(0)
-  maxRetries     Int @default(3)
-  lastError      String?
+  retryCount Int     @default(0)
+  maxRetries Int     @default(3)
+  lastError  String?
 
   // Relacionamentos
   tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -662,21 +662,21 @@ model ScheduledAction {
 }
 
 enum ScheduledActionType {
-  CHECK_IN             // Check-in de rotina
-  QUESTIONNAIRE        // Aplicar questionário
-  MEDICATION_REMINDER  // Lembrete de medicamento
+  CHECK_IN // Check-in de rotina
+  QUESTIONNAIRE // Aplicar questionário
+  MEDICATION_REMINDER // Lembrete de medicamento
   APPOINTMENT_REMINDER // Lembrete de consulta/exame
-  FOLLOW_UP            // Acompanhamento pós-consulta
-  VOICE_CALL           // Ligação automatizada via Vapi
+  FOLLOW_UP // Acompanhamento pós-consulta
+  VOICE_CALL // Ligação automatizada via Vapi
 }
 
 enum ScheduledActionStatus {
-  PENDING    // Aguardando execução
-  EXECUTING  // Em execução
-  COMPLETED  // Executada com sucesso
-  FAILED     // Falhou
-  CANCELLED  // Cancelada
-  SKIPPED    // Pulada (paciente já respondeu)
+  PENDING // Aguardando execução
+  EXECUTING // Em execução
+  COMPLETED // Executada com sucesso
+  FAILED // Falhou
+  CANCELLED // Cancelada
+  SKIPPED // Pulada (paciente já respondeu)
 }
 
 // Protocolos clínicos por tipo de câncer
@@ -685,13 +685,13 @@ model ClinicalProtocol {
   tenantId String
 
   // Identificação
-  cancerType   String // "colorectal", "bladder", "renal", "prostate"
-  name         String // "Protocolo Colorretal Padrão"
-  version      String @default("1.0")
-  isActive     Boolean @default(true)
+  cancerType String // "colorectal", "bladder", "renal", "prostate"
+  name       String // "Protocolo Colorretal Padrão"
+  version    String  @default("1.0")
+  isActive   Boolean @default(true)
 
   // Definição do protocolo (JSON)
-  definition   Json // Etapas por journeyStage, timing, dependências, questionários
+  definition Json // Etapas por journeyStage, timing, dependências, questionários
 
   // Check-in rules por etapa do tratamento
   checkInRules Json // { "TREATMENT": { "frequency": "daily", "questionnaire": "ESAS" }, ... }
@@ -744,10 +744,10 @@ model Message {
   assumedAt DateTime?
 
   // Relacionamentos
-  tenant           Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  patient          Patient        @relation(fields: [patientId], references: [id], onDelete: Cascade)
-  conversationRef  Conversation?  @relation(fields: [conversationId], references: [id])
-  interventions    Intervention[]
+  tenant          Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  patient         Patient        @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  conversationRef Conversation?  @relation(fields: [conversationId], references: [id])
+  interventions   Intervention[]
 
   createdAt DateTime @default(now())
 
@@ -1114,28 +1114,28 @@ model InternalNote {
 
 // Exames complementares (laboratoriais, anatomopatológicos, imuno-histoquímicos, imagem)
 enum ComplementaryExamType {
-  LABORATORY           // Laboratoriais
-  ANATOMOPATHOLOGICAL  // Anatomopatológicos
-  IMMUNOHISTOCHEMICAL  // Imuno-histoquímicos
-  IMAGING              // Imagem
+  LABORATORY // Laboratoriais
+  ANATOMOPATHOLOGICAL // Anatomopatológicos
+  IMMUNOHISTOCHEMICAL // Imuno-histoquímicos
+  IMAGING // Imagem
 }
 
 model ComplementaryExam {
-  id        String   @id @default(uuid())
-  tenantId  String
-  patientId String
-  type      ComplementaryExamType
-  name      String              // Ex: "Hemoglobina", "Neutrófilos (ANC)", "Creatinina"
-  code      String?             // Ex: "HGB", "ANC", "CREAT"
-  loincCode String?             // Código LOINC padronizado (ex: "718-7" para Hgb, "751-8" para Neutrófilos)
-  labCategory LabCategory?      // Categoria clínica para agrupamento e scoring de risco
-  isCriticalMetric Boolean @default(false) // True para métricas de monitoramento crítico (ANC, Hgb, Plaquetas, Creat...)
-  unit      String?             // Ex: "g/dL", "/mm³"
-  referenceRange String?        // Ex: "12.0-16.0", "1500-8000"
+  id               String                @id @default(uuid())
+  tenantId         String
+  patientId        String
+  type             ComplementaryExamType
+  name             String // Ex: "Hemoglobina", "Neutrófilos (ANC)", "Creatinina"
+  code             String? // Ex: "HGB", "ANC", "CREAT"
+  loincCode        String? // Código LOINC padronizado (ex: "718-7" para Hgb, "751-8" para Neutrófilos)
+  labCategory      LabCategory? // Categoria clínica para agrupamento e scoring de risco
+  isCriticalMetric Boolean               @default(false) // True para métricas de monitoramento crítico (ANC, Hgb, Plaquetas, Creat...)
+  unit             String? // Ex: "g/dL", "/mm³"
+  referenceRange   String? // Ex: "12.0-16.0", "1500-8000"
 
-  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  patient  Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
-  results  ComplementaryExamResult[]
+  tenant  Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  patient Patient                   @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  results ComplementaryExamResult[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1151,15 +1151,15 @@ model ComplementaryExamResult {
   tenantId       String
   examId         String
   performedAt    DateTime // Data da realização / coleta
-  collectionId   String?  // UUID para agrupar resultados da mesma coleta (mesmo sangue/exame)
-  valueNumeric   Float?   // Valor numérico (para laboratorial/séries)
-  valueText      String?  // Valor textual ou laudo (anatomo, imuno, imagem)
+  collectionId   String? // UUID para agrupar resultados da mesma coleta (mesmo sangue/exame)
+  valueNumeric   Float? // Valor numérico (para laboratorial/séries)
+  valueText      String? // Valor textual ou laudo (anatomo, imuno, imagem)
   unit           String?
   referenceRange String?
   isAbnormal     Boolean? // Fora da faixa de referência
   criticalHigh   Boolean? // Valor criticamente alto (acima do limite crítico superior)
   criticalLow    Boolean? // Valor criticamente baixo (abaixo do limite crítico inferior)
-  report         String?  // Laudo completo (anatomo, imagem)
+  report         String? // Laudo completo (anatomo, imagem)
 
   tenant Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   exam   ComplementaryExam @relation(fields: [examId], references: [id], onDelete: Cascade)
@@ -1217,56 +1217,56 @@ model Tenant {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  users                  User[]
-  patients               Patient[]
-  patientJourneys        PatientJourney[]
-  cancerDiagnoses        CancerDiagnosis[]
-  treatments             Treatment[]
-  messages               Message[]
-  alerts                 Alert[]
-  observations           Observation[]
-  priorityScores         PriorityScore[]
-  questionnaires         Questionnaire[]
-  questionnaireResponses QuestionnaireResponse[]
-  auditLogs              AuditLog[]
-  navigationSteps        NavigationStep[]
-  whatsappConnections    WhatsAppConnection[]
-  internalNotes          InternalNote[]
-  interventions          Intervention[]
-  complementaryExams        ComplementaryExam[]
-  complementaryExamResults  ComplementaryExamResult[]
-  fhirIntegrationConfig     FHIRIntegrationConfig?
-  medications               Medication[]
-  comorbidities             Comorbidity[]
-  performanceStatusHistory  PerformanceStatusHistory[]
-  emergencyReference        EmergencyReference?
+  users                    User[]
+  patients                 Patient[]
+  patientJourneys          PatientJourney[]
+  cancerDiagnoses          CancerDiagnosis[]
+  treatments               Treatment[]
+  messages                 Message[]
+  alerts                   Alert[]
+  observations             Observation[]
+  priorityScores           PriorityScore[]
+  questionnaires           Questionnaire[]
+  questionnaireResponses   QuestionnaireResponse[]
+  auditLogs                AuditLog[]
+  navigationSteps          NavigationStep[]
+  whatsappConnections      WhatsAppConnection[]
+  internalNotes            InternalNote[]
+  interventions            Intervention[]
+  complementaryExams       ComplementaryExam[]
+  complementaryExamResults ComplementaryExamResult[]
+  fhirIntegrationConfig    FHIRIntegrationConfig?
+  medications              Medication[]
+  comorbidities            Comorbidity[]
+  performanceStatusHistory PerformanceStatusHistory[]
+  emergencyReference       EmergencyReference?
   // Agente IA
-  agentConfig            AgentConfig?
-  conversations          Conversation[]
-  agentDecisionLogs      AgentDecisionLog[]
-  scheduledActions            ScheduledAction[]
-  clinicalProtocols           ClinicalProtocol[]
-  dispositionFeedback         ClinicalDispositionFeedback[]
+  agentConfig              AgentConfig?
+  conversations            Conversation[]
+  agentDecisionLogs        AgentDecisionLog[]
+  scheduledActions         ScheduledAction[]
+  clinicalProtocols        ClinicalProtocol[]
+  dispositionFeedback      ClinicalDispositionFeedback[]
 
   @@map("tenants")
 }
 
 // Configuração de integração FHIR por tenant
 model FHIRIntegrationConfig {
-  id             String   @id @default(uuid())
-  tenantId       String   @unique
-  enabled        Boolean  @default(false)
-  baseUrl        String
-  authType       String // 'oauth2' | 'basic' | 'apikey'
-  authConfig     Json // Configuração de autenticação (FHIRAuthConfig)
-  syncDirection  String   @default("pull") // 'pull' | 'push' | 'bidirectional'
-  syncFrequency  String   @default("daily") // 'realtime' | 'hourly' | 'daily'
-  maxRetries     Int      @default(3)
-  initialDelay   Int      @default(1000) // ms
-  maxDelay       Int      @default(30000) // ms
-  backoffMultiplier Decimal @default(2.0)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id                String   @id @default(uuid())
+  tenantId          String   @unique
+  enabled           Boolean  @default(false)
+  baseUrl           String
+  authType          String // 'oauth2' | 'basic' | 'apikey'
+  authConfig        Json // Configuração de autenticação (FHIRAuthConfig)
+  syncDirection     String   @default("pull") // 'pull' | 'push' | 'bidirectional'
+  syncFrequency     String   @default("daily") // 'realtime' | 'hourly' | 'daily'
+  maxRetries        Int      @default(3)
+  initialDelay      Int      @default(1000) // ms
+  maxDelay          Int      @default(30000) // ms
+  backoffMultiplier Decimal  @default(2.0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
@@ -1279,33 +1279,33 @@ model FHIRIntegrationConfig {
 
 // Disposição clínica — 5 níveis de ação definidos pelo algoritmo de risco
 enum ClinicalDisposition {
-  REMOTE_NURSING    // Manejo remoto pela enfermagem (orientação por WhatsApp/telefone)
+  REMOTE_NURSING // Manejo remoto pela enfermagem (orientação por WhatsApp/telefone)
   SCHEDULED_CONSULT // Consulta ambulatorial na data já agendada
-  ADVANCE_CONSULT   // Antecipar consulta (contato para reagendar em 24-72h)
-  ER_DAYS           // Ir ao pronto-socorro nos próximos dias (24-48h)
-  ER_IMMEDIATE      // Ir ao pronto-socorro imediatamente
+  ADVANCE_CONSULT // Antecipar consulta (contato para reagendar em 24-72h)
+  ER_DAYS // Ir ao pronto-socorro nos próximos dias (24-48h)
+  ER_IMMEDIATE // Ir ao pronto-socorro imediatamente
 }
 
 // Categoria clínica de medicamento (para flags de risco no algoritmo)
 enum MedicationCategory {
-  ANTICOAGULANT         // Anticoagulantes: warfarina, apixabana, rivaroxabana, heparina
-  ANTIPLATELET          // Antiplaquetários: AAS, clopidogrel, ticagrelor
-  CORTICOSTEROID        // Corticosteroides: prednisona, dexametasona, hidrocortisona, metilprednisolona
-  IMMUNOSUPPRESSANT     // Imunossupressores: tacrolimus, micofenolato, azatioprina, ciclosporina
-  NSAID                 // AINEs: ibuprofeno, diclofenaco, naproxeno, meloxicam
-  OPIOID_ANALGESIC      // Opioides: morfina, oxicodona, tramadol, codeína, fentanil
-  NON_OPIOID_ANALGESIC  // Analgésicos não-opioides: dipirona, paracetamol
-  ANTIEMETIC            // Antieméticos: ondansetrona, metoclopramida, domperidona
-  ANTIBIOTIC            // Antibióticos (uso profilático ou terapêutico)
-  ANTIFUNGAL            // Antifúngicos: fluconazol, voriconazol, anfotericina
-  ANTIVIRAL             // Antivirais: aciclovir, valaciclovir
-  ANTIHYPERTENSIVE      // Anti-hipertensivos
-  ANTIDIABETIC          // Antidiabéticos: metformina, insulina, glipizida
-  BISPHOSPHONATE        // Bisfosfonatos/RANK-L: ácido zoledrônico, denosumabe
-  GROWTH_FACTOR         // Fatores de crescimento: filgrastim (G-CSF), pegfilgrastim
+  ANTICOAGULANT // Anticoagulantes: warfarina, apixabana, rivaroxabana, heparina
+  ANTIPLATELET // Antiplaquetários: AAS, clopidogrel, ticagrelor
+  CORTICOSTEROID // Corticosteroides: prednisona, dexametasona, hidrocortisona, metilprednisolona
+  IMMUNOSUPPRESSANT // Imunossupressores: tacrolimus, micofenolato, azatioprina, ciclosporina
+  NSAID // AINEs: ibuprofeno, diclofenaco, naproxeno, meloxicam
+  OPIOID_ANALGESIC // Opioides: morfina, oxicodona, tramadol, codeína, fentanil
+  NON_OPIOID_ANALGESIC // Analgésicos não-opioides: dipirona, paracetamol
+  ANTIEMETIC // Antieméticos: ondansetrona, metoclopramida, domperidona
+  ANTIBIOTIC // Antibióticos (uso profilático ou terapêutico)
+  ANTIFUNGAL // Antifúngicos: fluconazol, voriconazol, anfotericina
+  ANTIVIRAL // Antivirais: aciclovir, valaciclovir
+  ANTIHYPERTENSIVE // Anti-hipertensivos
+  ANTIDIABETIC // Antidiabéticos: metformina, insulina, glipizida
+  BISPHOSPHONATE // Bisfosfonatos/RANK-L: ácido zoledrônico, denosumabe
+  GROWTH_FACTOR // Fatores de crescimento: filgrastim (G-CSF), pegfilgrastim
   PROTON_PUMP_INHIBITOR // Inibidores de bomba: omeprazol, pantoprazol, esomeprazol
-  LAXATIVE              // Laxantes: lactulose, bisacodil, macrogol
-  OTHER                 // Outros
+  LAXATIVE // Laxantes: lactulose, bisacodil, macrogol
+  OTHER // Outros
 }
 
 // Tipo estruturado de comorbidade
@@ -1316,16 +1316,16 @@ enum ComorbidityType {
   HEART_FAILURE
   CORONARY_ARTERY_DISEASE
   ATRIAL_FIBRILLATION
-  COPD                    // Doença Pulmonar Obstrutiva Crônica
+  COPD // Doença Pulmonar Obstrutiva Crônica
   ASTHMA
   CHRONIC_KIDNEY_DISEASE
   LIVER_CIRRHOSIS
   HIV_AIDS
-  AUTOIMMUNE_DISEASE      // Lúpus, artrite reumatoide, esclerose múltipla, etc.
-  STROKE_HISTORY          // AVC prévio
-  DEEP_VEIN_THROMBOSIS    // TVP prévia
-  PULMONARY_EMBOLISM      // TEP prévio
-  PERIPHERAL_NEUROPATHY   // Neuropatia periférica pré-existente
+  AUTOIMMUNE_DISEASE // Lúpus, artrite reumatoide, esclerose múltipla, etc.
+  STROKE_HISTORY // AVC prévio
+  DEEP_VEIN_THROMBOSIS // TVP prévia
+  PULMONARY_EMBOLISM // TEP prévio
+  PERIPHERAL_NEUROPATHY // Neuropatia periférica pré-existente
   OBESITY
   DEPRESSION
   ANXIETY_DISORDER
@@ -1333,24 +1333,24 @@ enum ComorbidityType {
 }
 
 enum ComorbiditySeverity {
-  MILD     // Leve — controlada sem impacto funcional significativo
+  MILD // Leve — controlada sem impacto funcional significativo
   MODERATE // Moderada — controlada mas com impacto funcional parcial
-  SEVERE   // Grave — difícil controle ou com impacto funcional importante
+  SEVERE // Grave — difícil controle ou com impacto funcional importante
 }
 
 // Categoria de exame laboratorial para scoring de risco
 enum LabCategory {
-  CBC               // Hemograma completo (Hgb, Leucócitos, ANC, Plaquetas)
-  METABOLIC         // Eletrólitos, glicemia, magnésio
-  COAGULATION       // INR, TTPA, fibrinogênio, D-dímero
-  LIVER_FUNCTION    // TGO, TGP, FA, GGT, bilirrubinas, albumina
-  RENAL_FUNCTION    // Creatinina, ureia, ácido úrico, clearance
-  THYROID           // TSH, T4 livre
-  TUMOR_MARKERS     // CEA, CA 19-9, CA 125, CA 15-3, AFP, PSA, β-HCG
-  INFLAMMATORY      // PCR, VHS, ferritina, procalcitonina
-  CULTURES          // Hemocultura, urocultura, cultura de escarro
-  IMAGING_REPORT    // Laudos de imagem (TC, PET-CT, RM, RX)
-  PATHOLOGY_REPORT  // Laudos anatomopatológicos
+  CBC // Hemograma completo (Hgb, Leucócitos, ANC, Plaquetas)
+  METABOLIC // Eletrólitos, glicemia, magnésio
+  COAGULATION // INR, TTPA, fibrinogênio, D-dímero
+  LIVER_FUNCTION // TGO, TGP, FA, GGT, bilirrubinas, albumina
+  RENAL_FUNCTION // Creatinina, ureia, ácido úrico, clearance
+  THYROID // TSH, T4 livre
+  TUMOR_MARKERS // CEA, CA 19-9, CA 125, CA 15-3, AFP, PSA, β-HCG
+  INFLAMMATORY // PCR, VHS, ferritina, procalcitonina
+  CULTURES // Hemocultura, urocultura, cultura de escarro
+  IMAGING_REPORT // Laudos de imagem (TC, PET-CT, RM, RX)
+  PATHOLOGY_REPORT // Laudos anatomopatológicos
   OTHER
 }
 
@@ -1360,28 +1360,28 @@ model Medication {
   tenantId  String
   patientId String
 
-  name       String              // Nome do medicamento (genérico ou comercial)
-  dosage     String?             // Dose (ex: "50 mg", "10 UI")
-  frequency  String?             // Frequência (ex: "1x/dia", "12/12h", "Contínuo")
-  indication String?             // Indicação clínica ou CID (ex: "HAS", "DM2", "Dor oncológica")
-  route      String?             // Via: VO, IV, SC, IM, transdérmico
+  name       String // Nome do medicamento (genérico ou comercial)
+  dosage     String? // Dose (ex: "50 mg", "10 UI")
+  frequency  String? // Frequência (ex: "1x/dia", "12/12h", "Contínuo")
+  indication String? // Indicação clínica ou CID (ex: "HAS", "DM2", "Dor oncológica")
+  route      String? // Via: VO, IV, SC, IM, transdérmico
 
   // Categoria clínica — usada pelo algoritmo de risco
-  category   MedicationCategory @default(OTHER)
+  category MedicationCategory @default(OTHER)
 
   // Flags de risco clínico (derivados da category, facilita queries)
-  isAnticoagulant    Boolean @default(false) // Risco de sangramento — baixa o limiar para qualquer sangramento
-  isAntiplatelet     Boolean @default(false) // Risco de sangramento aumentado
-  isCorticosteroid   Boolean @default(false) // Pode mascarar febre/infecção; eleva glicemia
+  isAnticoagulant     Boolean @default(false) // Risco de sangramento — baixa o limiar para qualquer sangramento
+  isAntiplatelet      Boolean @default(false) // Risco de sangramento aumentado
+  isCorticosteroid    Boolean @default(false) // Pode mascarar febre/infecção; eleva glicemia
   isImmunosuppressant Boolean @default(false) // Aumenta risco infeccioso; pode mascarar sinais
-  isOpioid           Boolean @default(false) // Sedação; constipação; depressão respiratória em superdose
-  isNSAID            Boolean @default(false) // Risco de sangramento GI; nefrotoxicidade; interage com anticoag.
-  isGrowthFactor     Boolean @default(false) // G-CSF ativo → neutropenia em recuperação
+  isOpioid            Boolean @default(false) // Sedação; constipação; depressão respiratória em superdose
+  isNSAID             Boolean @default(false) // Risco de sangramento GI; nefrotoxicidade; interage com anticoag.
+  isGrowthFactor      Boolean @default(false) // G-CSF ativo → neutropenia em recuperação
 
-  isActive   Boolean  @default(true)
-  startDate  DateTime?
-  endDate    DateTime?
-  notes      String?
+  isActive  Boolean   @default(true)
+  startDate DateTime?
+  endDate   DateTime?
+  notes     String?
 
   tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
@@ -1405,8 +1405,8 @@ model Comorbidity {
   tenantId  String
   patientId String
 
-  name       String              // Nome legível (ex: "Diabetes Mellitus tipo 2")
-  type       ComorbidityType    @default(OTHER)
+  name       String // Nome legível (ex: "Diabetes Mellitus tipo 2")
+  type       ComorbidityType     @default(OTHER)
   severity   ComorbiditySeverity @default(MODERATE)
   controlled Boolean             @default(false) // Está sob controle clínico?
 
@@ -1439,9 +1439,9 @@ model PerformanceStatusHistory {
   tenantId  String
   patientId String
 
-  ecogScore  Int      // 0-4 (escala ECOG)
+  ecogScore  Int // 0-4 (escala ECOG)
   assessedAt DateTime @default(now()) // Data da avaliação
-  assessedBy String?  // userId do profissional que avaliou (null = auto-registrado pelo agente)
+  assessedBy String? // userId do profissional que avaliou (null = auto-registrado pelo agente)
   source     String   @default("MANUAL") // "MANUAL" | "AGENT" | "QUESTIONNAIRE"
   notes      String?
 
@@ -1465,10 +1465,10 @@ model EmergencyReference {
   hospitalName    String
   address         String?
   city            String?
-  phone           String?   // Telefone de triagem ou emergência
-  distanceKm      Float?    // Distância média da instituição (referência para calcular urgência logística)
-  hasOncologyER   Boolean   @default(false) // Possui pronto-socorro oncológico específico?
-  hasHematologyER Boolean   @default(false) // Possui suporte hematológico 24h?
+  phone           String? // Telefone de triagem ou emergência
+  distanceKm      Float? // Distância média da instituição (referência para calcular urgência logística)
+  hasOncologyER   Boolean @default(false) // Possui pronto-socorro oncológico específico?
+  hasHematologyER Boolean @default(false) // Possui suporte hematológico 24h?
   notes           String?
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -1483,36 +1483,35 @@ model EmergencyReference {
 // Stores nurse-corrected clinical dispositions for ML retraining
 
 model ClinicalDispositionFeedback {
-  id              String   @id @default(cuid())
-  tenantId        String
-  patientId       String
-  conversationId  String?
+  id             String  @id @default(cuid())
+  tenantId       String
+  patientId      String
+  conversationId String?
 
   // What the rules engine / ML predicted
-  predictedDisposition  ClinicalDisposition
-  predictionSource      String   // "clinical_rules" | "ml_model" | "manual"
-  predictionConfidence  Float?
-  rulesFindings         Json?    // Serialized RuleFinding[] for audit
+  predictedDisposition ClinicalDisposition
+  predictionSource     String // "clinical_rules" | "ml_model" | "manual"
+  predictionConfidence Float?
+  rulesFindings        Json? // Serialized RuleFinding[] for audit
 
   // What the nurse/oncologist corrected it to (ground truth)
-  correctedDisposition  ClinicalDisposition
-  correctedBy           String   // userId of correcting nurse/oncologist
-  correctionReason      String?
+  correctedDisposition ClinicalDisposition
+  correctedBy          String // userId of correcting nurse/oncologist
+  correctionReason     String?
 
   // De-identified feature snapshot (no PII) for ML training
-  featureSnapshot       Json     // extract_features() output
+  featureSnapshot Json // extract_features() output
 
-  createdAt  DateTime @default(now())
+  createdAt DateTime @default(now())
 
-  tenant   Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  patient  Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
   @@index([patientId])
   @@index([predictedDisposition])
   @@index([correctedDisposition])
   @@index([createdAt])
-
   @@map("clinical_disposition_feedback")
 }
 
