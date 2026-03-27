@@ -198,7 +198,32 @@ jobs:
             --instance-ids "$EC2_INSTANCE_ID" \
             --document-name "AWS-RunShellScript" \
             --comment "OncoSaaS deploy ${IMAGE_TAG}" \
-            --parameters commands="sudo /opt/oncosaas/scripts/deploy.sh '$ECR_REGISTRY' '$IMAGE_TAG'" \
+            --parameters commands='[
+              "set -eu pipefail",
+              "APP_ROOT=/opt/oncosaas",
+              "CURRENT_DIR=$APP_ROOT/current",
+              "ECR_REGISTRY='"${ECR_REGISTRY}"'",
+              "IMAGE_TAG='"${IMAGE_TAG}"'",
+              "AWS_REGION='"${AWS_REGION}"'",
+              "if ! test -f \"$CURRENT_DIR/docker-compose.prod.yml\"; then echo \"Missing compose file at $CURRENT_DIR/docker-compose.prod.yml\"; ls -la \"$CURRENT_DIR\"; exit 1; fi",
+              "ls -la \"$CURRENT_DIR\"",
+              "aws ecr get-login-password --region \"$AWS_REGION\" | docker login --username AWS --password-stdin \"$ECR_REGISTRY\"",
+              "docker pull \"$ECR_REGISTRY/oncosaas-backend:$IMAGE_TAG\"",
+              "docker pull \"$ECR_REGISTRY/oncosaas-frontend:$IMAGE_TAG\"",
+              "docker pull \"$ECR_REGISTRY/oncosaas-ai-service:$IMAGE_TAG\"",
+              "docker tag \"$ECR_REGISTRY/oncosaas-backend:$IMAGE_TAG\" \"$ECR_REGISTRY/oncosaas-backend:latest\"",
+              "docker tag \"$ECR_REGISTRY/oncosaas-frontend:$IMAGE_TAG\" \"$ECR_REGISTRY/oncosaas-frontend:latest\"",
+              "docker tag \"$ECR_REGISTRY/oncosaas-ai-service:$IMAGE_TAG\" \"$ECR_REGISTRY/oncosaas-ai-service:latest\"",
+              "export ECR_REGISTRY IMAGE_TAG",
+              "cd \"$CURRENT_DIR\"",
+              "docker compose -f docker-compose.prod.yml config >/dev/null",
+              "docker compose -f docker-compose.prod.yml up -d --no-build --force-recreate --remove-orphans",
+              "curl -fsS http://127.0.0.1:3002/api/v1/health >/dev/null",
+              "curl -fsS http://127.0.0.1:8001/health >/dev/null",
+              "curl -fsS http://127.0.0.1:3000 >/dev/null",
+              "docker container prune -f || true",
+              "docker image prune -f || true"
+            ]' \
             --query 'Command.CommandId' \
             --output text)
 
