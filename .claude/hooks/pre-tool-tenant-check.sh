@@ -9,7 +9,7 @@ set -euo pipefail
 INPUT=$(cat)
 
 # Extrair informações do tool use
-TOOL_NAME=$(echo "$INPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('tool_name',''))" 2>/dev/null || echo "")
+TOOL_NAME=$(echo "$INPUT" | python -c "import sys,json; d=json.load(sys.stdin); print(d.get('tool_name',''))" 2>/dev/null || echo "")
 
 # Só verificar edições (Edit, Write)
 if [[ "$TOOL_NAME" != "Edit" && "$TOOL_NAME" != "Write" ]]; then
@@ -17,7 +17,7 @@ if [[ "$TOOL_NAME" != "Edit" && "$TOOL_NAME" != "Write" ]]; then
 fi
 
 # Extrair o caminho do arquivo sendo editado
-FILE_PATH=$(echo "$INPUT" | python3 -c "
+FILE_PATH=$(echo "$INPUT" | python -c "
 import sys, json
 d = json.load(sys.stdin)
 inp = d.get('tool_input', {})
@@ -39,7 +39,7 @@ if [[ "$FILE_PATH" == *"prisma.service"* || "$FILE_PATH" == *"app.module"* || "$
 fi
 
 # Extrair o conteúdo novo que está sendo escrito
-NEW_CONTENT=$(echo "$INPUT" | python3 -c "
+NEW_CONTENT=$(echo "$INPUT" | python -c "
 import sys, json
 d = json.load(sys.stdin)
 inp = d.get('tool_input', {})
@@ -56,11 +56,11 @@ fi
 # Patterns de queries Prisma que DEVEM ter tenantId
 PRISMA_PATTERNS="prisma\.\w+\.(findMany|findFirst|findUnique|findFirstOrThrow|findUniqueOrThrow|update|updateMany|delete|deleteMany|count|aggregate|groupBy|upsert)"
 
-HAS_PRISMA_CALL=$(echo "$NEW_CONTENT" | grep -cP "$PRISMA_PATTERNS" 2>/dev/null || echo "0")
+HAS_PRISMA_CALL=$(echo "$NEW_CONTENT" | grep -cP "$PRISMA_PATTERNS" 2>/dev/null) || true
 
 if [[ "$HAS_PRISMA_CALL" -gt 0 ]]; then
   # Verificar se tenantId está presente no contexto próximo
-  HAS_TENANT_ID=$(echo "$NEW_CONTENT" | grep -c "tenantId" 2>/dev/null || echo "0")
+  HAS_TENANT_ID=$(echo "$NEW_CONTENT" | grep -c "tenantId" 2>/dev/null) || true
 
   if [[ "$HAS_TENANT_ID" -eq 0 ]]; then
     echo "⚠️  ALERTA MULTI-TENANT: O código contém chamadas Prisma sem 'tenantId'."

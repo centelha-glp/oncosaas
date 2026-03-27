@@ -1,3 +1,8 @@
+---
+name: projeto-pesquisa
+description: Gerencia documentos do projeto de pesquisa CEP/EBSERH para câncer de bexiga
+---
+
 # Skill: /projeto-pesquisa
 
 ## Descricao

@@ -456,3 +456,19 @@ These are confirmed issues identified during architectural assessment. Do not pa
 | 12 | **Nice-to-have** | `getTenantClient()` in `PrismaService` is an unimplemented stub | `prisma.service.ts` | 🔲 Open |
 | 13 | **Nice-to-have** | `recurrenceRule` field stored but never processed in scheduled actions | `scheduled-actions.service.ts` | 🔲 Open |
 | 14 | **Nice-to-have** | `whatsapp-connections.service.ts` mutates `process.env` at runtime | `whatsapp-connections.service.ts` | ✅ Fixed |
+
+## Agent Workflow
+
+| Situação | Agent | Quando acionar |
+|---|---|---|
+| Implementar módulo, endpoint, service ou DTO | `backend-nestjs` | Tarefas complexas de scaffolding |
+| Após criar ou modificar qualquer código | `test-generator` | **Sempre** — gera/atualiza testes antes da revisão |
+| Após criar ou modificar qualquer controller, service, DTO ou guard | `seguranca-compliance` | **Sempre** — após test-generator, antes do commit |
+| Commitar mudanças | `github-organizer` | **Sempre** — nunca commitar diretamente |
+| Migração Prisma | skill `/migrar-prisma` | Sempre que alterar `schema.prisma` |
+| Criar módulo do zero | skill `/novo-modulo-backend` | Scaffolding inicial de módulo |
+
+**Ordem obrigatória pré-commit:**
+```
+código alterado → test-generator → seguranca-compliance → github-organizer
+```

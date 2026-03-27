@@ -158,3 +158,27 @@ Every backend query must include `tenantId` to enforce data isolation. Controlle
 - Logging: Use NestJS `Logger` — never `console.log` in backend services
 - Rate limiting: 100 req/min general, 10 req/min for auth endpoints
 - No `console.log` in production frontend code
+
+## Agent Workflow
+
+Agents obrigatórios em toda sessão de desenvolvimento:
+
+| Situação | Agent | Quando acionar |
+|---|---|---|
+| Qualquer código novo ou modificado | `test-generator` | **Sempre** — antes de `seguranca-compliance` e `github-organizer` |
+| Criar/modificar endpoint, service, DTO ou guard no backend | `seguranca-compliance` | **Sempre** — após `test-generator`, antes do commit |
+| Qualquer commit | `github-organizer` | **Sempre** — nunca commitar diretamente |
+
+**Ordem obrigatória pré-commit:**
+```
+código alterado → test-generator → seguranca-compliance (se backend) → github-organizer
+```
+
+Agents situacionais (acionar para tarefas complexas):
+
+| Situação | Agent |
+|---|---|
+| Tarefas em `backend/src/` ou `backend/prisma/` | `backend-nestjs` |
+| Tarefas em `frontend/src/` | `frontend-nextjs` |
+| Tarefas em `ai-service/` | `ai-service` |
+| Gestão de backlog, milestones, issues no GitHub | `product-owner` (via `/po`) |

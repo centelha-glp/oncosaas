@@ -247,3 +247,17 @@ No critical blocking issues remain. Items previously tracked (startup SyntaxErro
 - Clinical actions must never execute automatically inside subagents — return them as action objects
 - Fallback responses must be in Portuguese and must not contain clinical advice or technical details
 - `patient_id` and `tenant_id` must not appear as plain strings in log message fields (only in structured trace objects)
+
+## Agent Workflow
+
+| Situação | Agent | Quando acionar |
+|---|---|---|
+| Implementar/modificar orchestrator, clinical rules, ML model ou endpoints FastAPI | `ai-service` | Tarefas complexas de múltiplos arquivos |
+| Após criar ou modificar qualquer código | `test-generator` | **Sempre** — gera/atualiza testes antes do commit |
+| Commitar mudanças | `github-organizer` | **Sempre** — nunca commitar diretamente |
+| Adicionar protocolo clínico | skill `/novo-protocolo-clinico` | Sincroniza backend + ai-service |
+
+**Ordem obrigatória pré-commit:**
+```
+código alterado → test-generator → github-organizer
+```

@@ -7,13 +7,13 @@ set -euo pipefail
 
 INPUT=$(cat)
 
-TOOL_NAME=$(echo "$INPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('tool_name',''))" 2>/dev/null || echo "")
+TOOL_NAME=$(echo "$INPUT" | python -c "import sys,json; d=json.load(sys.stdin); print(d.get('tool_name',''))" 2>/dev/null || echo "")
 
 if [[ "$TOOL_NAME" != "Edit" && "$TOOL_NAME" != "Write" ]]; then
   exit 0
 fi
 
-FILE_PATH=$(echo "$INPUT" | python3 -c "
+FILE_PATH=$(echo "$INPUT" | python -c "
 import sys, json
 d = json.load(sys.stdin)
 inp = d.get('tool_input', {})
@@ -41,7 +41,7 @@ if [[ "$IS_RESPONSE_DTO" == false && "$IS_CONTROLLER" == false ]]; then
   exit 0
 fi
 
-NEW_CONTENT=$(echo "$INPUT" | python3 -c "
+NEW_CONTENT=$(echo "$INPUT" | python -c "
 import sys, json
 d = json.load(sys.stdin)
 inp = d.get('tool_input', {})
@@ -58,10 +58,10 @@ SENSITIVE_FIELDS=("password" "mfaSecret" "anthropicApiKey" "openaiApiKey" "oauth
 
 VIOLATIONS=""
 for field in "${SENSITIVE_FIELDS[@]}"; do
-  # Verificar se o campo sensível aparece como propriedade exposta (não como exclusão)
-  if echo "$NEW_CONTENT" | grep -qP "(?<!exclude.*)\b${field}\b" 2>/dev/null; then
-    # Ignorar se está em um select: false ou @Exclude() context
-    if ! echo "$NEW_CONTENT" | grep -qP "(select.*${field}.*false|@Exclude.*${field}|omit.*${field})" 2>/dev/null; then
+  # Verificar se o campo sensível aparece como propriedade (word boundary via grep -w)
+  if echo "$NEW_CONTENT" | grep -qw "${field}" 2>/dev/null; then
+    # Ignorar se está em um select: false, @Exclude() ou omit context
+    if ! echo "$NEW_CONTENT" | grep -qE "(select.*${field}.*false|@Exclude.*${field}|omit.*${field}|exclude.*${field})" 2>/dev/null; then
       VIOLATIONS="${VIOLATIONS}\n  - ${field}"
     fi
   fi

@@ -1,3 +1,8 @@
+---
+name: testar-modulo
+description: Executa testes de um módulo específico do backend ou frontend
+---
+
 # Skill: /testar-modulo
 
 ## Descrição

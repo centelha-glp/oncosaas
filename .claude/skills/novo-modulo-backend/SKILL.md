@@ -1,3 +1,8 @@
+---
+name: novo-modulo-backend
+description: Cria estrutura completa de novo módulo NestJS seguindo padrões do projeto
+---
+
 # Skill: /novo-modulo-backend
 
 ## Descrição
@@ -49,7 +54,7 @@ import {
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { TenantGuard } from '../auth/guards/tenant.guard';
-import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { <Nome>Service } from './<nome>.service';
 
 @Controller('<nome>')
