@@ -43,6 +43,7 @@ import { toast } from 'sonner';
 import {
   JOURNEY_STAGE_LABELS,
   JOURNEY_STAGES,
+  type JourneyStage,
 } from '@/lib/utils/journey-stage';
 import { CANCER_TYPE_LABELS as BASE_CANCER_TYPE_LABELS } from '@/lib/utils/patient-cancer-type';
 
@@ -198,13 +199,16 @@ export function PatientNavigationTab({
   const [addStepPopoverOpen, setAddStepPopoverOpen] = useState(false);
 
   // Wizard: fase selecionada no popover principal
-  const [wizardStage, setWizardStage] = useState<string | null>(null);
+    const [wizardStage, setWizardStage] = useState<{
+    cancerType: string;
+    stage: JourneyStage;
+  } | null>(null);
   const [wizardTypeKey, setWizardTypeKey] = useState<string | null>(null);
 
   // Step picker independente (para botões inline por fase)
   const [stepPickerTarget, setStepPickerTarget] = useState<{
     typeKey: string;
-    stage: string;
+    stage: JourneyStage;
   } | null>(null);
   const [stepPickerTemplates, setStepPickerTemplates] = useState<
     { stepKey: string; stepName: string; stepDescription?: string | null; isRequired: boolean; existingCount: number }[]
@@ -271,24 +275,91 @@ export function PatientNavigationTab({
     setWizardStage(stage);
   };
 
-  const handleWizardSelectStep = (stepKey: string | null): void => {
-    const stage = wizardStage!;
-    const typeKey = wizardTypeKey!;
-    setAddStepPopoverOpen(false);
-    setWizardStage(null);
-    setWizardTypeKey(null);
-    if (stepKey === '__custom__') {
-      setCreateStage({ cancerType: typeKey, journeyStage: stage });
-    } else if (stepKey === null) {
-      // "Criar todas as etapas faltantes"
-      createMissingStepsMutation.mutate({ journeyStage: stage });
-    } else {
-      // Criar instância do template (funciona tanto para primeira quanto para adicionais)
-      createFromTemplateMutation.mutate({ journeyStage: stage, stepKey });
+  const handleDeleteStep = async (stepId: string): Promise<void> => {
+    setIsDeleting(true);
+    try {
+      await navigationApi.deleteStep(stepId);
+      queryClient.invalidateQueries({ queryKey: ['patient', patient.id] });
+      queryClient.invalidateQueries({ queryKey: ['navigation-steps', patient.id] });
+      toast.success('Etapa excluída.');
+      setStepToDelete(null);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : 'Erro ao excluir etapa'
+      );
+    } finally {
+      setIsDeleting(false);
     }
   };
 
-  const openStepPicker = async (typeKey: string, stage: string): Promise<void> => {
+  const handleWizardSelectStage = async (
+    selectedCancerType: string,
+    stage: JourneyStage
+  ): Promise<void> => {
+    setWizardStage({ cancerType: selectedCancerType, stage });
+    setWizardLoading(true);
+    try {
+      const templates = await navigationApi.getStepTemplates(patient.id, stage);
+      setWizardTemplates(templates);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : 'Erro ao carregar templates'
+      );
+      setWizardTemplates([]);
+    } finally {
+      setWizardLoading(false);
+    }
+  };
+
+  const handleWizardSelectStep = async (
+    selectedStepKey: string | null
+  ): Promise<void> => {
+    if (!wizardStage) return;
+
+    if (selectedStepKey === '__custom__') {
+      setCreateStage({
+        cancerType: wizardStage.cancerType,
+        journeyStage: wizardStage.stage,
+      });
+      setAddStepPopoverOpen(false);
+      setWizardStage(null);
+      setWizardTemplates([]);
+      return;
+    }
+
+    try {
+      if (selectedStepKey === null) {
+        const result = await navigationApi.createMissingStepsForStage(
+          patient.id,
+          wizardStage.stage
+        );
+        toast.success(
+          result.created > 0
+            ? `${result.created} etapa(s) criada(s).`
+            : 'Nenhuma etapa faltante para criar.'
+        );
+      } else {
+        await navigationApi.createStepFromTemplate(
+          patient.id,
+          wizardStage.stage,
+          selectedStepKey
+        );
+        toast.success('Etapa adicionada com sucesso.');
+      }
+
+      queryClient.invalidateQueries({ queryKey: ['patient', patient.id] });
+      queryClient.invalidateQueries({
+        queryKey: ['navigation-steps', patient.id],
+      });
+      setAddStepPopoverOpen(false);
+      setWizardStage(null);
+      setWizardTemplates([]);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Erro ao criar etapa');
+    }
+  };
+
+  const openStepPicker = async (typeKey: string, stage: JourneyStage): Promise<void> => {
     setStepPickerLoading(true);
     setStepPickerTarget({ typeKey, stage });
     const templates = await loadTemplates(typeKey, stage);
@@ -503,8 +574,7 @@ export function PatientNavigationTab({
                   <AccordionContent>
                     <div className="space-y-6 pt-2">
                       {JOURNEY_STAGES.map((stage) => {
-                        const normalizedStage = stage.toUpperCase();
-                        const steps = stageMap?.get(normalizedStage) || [];
+                        const steps = stageMap?.get(stage) || [];
                         const stageLabel = JOURNEY_STAGE_LABELS[stage] || stage;
 
                         return (
@@ -524,7 +594,7 @@ export function PatientNavigationTab({
                                   <Button
                                     size="sm"
                                     variant="outline"
-                                    onClick={() => openStepPicker(typeKey, normalizedStage)}
+                                    onClick={() => openStepPicker(typeKey, stage)}
                                   >
                                     <Plus className="h-4 w-4 mr-2" />
                                     Adicionar etapa
@@ -703,7 +773,7 @@ export function PatientNavigationTab({
                                   <Button
                                     size="sm"
                                     variant="outline"
-                                    onClick={() => openStepPicker(typeKey, normalizedStage)}
+                                    onClick={() => openStepPicker(typeKey, stage)}
                                   >
                                     <Plus className="h-4 w-4 mr-2" />
                                     Adicionar etapa
