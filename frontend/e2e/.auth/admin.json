@@ -1,0 +1,37 @@
+{
+  "cookies": [
+    {
+      "name": "session_active",
+      "value": "1",
+      "domain": "localhost",
+      "path": "/",
+      "expires": -1,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    }
+  ],
+  "origins": [
+    {
+      "origin": "http://localhost:3000",
+      "localStorage": [
+        {
+          "name": "auth_token",
+          "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI3NjNlOTUyMC1iYjVkLTRjMGYtOGUyNS0xODAwNDZmYzBhZWQiLCJlbWFpbCI6ImFkbWluQGhvc3BpdGFsdGVzdGUuY29tIiwidGVuYW50SWQiOiI3MmYxYTc4Mi1lOTI5LTQyMDMtYjU4Yi0xYjA3MzAyMDhmOTYiLCJyb2xlIjoiQURNSU4iLCJpYXQiOjE3NzQzMTEyNTgsImV4cCI6MTc3NDM5NzY1OH0.Pg4wFRb7pie4APbFhmD4ploqdOjOrQbw9jXY2KHzHHA"
+        },
+        {
+          "name": "tenant_id",
+          "value": "72f1a782-e929-4203-b58b-1b0730208f96"
+        },
+        {
+          "name": "user",
+          "value": "{\"id\":\"763e9520-bb5d-4c0f-8e25-180046fc0aed\",\"email\":\"admin@hospitalteste.com\",\"name\":\"Administrador\",\"role\":\"ADMIN\",\"tenantId\":\"72f1a782-e929-4203-b58b-1b0730208f96\",\"tenant\":{\"id\":\"72f1a782-e929-4203-b58b-1b0730208f96\",\"name\":\"Hospital de Teste\",\"schemaName\":\"hospital_teste\",\"settings\":{\"language\":\"pt-BR\",\"timezone\":\"America/Sao_Paulo\"},\"createdAt\":\"2026-03-18T22:05:21.695Z\",\"updatedAt\":\"2026-03-18T22:05:21.695Z\"}}"
+        },
+        {
+          "name": "refresh_token",
+          "value": "52f00a628c6893737b98dc9a024a30561319ac11b8c11f7e1188df701860fa23bb1d52e2348f441d"
+        }
+      ]
+    }
+  ]
+}
