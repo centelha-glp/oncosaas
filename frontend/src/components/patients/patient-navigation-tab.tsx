@@ -89,7 +89,7 @@ function WizardStepPicker({
           <ChevronRight className="h-4 w-4 rotate-180 text-gray-500" />
         </button>
         <p className="text-sm font-medium">
-          {JOURNEY_STAGE_LABELS[stage] ?? stage}
+          {JOURNEY_STAGE_LABELS[stage as JourneyStage] ?? stage}
         </p>
       </div>
       {loading ? (
@@ -270,9 +270,9 @@ export function PatientNavigationTab({
     }
   };
 
-  const handleWizardSelectPhase = async (typeKey: string, stage: string): Promise<void> => {
+  const handleWizardSelectPhase = async (typeKey: string, stage: JourneyStage): Promise<void> => {
     setWizardTypeKey(typeKey);
-    setWizardStage(stage);
+    setWizardStage({ cancerType: typeKey, stage });
   };
 
   const handleDeleteStep = async (stepId: string): Promise<void> => {
@@ -292,25 +292,6 @@ export function PatientNavigationTab({
     }
   };
 
-  const handleWizardSelectStage = async (
-    selectedCancerType: string,
-    stage: JourneyStage
-  ): Promise<void> => {
-    setWizardStage({ cancerType: selectedCancerType, stage });
-    setWizardLoading(true);
-    try {
-      const templates = await navigationApi.getStepTemplates(patient.id, stage);
-      setWizardTemplates(templates);
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : 'Erro ao carregar templates'
-      );
-      setWizardTemplates([]);
-    } finally {
-      setWizardLoading(false);
-    }
-  };
-
   const handleWizardSelectStep = async (
     selectedStepKey: string | null
   ): Promise<void> => {
@@ -323,7 +304,6 @@ export function PatientNavigationTab({
       });
       setAddStepPopoverOpen(false);
       setWizardStage(null);
-      setWizardTemplates([]);
       return;
     }
 
@@ -353,7 +333,6 @@ export function PatientNavigationTab({
       });
       setAddStepPopoverOpen(false);
       setWizardStage(null);
-      setWizardTemplates([]);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Erro ao criar etapa');
     }
@@ -455,23 +434,6 @@ export function PatientNavigationTab({
     setIsDialogOpen(true);
   };
 
-  const handleDeleteStep = async (stepId: string): Promise<void> => {
-    setIsDeleting(true);
-    try {
-      await navigationApi.deleteStep(stepId);
-      queryClient.invalidateQueries({ queryKey: ['patient', patient.id] });
-      queryClient.invalidateQueries({ queryKey: ['navigation-steps', patient.id] });
-      toast.success('Etapa excluída.');
-      setStepToDelete(null);
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : 'Erro ao excluir etapa'
-      );
-    } finally {
-      setIsDeleting(false);
-    }
-  };
-
   const hasStepsOrDiagnosis =
     (patient.navigationSteps?.length ?? 0) > 0 ||
     (patient.cancerDiagnoses?.length ?? 0) > 0;
@@ -543,7 +505,7 @@ export function PatientNavigationTab({
                   /* Passo 2: selecionar etapa dentro da fase */
                   <WizardStepPicker
                     patientId={patient.id}
-                    stage={wizardStage}
+                    stage={wizardStage.stage}
                     onBack={() => { setWizardStage(null); setWizardTypeKey(null); }}
                     onSelect={handleWizardSelectStep}
                   />
