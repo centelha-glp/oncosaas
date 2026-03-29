@@ -9,7 +9,6 @@ import {
   MinLength,
 } from 'class-validator';
 import { Gender, CancerType } from './create-patient.dto';
-import { JourneyStage } from '@prisma/client';
 
 export class ImportPatientRowDto {
   @IsString()
@@ -18,16 +17,16 @@ export class ImportPatientRowDto {
   name: string;
 
   @IsString()
-  @IsNotEmpty()
-  cpf: string;
+  @IsOptional()
+  cpf?: string;
 
   @IsDateString()
-  @IsNotEmpty()
-  dataNascimento: string;
+  @IsOptional()
+  dataNascimento?: string;
 
   @IsEnum(Gender)
-  @IsNotEmpty()
-  sexo: Gender;
+  @IsOptional()
+  sexo?: Gender;
 
   @IsPhoneNumber('BR')
   @IsOptional()
@@ -38,12 +37,12 @@ export class ImportPatientRowDto {
   email?: string;
 
   @IsEnum(CancerType)
-  @IsNotEmpty()
-  tipoCancer: CancerType;
+  @IsOptional()
+  tipoCancer?: CancerType;
 
   @IsDateString()
-  @IsNotEmpty()
-  dataDiagnostico: string;
+  @IsOptional()
+  dataDiagnostico?: string;
 
   @IsString()
   @IsOptional()

@@ -400,14 +400,26 @@ function PatientNavigationCard({
   const [wizardOpen, setWizardOpen] = useState(false);
   const [wizardPhase, setWizardPhase] = useState<JourneyStage | null>(null);
   const [templates, setTemplates] = useState<
-    { stepKey: string; stepName: string; stepDescription?: string; isRequired: boolean }[]
+    { stepKey: string; stepName: string; stepDescription?: string; isRequired: boolean; existingCount: number }[]
   >([]);
   const [loadingTemplates, setLoadingTemplates] = useState(false);
   const [createStage, setCreateStage] = useState<string | null>(null);
 
+  const createFromTemplateMutation = useMutation({
+    mutationFn: ({ journeyStage, stepKey }: { journeyStage: string; stepKey: string }) =>
+      navigationApi.createStepFromTemplate(patient.id ?? '', journeyStage, stepKey),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['navigation-steps', patient.id] });
+      toast.success('Etapa criada com sucesso');
+    },
+    onError: (error: Error) => {
+      toast.error(`Erro ao criar etapa: ${error.message}`);
+    },
+  });
+
   const createMissingStepsMutation = useMutation({
-    mutationFn: ({ journeyStage, stepKey }: { journeyStage: string; stepKey?: string }) =>
-      navigationApi.createMissingStepsForStage(patient.id ?? '', journeyStage, stepKey),
+    mutationFn: ({ journeyStage }: { journeyStage: string }) =>
+      navigationApi.createMissingStepsForStage(patient.id ?? '', journeyStage),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['navigation-steps', patient.id] });
       toast.success(
@@ -441,10 +453,10 @@ function PatientNavigationCard({
     setTemplates([]);
     if (stepKey === '__custom__') {
       setCreateStage(stage);
+    } else if (stepKey === null) {
+      createMissingStepsMutation.mutate({ journeyStage: stage });
     } else {
-      createMissingStepsMutation.mutate(
-        stepKey ? { journeyStage: stage, stepKey } : { journeyStage: stage }
-      );
+      createFromTemplateMutation.mutate({ journeyStage: stage, stepKey });
     }
   };
 
@@ -605,14 +617,16 @@ function PatientNavigationCard({
                       <p className="text-xs text-muted-foreground px-2 py-2">Carregando...</p>
                     ) : (
                       <>
-                        <Button
-                          variant="ghost"
-                          className="w-full justify-start text-blue-600"
-                          size="sm"
-                          onClick={() => handleSelectStep(null)}
-                        >
-                          Criar todas as etapas
-                        </Button>
+                        {templates.some((t) => t.existingCount === 0) && (
+                          <Button
+                            variant="ghost"
+                            className="w-full justify-start text-blue-600"
+                            size="sm"
+                            onClick={() => handleSelectStep(null)}
+                          >
+                            Criar todas as etapas faltantes
+                          </Button>
+                        )}
                         <Button
                           variant="ghost"
                           className="w-full justify-start text-gray-500"
@@ -632,14 +646,21 @@ function PatientNavigationCard({
                             title={t.stepDescription}
                           >
                             <span className="truncate">{t.stepName}</span>
-                            {t.isRequired && (
-                              <span className="ml-auto text-xs text-purple-600 shrink-0">obr.</span>
-                            )}
+                            <span className="ml-auto flex items-center gap-1 shrink-0">
+                              {t.existingCount > 0 && (
+                                <span className="text-xs text-muted-foreground">
+                                  ({t.existingCount})
+                                </span>
+                              )}
+                              {t.isRequired && (
+                                <span className="text-xs text-purple-600">obr.</span>
+                              )}
+                            </span>
                           </Button>
                         ))}
                         {templates.length === 0 && (
                           <p className="text-xs text-muted-foreground px-2 py-1">
-                            Todas as etapas desta fase já existem.
+                            Nenhum template disponível para esta fase.
                           </p>
                         )}
                       </>

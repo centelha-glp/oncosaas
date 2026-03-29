@@ -133,14 +133,12 @@ export const navigationApi = {
         isRequired: boolean;
         existingCount: number;
       }[]
-    >(
-      `/oncology-navigation/patients/${patientId}/step-templates/${journeyStage}`
-    );
+    >(`/oncology-navigation/patients/${patientId}/step-templates/${journeyStage}`);
     return data ?? [];
   },
 
   /**
-   * Cria uma instância de um step a partir de um template (primeira ou adicional)
+   * Cria uma instância adicional de um step a partir de um template existente.
    */
   createStepFromTemplate: async (
     patientId: string,
@@ -154,7 +152,7 @@ export const navigationApi = {
   },
 
   /**
-   * Cria apenas as etapas faltantes para um estágio específico da jornada
+   * Cria apenas as etapas faltantes para um estágio específico da jornada.
    * Se stepKey for informado, cria apenas aquela etapa.
    */
   createMissingStepsForStage: async (

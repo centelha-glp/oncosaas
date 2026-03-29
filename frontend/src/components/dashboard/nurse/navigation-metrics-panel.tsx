@@ -11,6 +11,7 @@ import {
   TrendingUp,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { MetricInfoTooltip } from '@/components/shared/metric-info-tooltip';
 
 const JOURNEY_STAGE_LABELS: Record<string, string> = {
   SCREENING: 'Rastreio',
@@ -54,8 +55,9 @@ export function NavigationMetricsPanel() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
+            <CardTitle className="text-sm font-medium flex items-center gap-1">
               Etapas Atrasadas
+              <MetricInfoTooltip title="Etapas Atrasadas" description="Etapas de navegação com prazo vencido." calculation="Etapas OVERDUE ou PENDING/IN_PROGRESS com dueDate < hoje." />
             </CardTitle>
             <AlertTriangle className="h-4 w-4 text-red-500" />
           </CardHeader>
@@ -73,8 +75,9 @@ export function NavigationMetricsPanel() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
+            <CardTitle className="text-sm font-medium flex items-center gap-1">
               Etapas Próximas do Prazo
+              <MetricInfoTooltip title="Etapas Próximas do Prazo" description="Etapas com prazo nos próximos 7 dias." calculation="Etapas PENDING/IN_PROGRESS com dueDate entre hoje e hoje + 7 dias." />
             </CardTitle>
             <Clock className="h-4 w-4 text-yellow-500" />
           </CardHeader>
@@ -90,8 +93,9 @@ export function NavigationMetricsPanel() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
+            <CardTitle className="text-sm font-medium flex items-center gap-1">
               Taxa de Conclusão
+              <MetricInfoTooltip title="Taxa de Conclusão" description="Percentual de etapas concluídas." calculation="Etapas COMPLETED / total de etapas × 100." />
             </CardTitle>
             <CheckCircle2 className="h-4 w-4 text-green-500" />
           </CardHeader>
@@ -107,8 +111,9 @@ export function NavigationMetricsPanel() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
+            <CardTitle className="text-sm font-medium flex items-center gap-1">
               Total de Pacientes
+              <MetricInfoTooltip title="Total de Pacientes" description="Pacientes em acompanhamento de navegação." calculation="Soma de pacientes em todos os estágios da jornada." />
             </CardTitle>
             <Users className="h-4 w-4 text-blue-500" />
           </CardHeader>

@@ -12,7 +12,25 @@
     ],
     "PreToolUse": [
       {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/pre-tool-require-tests.sh"
+          }
+        ]
+      },
+      {
         "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/pre-tool-load-claude-md.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
         "hooks": [
           {
             "type": "command",

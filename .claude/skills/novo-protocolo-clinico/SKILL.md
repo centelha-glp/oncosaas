@@ -1,3 +1,8 @@
+---
+name: novo-protocolo-clinico
+description: Cria novo protocolo clínico oncológico com regras e scores no ai-service
+---
+
 # Skill: /novo-protocolo-clinico
 
 ## Descrição

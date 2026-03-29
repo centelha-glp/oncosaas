@@ -1,3 +1,8 @@
+---
+name: migrar-prisma
+description: Cria e executa migrations Prisma para alterações no schema do banco
+---
+
 # Skill: /migrar-prisma
 
 ## Descrição

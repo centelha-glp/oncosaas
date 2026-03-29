@@ -1,5 +1,5 @@
 -- AlterEnum: Add PALLIATIVE to JourneyStage
-ALTER TYPE "JourneyStage" ADD VALUE 'PALLIATIVE';
+ALTER TYPE "JourneyStage" ADD VALUE IF NOT EXISTS 'PALLIATIVE';
 
 -- AlterTable: Add relative deadline fields to NavigationStep
 ALTER TABLE "navigation_steps" ADD COLUMN "dependsOnStepKey" TEXT;

@@ -4,6 +4,8 @@ import { useNurseMetrics } from '@/hooks/useNurseMetrics';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AlertCircle, Clock, Users, TrendingUp } from 'lucide-react';
+import { MetricInfoTooltip } from '@/components/shared/metric-info-tooltip';
+import { formatMinutes } from '@/lib/utils';
 
 export function NurseMetricsPanel() {
   const { data: metrics, isLoading, error } = useNurseMetrics();
@@ -43,8 +45,9 @@ export function NurseMetricsPanel() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
+            <CardTitle className="text-sm font-medium flex items-center gap-1">
               Alertas Resolvidos Hoje
+              <MetricInfoTooltip title="Alertas Resolvidos Hoje" description="Alertas que você resolveu hoje." calculation="Contagem de alertas com resolvedAt = hoje e resolvedByUserId = seu ID." />
             </CardTitle>
             <AlertCircle className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
@@ -60,15 +63,16 @@ export function NurseMetricsPanel() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
+            <CardTitle className="text-sm font-medium flex items-center gap-1">
               Tempo Médio de Resposta
+              <MetricInfoTooltip title="Tempo Médio de Resposta" description="Tempo médio entre mensagem recebida e intervenção." calculation="Média em minutos, últimos 90 dias." />
             </CardTitle>
             <Clock className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
               {metrics.averageResponseTimeMinutes !== null
-                ? `${metrics.averageResponseTimeMinutes} min`
+                ? formatMinutes(metrics.averageResponseTimeMinutes)
                 : 'N/A'}
             </div>
             <p className="text-xs text-muted-foreground">
@@ -79,8 +83,9 @@ export function NurseMetricsPanel() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
+            <CardTitle className="text-sm font-medium flex items-center gap-1">
               Pacientes Atendidos Hoje
+              <MetricInfoTooltip title="Pacientes Atendidos Hoje" description="Pacientes distintos que você atendeu hoje." calculation="Contagem distinta de patientId nas intervenções de hoje." />
             </CardTitle>
             <Users className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
@@ -98,8 +103,9 @@ export function NurseMetricsPanel() {
       {/* Sintomas Mais Reportados */}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-sm font-medium">
+          <CardTitle className="text-sm font-medium flex items-center gap-1">
             Sintomas Mais Reportados
+            <MetricInfoTooltip title="Sintomas Mais Reportados" description="Top 5 sintomas reportados nos últimos 30 dias." calculation="Contagem de alertas agrupados por tipo de sintoma." />
           </CardTitle>
           <TrendingUp className="h-4 w-4 text-muted-foreground" />
         </CardHeader>

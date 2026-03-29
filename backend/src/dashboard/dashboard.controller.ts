@@ -89,10 +89,54 @@ export class DashboardController {
     });
   }
 
+  @Get('pending-alerts')
+  @Roles(UserRole.ONCOLOGIST, UserRole.ADMIN, UserRole.COORDINATOR)
+  async getPendingAlerts(
+    @CurrentUser() user: any,
+    @Query('maxResults') maxResults?: string,
+  ) {
+    let parsedMaxResults = 100;
+    if (maxResults) {
+      const parsed = parseInt(maxResults, 10);
+      if (!isNaN(parsed) && parsed > 0) {
+        parsedMaxResults = Math.min(parsed, 500);
+      }
+    }
+    return this.dashboardService.getPendingAlerts(
+      user.tenantId,
+      parsedMaxResults,
+    );
+  }
+
+  @Get('patients-by-indicator')
+  @Roles(UserRole.ONCOLOGIST, UserRole.ADMIN, UserRole.COORDINATOR)
+  async getPatientsByIndicator(
+    @CurrentUser() user: any,
+    @Query('indicator') indicator?: string,
+    @Query('maxResults') maxResults?: string,
+  ) {
+    const validIndicators = ['messages', 'biomarkers'];
+    if (!indicator || !validIndicators.includes(indicator)) {
+      return [];
+    }
+    let parsedMaxResults = 100;
+    if (maxResults) {
+      const parsed = parseInt(maxResults, 10);
+      if (!isNaN(parsed) && parsed > 0) {
+        parsedMaxResults = Math.min(parsed, 500);
+      }
+    }
+    return this.dashboardService.getPatientsByIndicator(
+      user.tenantId,
+      indicator as 'messages' | 'biomarkers',
+      parsedMaxResults,
+    );
+  }
+
   @Get('critical-timelines')
   @Roles(UserRole.ONCOLOGIST, UserRole.ADMIN, UserRole.COORDINATOR)
   async getCriticalTimelines(
-    @CurrentUser() user: any
+    @CurrentUser() user: any,
   ): Promise<CriticalTimelinesDto> {
     return this.dashboardService.getCriticalTimelines(user.tenantId);
   }

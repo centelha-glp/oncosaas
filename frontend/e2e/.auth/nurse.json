@@ -1,0 +1,37 @@
+{
+  "cookies": [
+    {
+      "name": "session_active",
+      "value": "1",
+      "domain": "localhost",
+      "path": "/",
+      "expires": -1,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    }
+  ],
+  "origins": [
+    {
+      "origin": "http://localhost:3000",
+      "localStorage": [
+        {
+          "name": "auth_token",
+          "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJiYTdhMzQ4MC04ZDI5LTQyZWUtODg0MS1iZGFiOWQ2MmQ4NTkiLCJlbWFpbCI6ImVuZmVybWVpcmFAaG9zcGl0YWx0ZXN0ZS5jb20iLCJ0ZW5hbnRJZCI6IjcyZjFhNzgyLWU5MjktNDIwMy1iNThiLTFiMDczMDIwOGY5NiIsInJvbGUiOiJOVVJTRSIsImlhdCI6MTc3NDMxMTI1NiwiZXhwIjoxNzc0Mzk3NjU2fQ.X9ksjiLnO-lZSp9tL0GZl7bCZHNfOOMVP8rWiCx2uGs"
+        },
+        {
+          "name": "tenant_id",
+          "value": "72f1a782-e929-4203-b58b-1b0730208f96"
+        },
+        {
+          "name": "user",
+          "value": "{\"id\":\"ba7a3480-8d29-42ee-8841-bdab9d62d859\",\"email\":\"enfermeira@hospitalteste.com\",\"name\":\"Maria Santos\",\"role\":\"NURSE\",\"tenantId\":\"72f1a782-e929-4203-b58b-1b0730208f96\",\"tenant\":{\"id\":\"72f1a782-e929-4203-b58b-1b0730208f96\",\"name\":\"Hospital de Teste\",\"schemaName\":\"hospital_teste\",\"settings\":{\"language\":\"pt-BR\",\"timezone\":\"America/Sao_Paulo\"},\"createdAt\":\"2026-03-18T22:05:21.695Z\",\"updatedAt\":\"2026-03-18T22:05:21.695Z\"}}"
+        },
+        {
+          "name": "refresh_token",
+          "value": "41ce5c968f0f55f3313c557c41e2646c99f3ddcba9c52a21ff72cbe893da3f44c232e67e0b886a21"
+        }
+      ]
+    }
+  ]
+}
