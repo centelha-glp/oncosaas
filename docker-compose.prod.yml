@@ -4,6 +4,9 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+      target: production
+      args:
+        DATABASE_URL: ${DATABASE_URL}
     container_name: backend
     restart: on-failure
     ports:

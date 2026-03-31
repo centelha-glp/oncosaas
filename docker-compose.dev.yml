@@ -48,6 +48,8 @@ services:
       context: ./backend
       dockerfile: Dockerfile
       target: dev
+      args:
+        DATABASE_URL: postgresql://ONCONAV:ONCONAV_dev@postgres:5432/ONCONAV_development
     container_name: backend
     restart: on-failure
     depends_on:

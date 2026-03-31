@@ -1,18 +1,12 @@
-import * as dotenv from 'dotenv';
-import { resolve } from 'path';
-
-// Carregar variáveis de ambiente ANTES de qualquer importação que use Prisma
-// O Prisma Client precisa do DATABASE_URL no momento da inicialização
-dotenv.config({ path: resolve(__dirname, '../.env') });
-
+import 'dotenv/config';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { join } from 'path';
-import { AppModule } from './app.module';
+import { AppModule } from '@/app.module';
 import { existsSync, mkdirSync, readFileSync } from 'fs';
-import { HttpExceptionFilter } from './common/filters/http-exception.filter';
-import { PrismaExceptionFilter } from './common/filters/prisma-exception.filter';
+import { HttpExceptionFilter } from '@/common/filters/http-exception.filter';
+import { PrismaExceptionFilter } from '@/common/filters/prisma-exception.filter';
 
 const logger = new Logger('Bootstrap');
 

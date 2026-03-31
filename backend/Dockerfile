@@ -2,6 +2,9 @@
 FROM node:24.14.0-alpine3.23 AS deps
 WORKDIR /app
 
+ARG DATABASE_URL=postgresql://postgres:postgres@localhost:5432/public
+ENV DATABASE_URL=${DATABASE_URL}
+
 COPY package*.json ./
 COPY prisma ./prisma
 RUN npm ci
@@ -11,6 +14,8 @@ FROM node:24.14.0-alpine3.23 AS dev
 WORKDIR /app
 
 ENV NODE_ENV=development
+ARG DATABASE_URL=postgresql://postgres:postgres@localhost:5432/public
+ENV DATABASE_URL=${DATABASE_URL}
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
@@ -23,6 +28,9 @@ CMD ["npm", "run", "start:dev"]
 # ---- builder ----
 FROM node:24.14.0-alpine3.23 AS builder
 WORKDIR /app
+
+ARG DATABASE_URL=postgresql://postgres:postgres@localhost:5432/public
+ENV DATABASE_URL=${DATABASE_URL}
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
