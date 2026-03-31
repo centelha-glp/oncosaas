@@ -1,0 +1,391 @@
+# clinical-domain — Regras do Domínio Clínico Oncológico
+
+## Escopo deste arquivo
+
+Este documento define as regras obrigatórias para qualquer contribuição que toque lógica clínica oncológica no ONCONAV. Aplica-se a arquivos em `ai-service/src/agent/`, `backend/src/clinical-protocols/`, `backend/src/oncology-navigation/`, `backend/src/questionnaire-responses/`, `backend/src/medications/`, `backend/src/performance-status/` e quaisquer modelos Prisma que armazenem dados clínicos.
+
+---
+
+## 1. Terminologia Clínica Obrigatória
+
+Toda comunicação interna (código, variáveis, comentários, mensagens de log) deve usar a terminologia padronizada abaixo. Nunca inventar sinônimos ou abreviações não listadas.
+
+### CID-10
+- Usar o código CID-10 sempre que referenciar diagnóstico em dados estruturados (ex.: `C67` para câncer de bexiga).
+- Em campos de texto livre para paciente, usar linguagem acessível — não o código bruto.
+
+### Estadiamento TNM
+- **T** (Tumor primário): T0, Ta, Tis, T1, T2, T3, T4
+- **N** (Linfonodos regionais): N0, N1, N2, N3
+- **M** (Metástase a distância): M0, M1
+- Estágios clínicos: I, II, III, IV (romano, maiúsculo)
+- Nunca usar "estágio 1", "fase 3" — sempre romano maiúsculo.
+
+### ECOG Performance Status
+| Valor | Significado |
+|-------|-------------|
+| 0 | Assintomático, atividade normal |
+| 1 | Sintomático, ambulatorial, trabalho leve |
+| 2 | Sintomático, acamado < 50% do dia |
+| 3 | Sintomático, acamado > 50% do dia |
+| 4 | Acamado 100%, dependente de cuidados |
+
+- Escala de 0 a 4 (inteiros). Nunca usar decimais ou valores fora deste intervalo.
+- Delta ECOG = valor atual menos valor anterior. Positivo = piora.
+
+### JourneyStage (Etapas da Navegação)
+Enum Prisma com ordem obrigatória:
+```
+SCREENING → DIAGNOSIS → TREATMENT → FOLLOW_UP → PALLIATIVE
+```
+Nunca pular etapas na progressão, exceto se o protocolo do tipo de câncer explicitamente definir condicionais.
+
+---
+
+## 2. ClinicalDisposition — 5 Níveis de Triagem
+
+Enum definido em `ai-service/src/agent/clinical_rules.py`. Severidade crescente:
+
+| Nível | Código | Prazo | Quando usar |
+|-------|--------|-------|-------------|
+| 0 | `REMOTE_NURSING` | Monitoramento rotineiro | Nenhuma regra disparou; sintomas ausentes ou mínimos |
+| 1 | `SCHEDULED_CONSULT` | Próxima consulta regular | Sintomas leves/moderados que requerem revisão programada |
+| 2 | `ADVANCE_CONSULT` | 24–72 horas | Declínio funcional leve, dor 5–6/10, múltiplos sintomas HIGH |
+| 3 | `ER_DAYS` | Menos de 24 horas | Febre sem quimio, obstrução intestinal, dor 7–8/10, diarreia severa, TVP suspeita |
+| 4 | `ER_IMMEDIATE` | Agora — pronto-socorro | Neutropenia febril, hipoxemia, choque, deterioração neurológica ou funcional grave |
+
+Regras de precedência:
+- A disposição final é sempre a de **maior severidade** entre todas as regras que dispararam.
+- Regras `ER_IMMEDIATE` não podem ser rebaixadas pelo modelo ML.
+- Regras `ER_DAYS` só são avaliadas se nenhuma `ER_IMMEDIATE` disparou.
+- Regras `ADVANCE_CONSULT` só são avaliadas se nenhuma `ER_DAYS` ou superior disparou.
+- Regras `SCHEDULED_CONSULT` só são avaliadas se nenhuma escalada superior disparou.
+
+---
+
+## 3. Regras Hard — clinical_rules.py
+
+### Arquitetura das camadas
+
+```
+Layer 1-A: ER_IMMEDIATE  (R01–R11)  → qualquer match encerra a busca por ER_IMMEDIATE
+Layer 1-B: ER_DAYS       (R12–R17)  → só avaliado se Layer 1-A não disparou
+Layer 1-C: ADVANCE_CONSULT (R18–R21) → só avaliado se 1-A e 1-B não dispararam
+Layer 1-D: SCHEDULED_CONSULT (R22–R23) → só avaliado se nenhuma escalada acima
+Layer 2:   Scores MASCC/CISNE       → enriquece ou faz upgrade de disposição
+```
+
+### Regras ativas (23 regras determinísticas)
+
+**ER_IMMEDIATE:**
+| ID | Condição | Limiar crítico |
+|----|----------|----------------|
+| R01_FEBRILE_NEUTROPENIA | Temperatura >= 38.0°C + quimio ativa ou janela D+0–D+21 | 38.0°C (nunca 37.5°C) |
+| R02_NADIR_FEVER | Relato de febre durante janela D+7–D+14 sem temperatura numérica | Janela nadir |
+| R03_HYPOXEMIA | SpO2 < 92% | 92% (nunca 93% ou 90%) |
+| R04_SEVERE_DYSPNEA | Dispneia com severity == CRITICAL | Severity CRITICAL |
+| R05_ACTIVE_BLEEDING | Sangramento HIGH/CRITICAL ou qualquer sangramento + anticoagulante ativo | Anticoagulante ativo |
+| R06_ALTERED_CONSCIOUSNESS | Confusão mental / desorientação / alteração de consciência | Qualquer ocorrência |
+| R07_INCOERCIBLE_VOMITING | Vômito incoercível + quimio ativa ou janela D+0–D+21 | Qualquer ocorrência |
+| R08_SEVERE_PAIN | Dor >= 9/10 | 9 (nunca 8) |
+| R09_ECOG_DETERIORATION | Delta ECOG >= 2 entre as duas avaliações mais recentes | Delta 2 (nunca 1) |
+| R10_SPINAL_CORD_COMPRESSION | Suspeita de compressão medular (fraqueza em pernas, perda controle urinário) | Qualquer ocorrência |
+| R11_IMMUNOSUPPRESSED_FEVER | Temperatura >= 38.0°C + imunossupressor ou corticoide ativo (sem R01) | 38.0°C |
+
+**ER_DAYS:**
+| ID | Condição |
+|----|----------|
+| R12_FEVER_NO_CHEMO | Temperatura >= 38.0°C sem quimio ativa |
+| R13_BOWEL_OBSTRUCTION | Sinais de obstrução intestinal |
+| R14_SEVERE_DIARRHEA | Diarreia severa |
+| R15_DVT_SUSPICION | Suspeita de TVP (trombose venosa profunda) |
+| R16_HIGH_PAIN | Dor 7–8/10 |
+| R17_SEVERE_MUCOSITIS | Mucosite grave com disfagia (não consegue comer/engolir) |
+
+**ADVANCE_CONSULT:**
+| ID | Condição |
+|----|----------|
+| R18_ECOG_DECLINE | Delta ECOG == 1 |
+| R19_MODERATE_PAIN | Dor 5–6/10 |
+| R20_HIGH_SYMPTOM_BURDEN | >= 3 sintomas com severity HIGH ou CRITICAL simultâneos |
+| R21_ANTICOAGULANT_BLEEDING | Qualquer sangramento + anticoagulante ativo |
+
+**SCHEDULED_CONSULT:**
+| ID | Condição |
+|----|----------|
+| R22_NURSING_ALERT_SYMPTOMS | Ação ALERT_NURSING em sintoma detectado |
+| R23_MODERATE_SYMPTOM_BURDEN | >= 2 sintomas com severity MEDIUM |
+
+### Como adicionar uma nova regra hard
+
+1. Identificar a camada correta (qual disposição a regra deve emitir).
+2. Adicionar o bloco `if` na seção correspondente dentro de `ClinicalRulesEngine.evaluate()`, respeitando o padrão:
+   ```python
+   findings.append(RuleFinding(
+       rule_id="R##_NOME_DESCRITIVO",
+       disposition=ER_IMMEDIATE,   # ou outro nível
+       reason="Texto claro em português para o paciente/equipe.",
+       evidence={"campo": valor},  # campos que justificam o disparo
+   ))
+   ```
+3. O ID deve seguir o formato `R{numero}_{NOME_EM_MAIUSCULAS}`. Nunca reutilizar IDs de regras removidas.
+4. Regras de `ER_IMMEDIATE` nunca precisam de guard `if not has_immediate` — múltiplas podem disparar.
+5. Regras de `ER_DAYS` em diante **devem** estar dentro dos guards correspondentes (`if not has_immediate`, `if not has_er`, etc.).
+6. Toda nova regra precisa de justificativa clínica citando protocolo ou referência bibliográfica no comentário de código.
+7. Toda nova regra precisa de testes unitários cobrindo o caso positivo e o caso negativo (limiar exato).
+8. Qualquer mudança em regra existente (especialmente limiar numérico) requer revisão do agente `clinical-domain` antes do commit.
+
+### O que nunca alterar em regras existentes sem revisão clínica
+
+- Limiar de temperatura: 38.0°C para ER_IMMEDIATE. Nunca alterar para 37.5°C ou 38.5°C.
+- Limiar de SpO2: 92%. Não alterar para nenhum outro valor.
+- Limiar de dor para ER_IMMEDIATE: 9/10. Não alterar para 8.
+- Janela de nadir: D+7 a D+14. A janela D+0 a D+21 é a janela de risco geral (para R01).
+- Delta ECOG >= 2 para ER_IMMEDIATE; delta == 1 para ADVANCE_CONSULT.
+
+---
+
+## 4. MASCC Score
+
+Referência: Klastersky J et al. J Clin Oncol 2000.
+
+Implementado em `ai-service/src/agent/clinical_scores.py` — `ClinicalScoresCalculator.compute_mascc()`.
+
+### Variáveis e pontuação
+
+| Critério | Pontos |
+|----------|--------|
+| Carga de doença leve/sem sintomas (burden of illness) | 5 |
+| Carga de doença moderada | 3 |
+| Carga de doença severa/moribundo | 0 |
+| Sem hipotensão (PAS >= 90 mmHg) | 5 |
+| Sem DPOC/asma | 4 |
+| Tumor sólido OU sem histórico de infecção fúngica | 4 |
+| Sem desidratação | 3 |
+| Status ambulatorial no início da febre | 3 |
+| Idade < 60 anos | 2 |
+| **Total máximo** | **26** |
+
+### Interpretação
+
+- **Score <= 20**: ALTO RISCO — hospitalização e antibioticoterapia IV obrigatórias. Nunca manejo ambulatorial.
+- **Score > 20**: BAIXO RISCO — candidato a antibioticoterapia oral ambulatorial com supervisão próxima.
+
+### Comportamento no motor de regras
+
+- MASCC alto risco dispara `R_MASCC_HIGH_RISK` com disposição `ER_IMMEDIATE` (confidence 0.9).
+- MASCC baixo risco anota o score nos findings existentes de febre (não altera disposição).
+- Quando MASCC **e** CISNE ambos indicam baixo risco fora de nadir e sem quimio ativa, o reasoning de R12 é enriquecido com opção ambulatorial — sem rebaixar a disposição abaixo de `ER_DAYS`.
+
+### Conservadorismo por ausência de dados
+
+- PAS ausente: assume normotensão (5 pts) — conservador para não subpontuir.
+- Idade indisponível como inteiro: assume 0 pts — conservador.
+- Status ambulatorial: assume ambulatorial (3 pts) — reflete o workflow do ONCONAV.
+
+---
+
+## 5. CISNE Score
+
+Referência: Carmona-Bayonas A et al. J Clin Oncol 2015.
+
+Implementado em `ai-service/src/agent/clinical_scores.py` — `ClinicalScoresCalculator.compute_cisne()`.
+
+### Aplicabilidade
+
+**CISNE é válido exclusivamente para tumores sólidos.**
+
+Para neoplasias hematológicas (leucemia, linfoma, mieloma), usar apenas MASCC. O sistema detecta automaticamente pelo campo `cancerType` do paciente e omite CISNE para hematológicos.
+
+### Variáveis e pontuação
+
+| Critério | Pontos |
+|----------|--------|
+| ECOG >= 2 | 2 |
+| Hiperglicemia de estresse (glicose > 121 mg/dL sem diabetes) | 2 |
+| DPOC | 1 |
+| Doença cardiovascular crônica (ICC, DAC, FA) | 1 |
+| Mucosite NCI grau >= 2 | 1 |
+| Monócitos < 200/µL | 1 |
+| **Total máximo** | **8** |
+
+### Interpretação
+
+| Score | Risco | Taxa de complicações graves |
+|-------|-------|-----------------------------|
+| 0 | BAIXO | ~0.4% |
+| 1–2 | INTERMEDIÁRIO | ~4.5% |
+| >= 3 | ALTO | ~36% |
+
+### Regras de uso
+
+- CISNE alto risco (>= 3) eleva `overall_febrile_neutropenia_risk` para HIGH.
+- CISNE intermediário (1–2) resulta em `overall_febrile_neutropenia_risk` INTERMEDIATE.
+- CISNE sozinho não rebaixa uma disposição já estabelecida pelas regras hard.
+- Combinação MASCC baixo risco + CISNE baixo risco + sem nadir + sem quimio = único cenário em que ambulatorial pode ser considerado (ainda como ER_DAYS, não ADVANCE_CONSULT).
+
+---
+
+## 6. Questionários de Sintomas
+
+### ESAS (Edmonton Symptom Assessment System)
+
+- 9 sintomas avaliados de 0–10 por escala visual analógica: Dor, Cansaço, Náusea, Depressão, Ansiedade, Sonolência, Apetite, Bem-estar, Dispneia.
+- Aplicado em `TREATMENT` conforme `checkInRules` dos protocolos.
+- Dor >= 9 em ESAS deve propagar diretamente para R08_SEVERE_PAIN.
+- Dispneia em ESAS com severity CRITICAL deve propagar para R04_SEVERE_DYSPNEA.
+
+### PRO-CTCAE (Patient-Reported Outcomes - CTCAE)
+
+- Padrão do NCI para efeitos adversos relatados pelo paciente.
+- Avalia frequência, severidade e interferência funcional.
+- Aplicado em `FOLLOW_UP` conforme `checkInRules` dos protocolos.
+- Respostas com severidade >= HIGH devem alimentar o pipeline de triagem.
+
+### Como criar um novo questionário
+
+1. Definir o tipo de questionário no enum Prisma correspondente.
+2. Criar o módulo de respostas em `backend/src/questionnaire-responses/`.
+3. Mapear os campos de resposta para os campos esperados pelo `SymptomAnalyzer` no ai-service.
+4. Atualizar o `checkInRules` do protocolo clínico afetado para incluir o novo questionário.
+5. Garantir que respostas críticas (severity CRITICAL ou HIGH) sejam propagadas para o pipeline de triagem sem atraso.
+6. Nunca criar questionário que colete dados clínicos sensíveis sem auditoria de acesso por tenantId.
+
+---
+
+## 7. Navegação Oncológica
+
+### Etapas e fluxo padrão
+
+```
+SCREENING → DIAGNOSIS → TREATMENT → FOLLOW_UP
+                                   ↘ PALLIATIVE (quando indicado)
+```
+
+A ordem é definida por `JOURNEY_STAGE_ORDER` em `oncology-navigation.service.ts`. Progressão deve respeitar as dependências declaradas nos protocolos (`dependsOn`).
+
+### Estrutura de um protocolo clínico
+
+Cada protocolo em `backend/src/clinical-protocols/templates/` deve ter:
+
+```typescript
+{
+  cancerType: string,           // ex.: 'bladder'
+  name: string,                 // nome humano legível
+  journeyStages: {
+    [stage]: {
+      steps: [
+        {
+          key: string,          // identificador único dentro do protocolo
+          name: string,         // nome para exibição
+          daysToComplete: number,
+          dependsOn?: string | string[],  // chave(s) de etapas predecessoras
+          conditional?: string, // condição clínica para inclusão da etapa
+          recurring?: string,   // frequência para etapas de follow-up
+        }
+      ]
+    }
+  },
+  checkInRules: {
+    [stage]: {
+      frequency: string,        // 'daily' | 'twice_weekly' | 'weekly'
+      questionnaire: string | null,  // 'ESAS' | 'PRO_CTCAE' | null
+    }
+  },
+  criticalSymptoms: [
+    {
+      keyword: string,
+      severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW',
+      action: 'ESCALATE_IMMEDIATELY' | 'ALERT_NURSING' | 'RECORD_AND_MONITOR',
+    }
+  ],
+  riskAdjustment: {
+    increaseFrequency: [
+      { condition: string, multiplier: number }
+    ]
+  }
+}
+```
+
+### Como adicionar um novo protocolo
+
+1. Criar o arquivo em `backend/src/clinical-protocols/templates/{tipo}.protocol.ts`.
+2. Registrar em `PROTOCOL_TEMPLATES` no `clinical-protocols.service.ts`.
+3. O novo tipo de câncer deve inicialmente ter `enabledCancerTypes` configurado como `false` no tenant — **nunca ativar em produção sem revisão clínica completa e validação pelo especialista oncológico responsável**.
+4. As `criticalSymptoms` devem mapear para os nomes de sintomas reconhecidos pelo `SymptomAnalyzer` do ai-service.
+
+---
+
+## 8. MVP — Foco em Câncer de Bexiga
+
+O MVP do ONCONAV tem escopo exclusivo em **câncer de bexiga** (`cancerType: 'bladder'`).
+
+- Outros tipos de câncer (colorretal, renal, próstata, mama, pulmão) existem nos templates mas estão **ocultos** por configuração `enabledCancerTypes` por tenant.
+- Nunca ativar outros tipos de câncer em um tenant de produção sem revisão clínica e aprovação do time de produto.
+- O protocolo de bexiga inclui etapas específicas: cistoscopia, TURBT, laudo anatomopatológico, estadiamento TC abdome/pelve, BCG intravesical (não-músculo invasivo), quimioterapia neoadjuvante + cistectomia radical (músculo invasivo), imunoterapia (PD-L1+).
+- Sintomas críticos específicos do câncer de bexiga: hematúria intensa, retenção urinária, febre neutropênica, disúria severa, infecção urinária — devem ter mapeamento correto no `SymptomAnalyzer`.
+- A frequência de check-in em `TREATMENT` é `daily` com questionário `ESAS`. Em `FOLLOW_UP` é `weekly` com `PRO_CTCAE`.
+
+---
+
+## 9. Validação Clínica Obrigatória
+
+### Quem valida mudanças em lógica clínica
+
+Qualquer PR que modifique os arquivos abaixo **deve ser revisado pelo agente `clinical-domain` antes do commit**:
+
+- `ai-service/src/agent/clinical_rules.py`
+- `ai-service/src/agent/clinical_scores.py`
+- `ai-service/src/agent/symptom_analyzer.py`
+- `backend/src/clinical-protocols/templates/*.protocol.ts`
+- Modelos Prisma: `Medication`, `Comorbidity`, `PerformanceStatusHistory`, campos de `ClinicalDisposition`
+- Qualquer enum que mapeia para disposições clínicas
+
+### Workflow obrigatório para mudanças clínicas
+
+```
+código alterado → test-generator → clinical-domain (revisão clínica) → seguranca-compliance → github-organizer
+```
+
+### Critérios de aprovação clínica
+
+A revisão `clinical-domain` deve verificar:
+
+1. Limiares numéricos estão corretos conforme protocolos de referência (AC Camargo, Sírio-Libanês, ICESP, MASCC, CISNE)?
+2. Nenhum cenário de risco de vida foi retirado de `ER_IMMEDIATE`?
+3. A lógica de nadir (D+7 a D+14) e janela de risco (D+0 a D+21) está preservada?
+4. Mensagens ao paciente estão em linguagem acessível (sem jargão médico não explicado)?
+5. Under-triage é impossível para as 11 condições `ER_IMMEDIATE`?
+
+---
+
+## 10. O Que NUNCA Fazer em Lógica Clínica
+
+As proibições abaixo são absolutas. Nenhuma exceção, nenhum "mas neste caso específico".
+
+### Triagem e disposição
+- **Nunca** rebaixar `ER_IMMEDIATE` para qualquer nível inferior, independente do score MASCC/CISNE.
+- **Nunca** tratar febre em paciente oncológico como sintoma banal. Febre >= 38°C em oncológico é sempre pelo menos `ER_DAYS`.
+- **Nunca** alterar o limiar de SpO2 de 92% para qualquer outro valor. SpO2 < 92% é emergência absoluta sem exceções.
+- **Nunca** permitir que o modelo ML sobrescreva uma disposição estabelecida pelas regras hard.
+- **Nunca** usar lógica de "se o paciente parece estável" para suprimir regras de urgência.
+
+### Dados clínicos
+- **Nunca** omitir `tenantId` em qualquer query que acesse dados clínicos de pacientes.
+- **Nunca** logar dados clínicos identificáveis (nome, CPF, diagnóstico) em texto livre — usar IDs anonimizados.
+- **Nunca** armazenar resposta de questionário clínico sem associação a `patientId` e `tenantId`.
+
+### Scores clínicos
+- **Nunca** aplicar CISNE em neoplasia hematológica (leucemia, linfoma, mieloma).
+- **Nunca** interpretar MASCC > 20 como "seguro para ignorar" — baixo risco MASCC ainda requer supervisão próxima.
+- **Nunca** usar MASCC/CISNE como substituto para avaliação médica presencial em paciente com R01–R11 disparado.
+
+### Protocolos e navegação
+- **Nunca** criar etapa de navegação sem `daysToComplete` definido (exceto etapas condicionais sem prazo definível).
+- **Nunca** ativar um novo tipo de câncer em `enabledCancerTypes` de tenant de produção sem aprovação clínica formal.
+- **Nunca** remover uma etapa de `TREATMENT` de um protocolo ativo sem verificar se há pacientes nessa etapa.
+
+### Comunicação com paciente
+- **Nunca** usar terminologia técnica não explicada em mensagens enviadas via WhatsApp ao paciente.
+- **Nunca** emitir disposição `REMOTE_NURSING` quando qualquer regra hard disparou, mesmo que tenha "baixa confiança".
+- **Nunca** suavizar a linguagem de uma mensagem de `ER_IMMEDIATE` — clareza salva vidas.

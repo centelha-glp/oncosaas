@@ -1,0 +1,303 @@
+# Database Rules — Prisma / PostgreSQL / ONCONAV
+
+Regras baseadas no schema real em `backend/prisma/schema.prisma` e padrões observados nos serviços.
+
+---
+
+## 1. Convenções de Nomenclatura
+
+### Modelos (tabelas)
+- PascalCase para o nome do model Prisma: `Patient`, `PatientJourney`, `NavigationStep`
+- snake_case para o nome real da tabela via `@@map("patients")` — obrigatório em todo model
+- IDs sempre UUID v4: `id String @id @default(uuid())`
+
+### Campos
+- camelCase nos modelos Prisma: `tenantId`, `patientId`, `createdAt`
+- Sufixo `At` para timestamps: `createdAt`, `updatedAt`, `clinicalDispositionAt`
+- Sufixo `Id` para foreign keys: `tenantId`, `patientId`, `diagnosisId`
+- Sufixo `Hash` para campos de hash derivados: `phoneHash` (SHA-256 de `phone`)
+- Campos opcionais explicitamente marcados com `?`: `cpf String?`, `phone String?`
+
+### Enums
+- PascalCase para o nome do enum: `UserRole`, `JourneyStage`, `ClinicalDisposition`
+- SCREAMING_SNAKE_CASE para valores: `ACTIVE`, `IN_TREATMENT`, `ER_IMMEDIATE`
+- Todo enum deve ter comentário explicativo por valor (ex.: `ACTIVE // Ativo`)
+
+---
+
+## 2. Multi-tenancy — Regra Absoluta
+
+**Todo model que armazena dados de pacientes ou dados clínicos DEVE ter `tenantId String`.**
+
+Modelos sem `tenantId`: apenas dados verdadeiramente globais como `Tenant` em si.
+
+```prisma
+model NavigationStep {
+  id        String @id @default(uuid())
+  tenantId  String   // ← OBRIGATÓRIO
+  patientId String
+  // ...
+}
+```
+
+Índice obrigatório em `tenantId` em todos os models com dados clínicos:
+```prisma
+@@index([tenantId])
+```
+
+---
+
+## 3. Índices Obrigatórios
+
+### Padrão por tipo de campo
+
+| Campo | Índice | Justificativa |
+|---|---|---|
+| `tenantId` | `@@index([tenantId])` | Todas as queries filtram por tenant |
+| `patientId` | `@@index([patientId])` | Lookups por paciente são frequentes |
+| `phoneHash` | `@@index([phoneHash])` | Busca eficiente sem descriptografar |
+| `status` | `@@index([status])` | Filtros de status em listagens |
+| `ehrPatientId` | `@@index([ehrPatientId])` | Sincronização com sistemas externos |
+| Composite busca | `@@index([tenantId, medicalRecordNumber])` | Busca e deduplicação por prontuário |
+
+### Constraints únicos
+
+```prisma
+// Unicidade composta: email único por tenant
+@@unique([tenantId, email])
+
+// Relação 1:1 segura
+patientId String @unique
+```
+
+---
+
+## 4. Soft Delete vs Hard Delete
+
+O projeto usa **hard delete** com `onDelete: Cascade` em relacionamentos apropriados. Não existe campo `deletedAt` ou `isDeleted` no schema.
+
+Exemplos de cascade configurados:
+```prisma
+tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+```
+
+**Quando usar Cascade:** para dados que perdem sentido sem o pai (ex.: `NavigationStep` de um `CancerDiagnosis`).
+
+**Quando NÃO usar Cascade:** para dados de auditoria — `AuditLog` nunca deve ter cascade delete.
+
+---
+
+## 5. Campos Sensíveis (LGPD)
+
+Campos que armazenam dados pessoais sensíveis de pacientes:
+
+| Campo | Tratamento | Motivo |
+|---|---|---|
+| `cpf` | Criptografado AES-256-GCM (LGPD) | Dado pessoal sensível |
+| `phone` | Criptografado AES-256-GCM (LGPD) | Dado pessoal |
+| `phoneHash` | SHA-256 do phone normalizado | Permite lookup sem descriptografar |
+| `password` | Hash bcrypt | Credencial de acesso |
+| `mfaSecret` | Armazenado opaco | Segredo TOTP |
+
+A criptografia/descriptografia ocorre na camada de serviço via `encryptSensitiveData` / `decryptSensitiveData`. O Prisma armazena e recupera o valor cifrado — nunca loga ou expõe.
+
+**Nunca armazenar `cpf` ou `phone` em plaintext.** O campo deve conter o valor criptografado produzido por `encryptSensitiveData`.
+
+---
+
+## 6. Migrations
+
+### Comandos
+
+```bash
+# Criar e aplicar migration em dev
+npm run prisma:migrate
+# Equivalente a: npx prisma migrate dev --name <nome-descritivo>
+
+# Aplicar migrations pendentes em produção (sem criar nova)
+npx prisma migrate deploy
+
+# Gerar Prisma Client após alterar schema
+npx prisma generate
+```
+
+**Sempre usar o skill `/migrar-prisma`** ao alterar `schema.prisma` — nunca criar migration manual.
+
+### Naming de migrations
+
+Usar snake_case descritivo do que muda:
+- `add_phone_hash_to_patients`
+- `create_clinical_disposition_feedback`
+- `add_index_tenant_medical_record`
+
+Nunca usar timestamps ou nomes genéricos (`update1`, `fix`, `change`).
+
+### Regras de migrations
+
+- **Nunca editar uma migration já aplicada** (em produção ou compartilhada via git)
+- **Nunca fazer DROP de coluna com dados** sem migration de limpeza prévia e confirmação
+- **Nunca renomear coluna diretamente** — Prisma gera DROP + ADD, o que destrói dados; usar `@map` para manter o nome físico
+- Migrations que alteram `tenantId` ou chaves primárias requerem revisão do arquiteto
+- Após cada migration, rodar `npx prisma generate` para atualizar o Prisma Client
+
+---
+
+## 7. Relacionamentos e Foreign Keys
+
+### Convenção de definição
+
+```prisma
+// Campo FK + relação
+tenantId String
+tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+```
+
+### Relacionamentos 1:1
+
+```prisma
+// No model filho — @unique na FK
+patientId String       @unique
+patient   Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+```
+
+### Relacionamentos 1:N
+
+```prisma
+// No model pai — array sem @unique
+messages Message[]
+
+// No model filho — FK simples
+patientId String
+patient   Patient @relation(fields: [patientId], references: [id])
+```
+
+### Relacionamentos opcionais
+
+```prisma
+journeyId String?   // FK opcional
+journey   PatientJourney? @relation(...)
+```
+
+---
+
+## 8. Queries Prisma — Evitar N+1
+
+### Preferir `include` direcionado sobre múltiplas queries
+
+```typescript
+// CORRETO — uma query com include
+const patient = await this.prisma.patient.findFirst({
+  where: { id, tenantId },
+  include: {
+    cancerDiagnoses: true,
+    treatments: { take: 10, orderBy: { createdAt: 'desc' } },
+  },
+});
+
+// ERRADO — N+1
+const patient = await this.prisma.patient.findFirst({ where: { id, tenantId } });
+const diagnoses = await this.prisma.cancerDiagnosis.findMany({ where: { patientId: id } });
+```
+
+### Limitar `take` em nested findMany
+
+Toda relação `include` que resulta em array aninhado **deve** ter `take` explícito:
+
+```typescript
+include: {
+  alerts: { take: 50, orderBy: { createdAt: 'desc' } },
+  messages: { take: 20 },
+}
+```
+
+Nunca incluir arrays aninhados sem limite em endpoints de listagem.
+
+### Usar `select` em vez de `include` quando precisar de poucos campos
+
+```typescript
+// Preferir select quando retornando listas grandes
+const patients = await this.prisma.patient.findMany({
+  where: { tenantId },
+  select: { id: true, name: true, priorityCategory: true, currentStage: true },
+});
+```
+
+### Transações para writes multi-step
+
+```typescript
+await this.prisma.$transaction(async (tx) => {
+  const patient = await tx.patient.create({ data: { ...dto, tenantId } });
+  await tx.patientJourney.create({ data: { patientId: patient.id, tenantId } });
+});
+```
+
+---
+
+## 9. Enums Prisma vs String
+
+### Usar enums Prisma quando
+
+- Conjunto de valores é fixo e pequeno (< 20)
+- O valor tem semântica clínica/negocial precisa
+- Exemplos: `UserRole`, `JourneyStage`, `ClinicalDisposition`, `PatientStatus`
+
+### Usar String quando
+
+- Conjunto é extensível por usuário/tenant (ex.: `cancerType` — novos tipos podem surgir)
+- Valor vem de sistema externo (ex.: `ehrPatientId`, `stepKey`)
+- Exemplos: `cancerType String?`, `stepKey String`, `cancerTypes String[]`
+
+---
+
+## 10. Boas Práticas de Schema
+
+### Timestamps obrigatórios
+
+Todo model deve ter:
+```prisma
+createdAt DateTime @default(now())
+updatedAt DateTime @updatedAt
+```
+
+Exceção: models join sem semântica própria podem omitir `createdAt`/`updatedAt` se nunca atualizado.
+
+### Campos com valores padrão
+
+Usar `@default` para campos não-nulos com valor sensato:
+```prisma
+status          PatientStatus @default(ACTIVE)
+priorityScore   Int           @default(0)
+priorityCategory PriorityCategory @default(LOW)
+mfaEnabled      Boolean       @default(false)
+diagnosisConfirmed Boolean    @default(false)
+```
+
+### Arrays em Prisma
+
+Arrays de primitivos são suportados (PostgreSQL):
+```prisma
+blockers    String[]   // Lista de bloqueios
+cancerTypes String[]   // enabledCancerTypes por tenant
+```
+
+Para arrays de objetos complexos, usar `Json?`:
+```prisma
+familyHistory Json?   // Array de objetos: { relationship, cancerType, ageAtDiagnosis }
+```
+
+---
+
+## 11. O Que NUNCA Fazer
+
+- **Nunca omitir `tenantId`** em model com dados de paciente ou clínico.
+- **Nunca fazer query `update()` ou `delete()` sem `tenantId` no `where`** — é bug de isolamento.
+- **Nunca editar migration já aplicada** — criar nova migration para corrigir.
+- **Nunca renomear coluna diretamente no schema** sem usar `@map` — perde dados.
+- **Nunca fazer DROP de coluna com dados** sem confirmar limpeza prévia.
+- **Nunca incluir array aninhado sem `take`** em endpoints de listagem — risco de OOM.
+- **Nunca usar `findUnique` para acesso tenant-scoped** sem garantir que o constraint único é por tenant.
+- **Nunca usar `process.env.DATABASE_URL` diretamente** em código de serviço — usar `ConfigService`.
+- **Nunca armazenar `cpf` ou `phone` em plaintext** no banco.
+- **Nunca usar raw SQL** sem revisão de segurança explícita — usar Prisma ORM.
+- **Nunca rodar `prisma migrate reset` em produção** — destrói todos os dados.
