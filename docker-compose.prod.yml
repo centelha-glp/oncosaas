@@ -18,7 +18,7 @@ services:
       test:
         - CMD-SHELL
         - >-
-          node -e "require('http').get('http://backend:3002/api/v1/health',function(r){process.exit(r.statusCode===200?0:1)}).on('error',function(){process.exit(1)})"
+          node -e "require('http').get('http://localhost:3002/api/v1/health',function(r){process.exit(r.statusCode===200?0:1)}).on('error',function(){process.exit(1)})"
       interval: 30s
       timeout: 10s
       retries: 5
