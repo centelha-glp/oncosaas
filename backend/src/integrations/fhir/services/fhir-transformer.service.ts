@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Observation, Patient, Prisma } from '@prisma/client';
+import { Observation, Patient, Prisma } from '@generated/prisma/client';
 import {
   FHIRPatient,
   FHIRObservation,

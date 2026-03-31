@@ -5,13 +5,17 @@
  * Saída: JSON com patient + conversations + messages, útil para análise de ações do agente.
  */
 
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from '@generated/prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
 import * as dotenv from 'dotenv';
 import { resolve } from 'path';
 
 dotenv.config({ path: resolve(__dirname, '../.env') });
 
-const prisma = new PrismaClient();
+const adapter = new PrismaPg({
+  connectionString: process.env.DATABASE_URL,
+});
+const prisma = new PrismaClient({ adapter });
 
 async function main() {
   console.log('🔍 Buscando paciente Bia e conversas...\n');
@@ -37,7 +41,7 @@ async function main() {
     console.log(
       '   Dica: crie um paciente com nome contendo "Bia" ou use prisma:seed.'
     );
-    process.exit(1);
+    throw new Error('Paciente Bia não encontrado no banco de dados.');
   }
 
   console.log(`✅ Paciente encontrado: ${patient.name} (ID: ${patient.id})\n`);
@@ -76,9 +80,10 @@ async function main() {
 }
 
 main()
-  .then(() => prisma.$disconnect())
   .catch((e) => {
     console.error(e);
-    prisma.$disconnect();
-    process.exit(1);
+    process.exitCode = 1;
+  })
+  .finally(async () => {
+    await prisma.$disconnect();
   });

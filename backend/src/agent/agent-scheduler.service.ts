@@ -4,8 +4,8 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { ChannelGatewayService } from '../channel-gateway/channel-gateway.service';
 import { ClinicalProtocolsService } from '../clinical-protocols/clinical-protocols.service';
-import { ScheduledActionStatus } from '@prisma/client';
-import { ChannelType, JourneyStage } from '@prisma/client';
+import { ScheduledActionStatus } from '@generated/prisma/client';
+import { ChannelType, JourneyStage } from '@generated/prisma/client';
 
 const FREQUENCY_DAYS: Record<string, number> = {
   daily: 1,

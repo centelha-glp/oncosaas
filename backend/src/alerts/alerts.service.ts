@@ -7,7 +7,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateAlertDto } from './dto/create-alert.dto';
 import { UpdateAlertDto } from './dto/update-alert.dto';
-import { Alert, AlertStatus } from '@prisma/client';
+import { Alert, AlertStatus } from '@generated/prisma/client';
 import { AlertsGateway } from '../gateways/alerts.gateway';
 
 /** Forward-only status transitions. A terminal state (RESOLVED/DISMISSED) cannot be left. */

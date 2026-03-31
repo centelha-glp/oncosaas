@@ -6,7 +6,7 @@ import {
   ChannelType,
   ScheduledActionStatus,
   ScheduledActionType,
-} from '@prisma/client';
+} from '@generated/prisma/client';
 import { CreateScheduledActionDto } from './dto/create-scheduled-action.dto';
 
 const mockPrisma = {

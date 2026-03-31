@@ -58,7 +58,6 @@ dist/
 build/
 
 # Prisma
-prisma/migrations/*.sql
 **/generated/prisma
 
 # Database

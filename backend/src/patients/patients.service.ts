@@ -15,7 +15,7 @@ import { ImportSpreadsheetRowDto } from './dto/import-spreadsheet.dto';
 import { PatientDetailResponse } from './dto/patient-detail-response.dto';
 import { CreateCancerDiagnosisDto } from './dto/create-cancer-diagnosis.dto';
 import { UpdateCancerDiagnosisDto } from './dto/update-cancer-diagnosis.dto';
-import { Patient, Prisma, JourneyStage } from '@prisma/client';
+import { Patient, Prisma, JourneyStage } from '@generated/prisma/client';
 import { OncologyNavigationService } from '../oncology-navigation/oncology-navigation.service';
 import { PriorityRecalculationService } from '../oncology-navigation/priority-recalculation.service';
 import {

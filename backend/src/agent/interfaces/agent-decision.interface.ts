@@ -1,4 +1,4 @@
-import { AgentDecisionType } from '@prisma/client';
+import { AgentDecisionType } from '@generated/prisma/client';
 
 export interface AgentDecision {
   decisionType: AgentDecisionType;

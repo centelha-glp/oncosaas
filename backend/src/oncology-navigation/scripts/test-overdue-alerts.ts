@@ -3,9 +3,13 @@
  * Execute: npx ts-node src/oncology-navigation/scripts/test-overdue-alerts.ts
  */
 
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from '@generated/prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
 
-const prisma = new PrismaClient();
+const adapter = new PrismaPg({
+  connectionString: process.env.DATABASE_URL,
+});
+const prisma = new PrismaClient({ adapter });
 
 async function testOverdueAlerts() {
   console.log('🔍 Verificando etapas atrasadas...\n');
@@ -44,7 +48,6 @@ async function testOverdueAlerts() {
     console.log(
       '\n💡 Dica: Crie etapas com dueDate no passado para testar os alertas.'
     );
-    await prisma.$disconnect();
     return;
   }
 
@@ -140,10 +143,11 @@ async function testOverdueAlerts() {
     }
   }
 
-  await prisma.$disconnect();
 }
 
 testOverdueAlerts().catch((error) => {
   console.error('❌ Erro:', error);
-  process.exit(1);
+  process.exitCode = 1;
+}).finally(async () => {
+  await prisma.$disconnect();
 });

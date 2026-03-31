@@ -1,6 +1,6 @@
 import { PartialType } from '@nestjs/mapped-types';
 import { IsEnum, IsOptional, IsString, IsDateString } from 'class-validator';
-import { ClinicalDisposition } from '@prisma/client';
+import { ClinicalDisposition } from '@generated/prisma/client';
 import { CreatePatientDto } from './create-patient.dto';
 
 export class UpdatePatientDto extends PartialType(CreatePatientDto) {

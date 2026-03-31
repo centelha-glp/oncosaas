@@ -17,7 +17,7 @@ import { FHIRConfigService } from './services/fhir-config.service';
 import { CreateFHIRConfigDto } from './dto/create-fhir-config.dto';
 import { UpdateFHIRConfigDto } from './dto/update-fhir-config.dto';
 import { PrismaService } from '@/prisma/prisma.service';
-import { Prisma } from '@prisma/client';
+import { Prisma } from '@generated/prisma/client';
 
 @Controller('fhir/config')
 @UseGuards(JwtAuthGuard, TenantGuard, RolesGuard)

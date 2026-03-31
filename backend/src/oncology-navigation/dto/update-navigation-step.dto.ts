@@ -7,7 +7,7 @@ import {
   IsObject,
   IsArray,
 } from 'class-validator';
-import { NavigationStepStatus } from '@prisma/client';
+import { NavigationStepStatus } from '@generated/prisma/client';
 
 export class UpdateNavigationStepDto {
   @IsEnum(NavigationStepStatus)

@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateInterventionDto } from './dto/create-intervention.dto';
-import { UserRole, InterventionType } from '@prisma/client';
+import { UserRole, InterventionType } from '@generated/prisma/client';
 
 @Injectable()
 export class InterventionsService {

@@ -9,7 +9,7 @@ import {
   IsNumber,
   IsUUID,
 } from 'class-validator';
-import { MessageDirection, MessageType, ProcessedBy } from '@prisma/client';
+import { MessageDirection, MessageType, ProcessedBy } from '@generated/prisma/client';
 
 export class CreateMessageDto {
   @IsUUID()

@@ -1,7 +1,7 @@
 import * as crypto from 'crypto';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { ChannelType } from '@prisma/client';
+import { ChannelType } from '@generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   IChannel,

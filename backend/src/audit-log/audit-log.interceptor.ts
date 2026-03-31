@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { tap } from 'rxjs/operators';
-import { AuditAction } from '@prisma/client';
+import { AuditAction } from '@generated/prisma/client';
 import { AuditLogService } from './audit-log.service';
 
 const METHOD_TO_ACTION: Record<string, AuditAction> = {

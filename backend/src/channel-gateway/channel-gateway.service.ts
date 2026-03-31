@@ -7,7 +7,7 @@ import {
   forwardRef,
 } from '@nestjs/common';
 import { randomUUID } from 'crypto';
-import { ChannelType, Prisma } from '@prisma/client';
+import { ChannelType, Prisma } from '@generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { MessagesGateway } from '../gateways/messages.gateway';
 import { WhatsAppChannel } from './channels/whatsapp.channel';

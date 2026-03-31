@@ -5,7 +5,7 @@ import {
   IsEnum,
   IsOptional,
 } from 'class-validator';
-import { InterventionType } from '@prisma/client';
+import { InterventionType } from '@generated/prisma/client';
 
 export class CreateInterventionDto {
   @IsUUID()

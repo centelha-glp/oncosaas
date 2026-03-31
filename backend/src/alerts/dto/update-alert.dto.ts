@@ -1,7 +1,7 @@
 import { PartialType } from '@nestjs/mapped-types';
 import { CreateAlertDto } from './create-alert.dto';
 import { IsEnum, IsOptional, IsString } from 'class-validator';
-import { AlertStatus } from '@prisma/client';
+import { AlertStatus } from '@generated/prisma/client';
 
 export class UpdateAlertDto extends PartialType(CreateAlertDto) {
   @IsEnum(AlertStatus)

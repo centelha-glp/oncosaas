@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { PriorityRecalculationService } from '../oncology-navigation/priority-recalculation.service';
-import { ComplementaryExamType } from '@prisma/client';
+import { ComplementaryExamType } from '@generated/prisma/client';
 import { CreateComplementaryExamDto } from './dto/create-complementary-exam.dto';
 import { UpdateComplementaryExamDto } from './dto/update-complementary-exam.dto';
 import { CreateComplementaryExamResultDto } from './dto/create-complementary-exam-result.dto';

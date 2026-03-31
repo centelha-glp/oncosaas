@@ -6,7 +6,7 @@ import {
   IsBoolean,
   IsDateString,
 } from 'class-validator';
-import { ComorbidityType, ComorbiditySeverity } from '@prisma/client';
+import { ComorbidityType, ComorbiditySeverity } from '@generated/prisma/client';
 
 export class CreateComorbidityDto {
   @IsString()

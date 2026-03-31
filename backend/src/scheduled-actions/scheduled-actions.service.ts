@@ -4,7 +4,7 @@ import {
   BadRequestException,
   Logger,
 } from '@nestjs/common';
-import { Prisma, ScheduledAction, ScheduledActionStatus } from '@prisma/client';
+import { Prisma, ScheduledAction, ScheduledActionStatus } from '@generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateScheduledActionDto } from './dto/create-scheduled-action.dto';
 import { QueryScheduledActionsDto } from './dto/query-scheduled-actions.dto';

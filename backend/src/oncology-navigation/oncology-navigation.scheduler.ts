@@ -4,7 +4,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { OncologyNavigationService } from './oncology-navigation.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AlertsService } from '../alerts/alerts.service';
-import { AlertType, AlertSeverity } from '@prisma/client';
+import { AlertType, AlertSeverity } from '@generated/prisma/client';
 
 @Injectable()
 export class OncologyNavigationScheduler {

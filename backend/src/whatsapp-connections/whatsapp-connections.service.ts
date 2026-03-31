@@ -2,8 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
-  Logger,
-  InternalServerErrorException,
+  Logger
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
@@ -13,8 +12,8 @@ import {
   WhatsAppConnection,
   WhatsAppConnectionStatus,
   WhatsAppAuthMethod,
-} from '@prisma/client';
-import axios, { AxiosInstance } from 'axios';
+} from '@generated/prisma/client';
+import axios from 'axios';
 import {
   encryptSensitiveData,
   decryptSensitiveData,

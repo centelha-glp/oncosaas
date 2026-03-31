@@ -6,7 +6,7 @@ import {
   IsBoolean,
   IsDateString,
 } from 'class-validator';
-import { MedicationCategory } from '@prisma/client';
+import { MedicationCategory } from '@generated/prisma/client';
 
 export class CreateMedicationDto {
   @IsString()

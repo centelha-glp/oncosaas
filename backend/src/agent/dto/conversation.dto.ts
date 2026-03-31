@@ -1,5 +1,5 @@
 import { IsEnum, IsNotEmpty, IsOptional, IsString } from 'class-validator';
-import { ChannelType, ConversationStatus, HandledBy } from '@prisma/client';
+import { ChannelType, ConversationStatus, HandledBy } from '@generated/prisma/client';
 
 export class CreateConversationDto {
   @IsString()

@@ -67,6 +67,7 @@ async function bootstrap(): Promise<void> {
     AppModule,
     httpsOptions ? { httpsOptions } : {}
   );
+  app.enableShutdownHooks();
 
   // Criar diretório de uploads se não existir
   const uploadsDir = join(process.cwd(), 'uploads', 'navigation-steps');

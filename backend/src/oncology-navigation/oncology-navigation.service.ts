@@ -13,9 +13,9 @@ import {
   NavigationStepStatus,
   PatientStatus,
   Prisma,
-} from '@prisma/client';
+} from '@generated/prisma/client';
 import { AlertsService } from '../alerts/alerts.service';
-import { AlertType, AlertSeverity } from '@prisma/client';
+import { AlertType, AlertSeverity } from '@generated/prisma/client';
 
 /** Configuração de uma etapa de navegação com dependência relativa */
 export interface StepConfig {

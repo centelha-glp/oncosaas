@@ -2,7 +2,7 @@ import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateMedicationDto } from './dto/create-medication.dto';
 import { UpdateMedicationDto } from './dto/update-medication.dto';
-import { MedicationCategory } from '@prisma/client';
+import { MedicationCategory } from '@generated/prisma/client';
 
 /** Maps a MedicationCategory to its clinical risk boolean flags. */
 function resolveClinicalFlags(category: MedicationCategory) {

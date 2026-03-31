@@ -5,7 +5,7 @@ import {
   IsEnum,
   IsUUID,
 } from 'class-validator';
-import { ProcessedBy, Prisma } from '@prisma/client';
+import { ProcessedBy, Prisma } from '@generated/prisma/client';
 
 export class CreateQuestionnaireResponseDto {
   @IsUUID()

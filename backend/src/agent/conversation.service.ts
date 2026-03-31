@@ -1,6 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { ChannelType, ConversationStatus, HandledBy } from '@prisma/client';
+import { ChannelType, ConversationStatus, HandledBy } from '@generated/prisma/client';
 
 @Injectable()
 export class ConversationService {

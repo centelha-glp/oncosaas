@@ -1,6 +1,6 @@
 import "dotenv/config";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from '@generated/prisma/client';
 import * as bcrypt from 'bcrypt';
 
 const connectionString = `${process.env.DATABASE_URL}`;
@@ -834,7 +834,7 @@ async function main() {
 main()
   .catch((e) => {
     console.error('❌ Erro ao executar seed:', e);
-    process.exit(1);
+    process.exitCode = 1;
   })
   .finally(async () => {
     await prisma.$disconnect();

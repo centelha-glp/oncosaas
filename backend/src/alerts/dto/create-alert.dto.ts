@@ -6,7 +6,7 @@ import {
   IsObject,
   IsUUID,
 } from 'class-validator';
-import { AlertType, AlertSeverity } from '@prisma/client';
+import { AlertType, AlertSeverity } from '@generated/prisma/client';
 
 export class CreateAlertDto {
   @IsUUID()

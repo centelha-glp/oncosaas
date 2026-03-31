@@ -2,7 +2,7 @@ import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateComorbidityDto } from './dto/create-comorbidity.dto';
 import { UpdateComorbidityDto } from './dto/update-comorbidity.dto';
-import { ComorbidityType, ComorbiditySeverity } from '@prisma/client';
+import { ComorbidityType, ComorbiditySeverity } from '@generated/prisma/client';
 
 /** Derives risk flags from ComorbidityType. */
 function resolveRiskFlags(type: ComorbidityType) {

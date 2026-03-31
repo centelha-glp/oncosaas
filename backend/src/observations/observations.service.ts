@@ -10,7 +10,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { PriorityRecalculationService } from '../oncology-navigation/priority-recalculation.service';
 import { CreateObservationDto } from './dto/create-observation.dto';
 import { UpdateObservationDto } from './dto/update-observation.dto';
-import { Observation } from '@prisma/client';
+import { Observation } from '@generated/prisma/client';
 import { FHIRSyncService } from '../integrations/fhir/services/fhir-sync.service';
 import { FHIRConfigService } from '../integrations/fhir/services/fhir-config.service';
 

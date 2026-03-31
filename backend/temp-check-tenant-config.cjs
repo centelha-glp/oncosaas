@@ -1,5 +1,11 @@
-const { PrismaClient } = require('./node_modules/@prisma/client');
-const prisma = new PrismaClient();
+require('ts-node/register/transpile-only');
+const { PrismaClient } = require('./generated/prisma/client.ts');
+const { PrismaPg } = require('@prisma/adapter-pg');
+
+const adapter = new PrismaPg({
+  connectionString: process.env.DATABASE_URL,
+});
+const prisma = new PrismaClient({ adapter });
 
 (async () => {
   const patientId = '8165bd14-6a72-4074-b89c-65b5e67ddb82';

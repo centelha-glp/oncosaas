@@ -2,7 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { NotFoundException } from '@nestjs/common';
 import { ComorbiditiesService } from './comorbidities.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { ComorbidityType } from '@prisma/client';
+import { ComorbidityType } from '@generated/prisma/client';
 
 const mockPrisma = {
   comorbidity: {
