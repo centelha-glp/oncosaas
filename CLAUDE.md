@@ -195,7 +195,7 @@ Ver `.claude/squads.md` para referência completa.
 | **Produto** | `product-owner`, `architect`, `documentation` | Visão, arquitetura, docs |
 | **Clínico** | `clinical-domain`, `fhir-integration`, `whatsapp-integration` | Domínio oncológico, integrações de saúde |
 | **Plataforma** | `backend-nestjs`, `frontend-nextjs`, `database-engineer`, `ux-accessibility` | Engenharia core |
-| **IA/Dados** | `ai-service`, `data-scientist` | ML, agente conversacional |
+| **IA/Dados** | `ai-service`, `data-scientist`, `llm-agent-architect`, `llm-context-engineer`, `rag-engineer` | ML, agente conversacional, RAG, prompts |
 | **Infra/Cloud** | `devops`, `aws`, `terraform` | AWS, IaC, CI/CD |
 | **Qualidade** | `seguranca-compliance`, `test-generator`, `performance`, `github-organizer` | Transversal |
 
@@ -208,6 +208,9 @@ Ver `.claude/squads.md` para referência completa.
 | Tarefas em `ai-service/` | `ai-service` |
 | Schema Prisma, migrations, queries lentas | `database-engineer` |
 | Modelos ML, features, MASCC/CISNE | `data-scientist` |
+| Prompts, context_builder, janela de contexto LLM | `llm-context-engineer` |
+| Corpus RAG, FAISS, qualidade de retrieval | `rag-engineer` |
+| Arquitetura de orchestrator, subagentes, agentic loops | `llm-agent-architect` |
 | Docker, CI/CD de aplicação | `devops` |
 | Infraestrutura AWS (ECS, RDS, VPC) | `aws` |
 | Terraform IaC | `terraform` |
