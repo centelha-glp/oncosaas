@@ -159,6 +159,20 @@ Every backend query must include `tenantId` to enforce data isolation. Controlle
 - Rate limiting: 100 req/min general, 10 req/min for auth endpoints
 - No `console.log` in production frontend code
 
+## Rules por Domínio
+
+Rules detalhadas geradas pelos especialistas de cada squad, baseadas no código real:
+
+| Arquivo | Domínio | Agente responsável |
+|---|---|---|
+| `.claude/rules/backend.md` | NestJS, guards, DTOs, multi-tenant, testes | `backend-nestjs` |
+| `.claude/rules/frontend.md` | Next.js, React Query, Zustand, WebSocket | `frontend-nextjs` |
+| `.claude/rules/ai-service.md` | Orchestrator, clinical rules, ML, FastAPI | `ai-service` |
+| `.claude/rules/clinical-domain.md` | Protocolos oncológicos, MASCC/CISNE, disposições | `clinical-domain` |
+| `.claude/rules/database.md` | Prisma schema, migrations, índices, LGPD | `database-engineer` |
+| `.claude/rules/security.md` | JWT, LGPD, HIPAA, OWASP, audit trail | `seguranca-compliance` |
+| `.claude/rules/devops.md` | Docker, CI/CD, health checks, deploy EC2 | `devops` |
+
 ## Agent Workflow
 
 ### Ordem obrigatória pré-commit (sempre)
