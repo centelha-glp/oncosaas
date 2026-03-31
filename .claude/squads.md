@@ -51,8 +51,11 @@
 |--------|-----------------|
 | `ai-service` | FastAPI, agente conversacional, pipeline ML |
 | `data-scientist` | LightGBM, features, MASCC/CISNE, bias em modelos |
+| `llm-agent-architect` | Arquitetura de orchestrator, subagentes, agentic loops, tool use |
+| `llm-context-engineer` | Prompts, context_builder, janela de contexto, prompt caching |
+| `rag-engineer` | Corpus oncológico, FAISS, embeddings, qualidade de retrieval |
 
-**Acionar quando**: evoluir o modelo de priorização, ajustar regras clínicas no ai-service, analisar dados de retreino, validar scores clínicos.
+**Acionar quando**: evoluir o modelo de priorização, ajustar regras clínicas no ai-service, analisar dados de retreino, validar scores clínicos, melhorar qualidade das respostas do agente, otimizar RAG, reduzir custo de tokens.
 
 ---
 
