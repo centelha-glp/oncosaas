@@ -1,0 +1,214 @@
+# github-organizer — Rules & Patterns
+
+Rules derivadas dos padrões reais de commits e PRs no repositório ONCONAV. O `github-organizer` é o único agente autorizado a criar commits e abrir PRs — nunca commitar diretamente.
+
+---
+
+## 1. Conventional Commits
+
+### Formato obrigatório
+
+```
+<type>(<scope>): <descrição em português>
+
+[corpo opcional]
+
+Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
+```
+
+### Types reconhecidos
+
+| Type | Quando usar |
+|------|-------------|
+| `feat` | Nova funcionalidade ou feature |
+| `fix` | Correção de bug |
+| `test` | Adição ou atualização de testes |
+| `docs` | Documentação técnica, READMEs, rules |
+| `chore` | Manutenção, dependências, configuração |
+| `refactor` | Refatoração sem mudança de comportamento |
+| `perf` | Otimização de performance |
+| `ci` | Mudanças em workflows GitHub Actions |
+| `revert` | Reverter commit anterior |
+
+Nunca usar type em maiúsculo (`Feat`, `Fix`) — sempre lowercase.
+
+### Scopes por área
+
+| Scope | Área |
+|-------|------|
+| `backend` | NestJS, Prisma, services |
+| `frontend` | Next.js, React, componentes |
+| `ai` | Python ai-service, modelos ML, prompts |
+| `infra` | Docker, docker-compose, Terraform |
+| `ci` | GitHub Actions workflows |
+| `rules` | `.claude/rules/` |
+| `claude` | `.claude/agents/`, squads, configurações Claude Code |
+| `docs` | `docs/` directory |
+| `db` | Prisma schema, migrations |
+
+### Exemplos corretos
+
+```
+feat(backend): adicionar módulo de medicamentos com CRUD completo
+fix(frontend): corrigir erro de TypeScript no patient-navigation-tab (#48)
+test(backend): adicionar testes de isolamento multi-tenant no PatientsService
+docs(rules): adicionar rules por domínio geradas pelos agentes especialistas
+chore(ai): atualizar dependências para compatibilidade com Python 3.13
+ci(infra): corrigir health check do backend no docker-compose.prod.yml
+refactor(backend): extrair lógica de criptografia para utility compartilhada
+```
+
+---
+
+## 2. Commits Atômicos
+
+### Princípio
+
+Cada commit deve representar **uma única mudança lógica coesa**. Um PR pode ter vários commits atômicos.
+
+### Como dividir
+
+| Situação | Divisão correta |
+|----------|----------------|
+| Novo módulo backend + testes | 2 commits: `feat(backend)` + `test(backend)` |
+| Feature backend + frontend | 2 commits por camada |
+| Migration + seed + service | 3 commits: `feat(db)` + `chore(db)` + `feat(backend)` |
+| Rules + docs | 1 commit `docs(rules)` se relacionadas |
+| Fix + refactor adjacente | 2 commits separados |
+
+### Staging seletivo
+
+Nunca usar `git add -A` ou `git add .` indiscriminadamente. Adicionar arquivos específicos:
+
+```bash
+git add backend/src/medications/medications.service.ts
+git add backend/src/medications/medications.module.ts
+git add backend/src/medications/dto/
+```
+
+Verificar antes: `git diff --staged` para confirmar o que será commitado.
+
+---
+
+## 3. Arquivos que NUNCA devem ser commitados
+
+| Arquivo/Padrão | Motivo |
+|----------------|--------|
+| `.env`, `.env.*` (exceto `.env.example`) | Credenciais de produção |
+| `*.local` | Configuração local |
+| `backend/prisma/*.db` | Banco SQLite local |
+| `node_modules/` | Dependências |
+| `.next/`, `dist/`, `build/` | Artefatos de build |
+| `__pycache__/`, `*.pyc` | Cache Python |
+| `*.joblib` (modelos treinados) | Artefatos ML binários |
+| `coverage/` | Relatórios de cobertura |
+
+Se encontrado em staging: remover do stage, adicionar ao `.gitignore`, e alertar o usuário.
+
+---
+
+## 4. Estrutura de Pull Request
+
+### Título
+
+```
+<type>(<scope>): <descrição concisa> (máx 70 caracteres)
+```
+
+Mesmo formato do commit principal da PR.
+
+### Body obrigatório
+
+```markdown
+## Summary
+- Bullet point 1 — o que foi feito
+- Bullet point 2
+- Bullet point 3 (máx 5 bullets)
+
+## Test plan
+- [ ] Testes unitários passando (`npm test`)
+- [ ] Lint sem erros (`npm run lint`)
+- [ ] Type check sem erros (`npm run type-check`)
+- [ ] Testes específicos do módulo: `cd backend && npm test -- --testPathPattern=foo`
+- [ ] Verificação manual: descrever o que foi testado manualmente
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+```
+
+### Labels sugeridos
+
+| Label | Quando usar |
+|-------|------------|
+| `backend` | Mudanças em `backend/` |
+| `frontend` | Mudanças em `frontend/` |
+| `ai-service` | Mudanças em `ai-service/` |
+| `clinical` | Lógica clínica oncológica |
+| `infra` | Docker, CI/CD, Terraform |
+| `breaking-change` | Mudança incompatível com versão anterior |
+| `security` | Correção de vulnerabilidade |
+
+---
+
+## 5. Verificações Antes do Commit
+
+Executar **na ordem** antes de criar qualquer commit:
+
+```bash
+# 1. Verificar status
+git status
+
+# 2. Verificar diff completo
+git diff
+
+# 3. Lint (corrige automaticamente)
+npm run lint
+
+# 4. Formatação
+npm run format
+
+# 5. Type check (backend ou frontend conforme área alterada)
+cd backend && npm run type-check
+cd frontend && npm run type-check
+
+# 6. Testes do módulo alterado
+cd backend && npm test -- --testPathPattern=<modulo>
+```
+
+Se qualquer verificação falhar: **não commitar**. Corrigir primeiro.
+
+---
+
+## 6. Referências a Issues e PRs
+
+- Referenciar issue no corpo do commit quando aplicável: `Closes #42`, `Refs #38`
+- Nunca referenciar issues em todos os commits — apenas no commit que resolve a issue
+- PRs de merge incluem referência automática pelo GitHub
+
+---
+
+## 7. Branch Naming
+
+| Tipo | Padrão | Exemplo |
+|------|--------|---------|
+| Feature | `feat/<descricao-curta>` | `feat/modulo-medicamentos` |
+| Fix | `fix/<descricao-curta>` | `fix/tenant-isolation-alerts` |
+| Chore | `chore/<descricao-curta>` | `chore/update-python-deps` |
+| Docs | `docs/<descricao-curta>` | `docs/claude-rules-agents` |
+| Release | `release/<versao>` | `release/v1.2.0` |
+
+Branch principal: `main`. Nunca commitar diretamente em `main`.
+
+---
+
+## 8. O Que NUNCA Fazer
+
+- **Nunca** commitar diretamente — sempre via `github-organizer`.
+- **Nunca** usar `git add -A` sem revisar o que está sendo adicionado.
+- **Nunca** commitar arquivos `.env` com credenciais reais.
+- **Nunca** usar `git push --force` em `main` — destruição de histórico compartilhado.
+- **Nunca** fazer amend em commits já publicados (pushed) — criar novo commit.
+- **Nunca** pular hooks com `--no-verify` — os hooks existem por razão (lint, format).
+- **Nunca** criar commit sem Co-Authored-By quando o código foi gerado pelo Claude Code.
+- **Nunca** usar types de commit em maiúsculo (`Feat`, `Fix`).
+- **Nunca** criar PR sem test plan preenchido.
+- **Nunca** fazer force push em branches compartilhadas.

@@ -1,0 +1,322 @@
+# Backend Rules — NestJS / Prisma / ONCONAV
+
+Rules derived from the real codebase in `backend/src/`. Every rule reflects an observed pattern.
+
+---
+
+## 1. Module Structure
+
+Every feature module follows this exact layout:
+
+```
+<nome>/
+├── <nome>.module.ts
+├── <nome>.controller.ts
+├── <nome>.service.ts
+├── dto/
+│   ├── create-<nome>.dto.ts
+│   └── update-<nome>.dto.ts
+└── <nome>.service.spec.ts
+```
+
+### Module file
+
+```typescript
+@Module({
+  imports: [PrismaModule],          // always import PrismaModule
+  controllers: [FooController],
+  providers: [FooService],
+  exports: [FooService],            // export so other modules can inject the service
+})
+export class FooModule {}
+```
+
+- Use `forwardRef(() => OtherModule)` only when there is a genuine circular dependency (see `PatientsModule` ↔ `OncologyNavigationModule`).
+- After creating the module, add it to the `imports` array in `backend/src/app.module.ts`.
+
+---
+
+## 2. Controllers
+
+### Guard stack — always apply all three at class level
+
+```typescript
+@Controller('foo')
+@UseGuards(JwtAuthGuard, TenantGuard, RolesGuard)
+export class FooController {
+  constructor(private readonly fooService: FooService) {}
+```
+
+- `JwtAuthGuard` — validates the JWT and populates `request.user`. Skips routes marked `@Public()`.
+- `TenantGuard` — asserts `request.user.tenantId` exists and copies it to `request.tenantId`. Throws `ForbiddenException` otherwise.
+- `RolesGuard` — checks `@Roles()` on the handler. If no `@Roles()` decorator is present, the guard passes through.
+
+### Extracting the authenticated user
+
+```typescript
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+
+@Get()
+findAll(@CurrentUser() user: CurrentUser) {
+  return this.fooService.findAll(user.tenantId);
+}
+```
+
+`CurrentUser` interface exposes: `id`, `email`, `tenantId`, `role`, e opcionalmente `tenant`.
+
+### Role decoration per handler
+
+```typescript
+import { Roles } from '../auth/decorators/roles.decorator';
+import { UserRole } from '@prisma/client';
+
+@Get()
+@Roles(UserRole.ADMIN, UserRole.NURSE)
+findAll(@CurrentUser() user: CurrentUser) { ... }
+```
+
+### UUID path parameters
+
+```typescript
+@Get(':id')
+findOne(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: CurrentUser) { ... }
+```
+
+Apply `ParseUUIDPipe` to every `:id` parameter — no exceptions. This includes nested params (`diagnosisId`, `noteId`, etc.).
+
+### Public routes
+
+```typescript
+import { Public } from '../auth/decorators/public.decorator';
+
+@Post('login')
+@Public()
+login(@Body() dto: LoginDto) { ... }
+```
+
+---
+
+## 3. Services
+
+### Logger — never console.log
+
+```typescript
+@Injectable()
+export class FooService {
+  private readonly logger = new Logger(FooService.name);
+}
+```
+
+Use `this.logger.log()`, `this.logger.error(msg, errorObj)`, `this.logger.warn()`, `this.logger.debug()`.
+
+### tenantId como parâmetro — nunca acessar request
+
+Services do not import `REQUEST` or any HTTP context. `tenantId` is always passed as a method parameter by the controller.
+
+```typescript
+// CORRETO
+async findAll(tenantId: string): Promise<Foo[]> {
+  return this.prisma.foo.findMany({ where: { tenantId } });
+}
+```
+
+### Standard error exceptions
+
+| Situação | Exception |
+|---|---|
+| Record not found | `NotFoundException` |
+| Invalid input / business rule | `BadRequestException` |
+| Insufficient permissions | `ForbiddenException` |
+| Duplicate unique constraint | `ConflictException` |
+
+Throw NestJS exceptions directly. Do not catch `PrismaClientKnownRequestError` manually — `PrismaExceptionFilter` handles that globally.
+
+---
+
+## 4. Multi-Tenant Isolation
+
+Every Prisma query must include `tenantId` in the `where` clause.
+
+```typescript
+// findFirst
+const record = await this.prisma.foo.findFirst({ where: { id, tenantId } });
+if (!record) throw new NotFoundException(`Foo ${id} not found`);
+
+// findMany
+await this.prisma.foo.findMany({ where: { tenantId } });
+
+// update — compound where, never just { id }
+await this.prisma.foo.update({ where: { id, tenantId }, data: { ... } });
+
+// delete
+await this.prisma.foo.delete({ where: { id, tenantId } });
+```
+
+A `null` result from a cross-tenant query surfaces as `NotFoundException`, never as a data leak.
+
+---
+
+## 5. DTOs
+
+### Create DTO
+
+```typescript
+import { IsString, IsNotEmpty, IsOptional, IsEnum, IsUUID, MinLength } from 'class-validator';
+
+export class CreateFooDto {
+  @IsString()
+  @IsNotEmpty()
+  @MinLength(2)
+  name: string;
+
+  @IsEnum(SomeEnum)
+  @IsOptional()
+  status?: SomeEnum;
+
+  @IsUUID()
+  @IsOptional()
+  relatedId?: string;
+}
+```
+
+### Update DTO
+
+```typescript
+import { PartialType } from '@nestjs/mapped-types';
+import { CreateFooDto } from './create-foo.dto';
+
+export class UpdateFooDto extends PartialType(CreateFooDto) {}
+```
+
+### Sensitive fields
+
+- `password`, `mfaSecret`, `cpf`, `apiKeys`, `oauthAccessToken`, `appSecret`, `apiToken` must never appear in response bodies or logs.
+- `cpf` and `phone` must be encrypted at rest via `encryptSensitiveData` / `decryptSensitiveData` from `backend/src/whatsapp-connections/utils/encryption.util.ts` (AES-256-GCM + PBKDF2).
+- Phone numbers are stored alongside a `phoneHash` (SHA-256) for indexed lookup without exposing plaintext.
+
+---
+
+## 6. Guards Reference
+
+| Guard | File | Scope | Purpose |
+|---|---|---|---|
+| `JwtAuthGuard` | `auth/guards/jwt-auth.guard.ts` | Global (`APP_GUARD`) | Validates JWT; skips `@Public()` routes |
+| `TenantGuard` | `auth/guards/tenant.guard.ts` | Controller `@UseGuards` | Asserts `tenantId` in JWT payload |
+| `RolesGuard` | `auth/guards/roles.guard.ts` | Controller `@UseGuards` | Enforces `@Roles()` metadata |
+| `ThrottleGuard` | `common/guards/throttle.guard.ts` | Global (`APP_GUARD`) | Redis-backed rate limiting |
+
+`JwtAuthGuard` e `ThrottleGuard` são registrados globalmente em `AppModule`. `TenantGuard` e `RolesGuard` devem ser adicionados explicitamente com `@UseGuards` em todo controller não-público.
+
+---
+
+## 7. Interceptors Reference
+
+| Interceptor | File | Scope | Purpose |
+|---|---|---|---|
+| `AuditLogInterceptor` | `audit-log/audit-log.interceptor.ts` | Global (`APP_INTERCEPTOR`) | Persists CREATE/UPDATE/DELETE to audit log; strips sensitive fields |
+| `LoggingInterceptor` | `common/interceptors/logging.interceptor.ts` | Optional, per controller | Logs method, URL, status, duration, correlation `requestId` |
+
+`AuditLogInterceptor` é global. Não adicionar novamente a nível de controller.
+
+---
+
+## 8. Exception Filters
+
+Two global filters handle errors automatically:
+
+- `HttpExceptionFilter` — catches `HttpException`; returns `{ statusCode, timestamp, path, method, message }`.
+- `PrismaExceptionFilter` — catches `Prisma.PrismaClientKnownRequestError`:
+  - `P2002` → 409 Conflict
+  - `P2003` → 400 Bad Request
+  - `P2025` → 404 Not Found
+  - `P2000` → 400 Bad Request
+  - other → 500 Internal Server Error
+
+---
+
+## 9. Rate Limiting
+
+`ThrottleGuard` uses Redis (falls back to in-memory). Limits per IP per minute:
+
+| Path pattern | Limit |
+|---|---|
+| `/auth/login`, `/auth/register` | 10 req/min |
+| WhatsApp webhook paths | 200 req/min |
+| `/health`, `/ready` | No limit |
+| All other paths | 100 req/min |
+
+Do not implement custom rate limiting inside controllers or services.
+
+---
+
+## 10. Logging Rules
+
+- Declare `private readonly logger = new Logger(ClassName.name)` in every class that logs.
+- Use `this.logger.error(message, errorObject)` — pass the error as the second argument.
+- `console.log`, `console.error`, e `console.warn` são proibidos no backend.
+
+---
+
+## 11. Jest Unit Tests for Services
+
+Pattern from `patients.service.spec.ts`:
+
+```typescript
+const mockPrisma = {
+  foo: { findMany: jest.fn(), findFirst: jest.fn(), create: jest.fn(), update: jest.fn(), delete: jest.fn() },
+};
+
+describe('FooService', () => {
+  let service: FooService;
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    const module = await Test.createTestingModule({
+      providers: [FooService, { provide: PrismaService, useValue: mockPrisma }],
+    }).compile();
+    service = module.get<FooService>(FooService);
+  });
+
+  it('should scope query to correct tenantId', async () => {
+    mockPrisma.foo.findMany.mockResolvedValue([]);
+    await service.findAll('tenant-a');
+    expect(mockPrisma.foo.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { tenantId: 'tenant-a' } })
+    );
+  });
+
+  it('should throw NotFoundException for record from another tenant', async () => {
+    mockPrisma.foo.findFirst.mockResolvedValue(null);
+    await expect(service.findOne('id-1', 'wrong-tenant')).rejects.toThrow(NotFoundException);
+  });
+});
+```
+
+Testes obrigatórios para todo service:
+1. `tenantId` aparece na cláusula `where` do Prisma.
+2. `NotFoundException` é lançado quando Prisma retorna `null`.
+3. Mutações não executam quando a verificação de ownership falha.
+
+---
+
+## 12. Caminhos de Import Corretos
+
+- `@CurrentUser()` → `import from '../auth/decorators/current-user.decorator'`
+- `@Roles()` → `import from '../auth/decorators/roles.decorator'`
+- `@Public()` → `import from '../auth/decorators/public.decorator'`
+- **NUNCA** importar de `../common/decorators/` — esse caminho não existe.
+
+---
+
+## 13. O Que NUNCA Fazer
+
+- **Nunca omitir `tenantId` de uma query Prisma.** Missing `tenantId` in `where` é um bug de isolamento de dados.
+- **Nunca acessar `request` dentro de um service.** Passar `tenantId` e `userId` como parâmetros explícitos do controller.
+- **Nunca usar `console.log`.** Usar NestJS `Logger`.
+- **Nunca expor campos sensíveis** (`password`, `mfaSecret`, `cpf`, `apiKeys`, `oauthAccessToken`, `appSecret`) em response bodies ou logs.
+- **Nunca omitir `ParseUUIDPipe` em params `:id`.**
+- **Nunca bypassar o guard stack** em controller não-público.
+- **Nunca capturar `PrismaClientKnownRequestError` dentro de um service** — deixar `PrismaExceptionFilter` tratar.
+- **Nunca registrar `AuditLogInterceptor` a nível de controller** — já é global.
+- **Nunca criar um módulo sem registrá-lo** em `backend/src/app.module.ts`.
+- **Nunca armazenar `cpf` ou `phone` em plaintext** — criptografar com `encryptSensitiveData`; armazenar `phoneHash` para lookup.

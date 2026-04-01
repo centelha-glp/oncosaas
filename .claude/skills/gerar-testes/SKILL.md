@@ -47,5 +47,18 @@ Sempre executar **antes** de `/commit` ou de acionar o `github-organizer`:
 | Backend service com escrita | Verificar `tenantId` no `where` das operações create/update/delete |
 | Frontend hook | Sucesso + erro + loading |
 | Frontend componente | Render + interação principal |
-| AI Service | Happy path + fallback sem LLM |
+| AI Service (Python) | Happy path + fallback sem LLM + isolamento tenant_id |
+| Regras clínicas (`clinical_rules.py`) | Caso positivo + caso negativo no limiar exato (ex: 38.0°C dispara, 37.9°C não) |
 | Novo endpoint crítico | Teste E2E no Playwright |
+
+## Fluxo para ai-service
+
+Ao modificar arquivos Python no `ai-service/`:
+
+```
+/gerar-testes
+    → (se clinical_rules.py / clinical_scores.py / symptom_analyzer.py)
+      clinical-domain (validação clínica dos limiares)
+    → seguranca-compliance (verificação de tenant_id e dados sensíveis)
+    → github-organizer
+```

@@ -1,0 +1,329 @@
+# test-generator — Rules & Patterns
+
+Rules extraídas dos padrões de teste reais em `backend/src/**/*.spec.ts`, `frontend/src/**/__tests__/*.test.tsx` e `ai-service/tests/`. Todo código novo ou modificado deve ter testes correspondentes antes do commit.
+
+---
+
+## 1. Escopo de Atuação
+
+O `test-generator` analisa os arquivos modificados e gera/atualiza testes para:
+
+| Área | Framework | Localização dos testes |
+|------|-----------|----------------------|
+| Backend NestJS | Jest + `@nestjs/testing` | `backend/src/{modulo}/{service}.spec.ts` |
+| Frontend Next.js | Vitest + React Testing Library | `frontend/src/{modulo}/__tests__/*.test.tsx` |
+| AI Service Python | pytest | `ai-service/tests/{area}/test_{modulo}.py` |
+
+---
+
+## 2. Backend — Padrão Jest/NestJS
+
+### Naming e localização
+
+- Arquivo: `{service-name}.spec.ts` ao lado do service (ex: `patients.service.spec.ts`)
+- Nunca criar spec em diretório separado — colocar ao lado do arquivo testado
+
+### Estrutura obrigatória
+
+```typescript
+import { Test, TestingModule } from '@nestjs/testing';
+import { FooService } from './foo.service';
+import { PrismaService } from '../prisma/prisma.service';
+
+// Mock factory — sempre usar função para reset limpo por teste
+const createMockPrisma = () => ({
+  foo: {
+    findMany:  jest.fn(),
+    findFirst: jest.fn(),
+    create:    jest.fn(),
+    update:    jest.fn(),
+    delete:    jest.fn(),
+  },
+});
+
+describe('FooService', () => {
+  let service: FooService;
+  let mockPrisma: ReturnType<typeof createMockPrisma>;
+
+  beforeEach(async () => {
+    mockPrisma = createMockPrisma();
+    jest.clearAllMocks();
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        FooService,
+        { provide: PrismaService, useValue: mockPrisma },
+      ],
+    }).compile();
+
+    service = module.get<FooService>(FooService);
+  });
+```
+
+### Testes obrigatórios para todo service
+
+**1. Tenant scoping — toda query Prisma deve ter `tenantId`:**
+```typescript
+it('deve incluir tenantId na query', async () => {
+  mockPrisma.foo.findMany.mockResolvedValue([]);
+  await service.findAll('tenant-a');
+  expect(mockPrisma.foo.findMany).toHaveBeenCalledWith(
+    expect.objectContaining({ where: expect.objectContaining({ tenantId: 'tenant-a' }) })
+  );
+});
+```
+
+**2. NotFoundException quando Prisma retorna null:**
+```typescript
+it('deve lançar NotFoundException para registro de outro tenant', async () => {
+  mockPrisma.foo.findFirst.mockResolvedValue(null);
+  await expect(service.findOne('id-1', 'wrong-tenant')).rejects.toThrow(NotFoundException);
+});
+```
+
+**3. Mutações não executam sem ownership:**
+```typescript
+it('não deve executar update sem verificar ownership', async () => {
+  mockPrisma.foo.findFirst.mockResolvedValue(null);
+  await expect(service.update('id-1', dto, 'wrong-tenant')).rejects.toThrow(NotFoundException);
+  expect(mockPrisma.foo.update).not.toHaveBeenCalled();
+});
+```
+
+**4. Happy path com dados válidos:**
+```typescript
+it('deve retornar registro quando tenant correto', async () => {
+  const mockFoo = { id: 'id-1', tenantId: 'tenant-a', name: 'Test' };
+  mockPrisma.foo.findFirst.mockResolvedValue(mockFoo);
+  const result = await service.findOne('id-1', 'tenant-a');
+  expect(result).toEqual(mockFoo);
+});
+```
+
+### Mocks adicionais comuns
+
+```typescript
+// Redis
+const mockRedis = {
+  get: jest.fn(),
+  set: jest.fn(),
+  del: jest.fn(),
+  increment: jest.fn(),
+};
+
+// Logger (suprimir output em testes)
+jest.spyOn(Logger.prototype, 'log').mockImplementation(() => {});
+jest.spyOn(Logger.prototype, 'error').mockImplementation(() => {});
+```
+
+---
+
+## 3. Frontend — Padrão Vitest/React Testing Library
+
+### Naming e localização
+
+- Arquivo: `{Component}.test.tsx` ou `{hook}.test.ts`
+- Localização: `frontend/src/{modulo}/__tests__/`
+
+### Setup padrão
+
+```typescript
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { createElement } from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+
+// Mock de APIs antes dos imports do módulo testado
+vi.mock('@/lib/api/patients', () => ({
+  patientsApi: { getAll: vi.fn(), getById: vi.fn(), create: vi.fn() },
+}));
+
+// Wrapper React Query para hooks
+function makeWrapper() {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false, staleTime: 0 } },
+  });
+  return ({ children }: { children: React.ReactNode }) =>
+    createElement(QueryClientProvider, { client: queryClient }, children);
+}
+```
+
+### Testes obrigatórios para hooks React Query
+
+```typescript
+import { renderHook, waitFor } from '@testing-library/react';
+
+it('deve retornar dados após fetch', async () => {
+  (patientsApi.getAll as Mock).mockResolvedValue([{ id: '1', name: 'Paciente Teste' }]);
+  const { result } = renderHook(() => usePatients(), { wrapper: makeWrapper() });
+  await waitFor(() => expect(result.current.isSuccess).toBe(true));
+  expect(result.current.data).toHaveLength(1);
+});
+
+it('deve exibir estado de loading inicialmente', () => {
+  (patientsApi.getAll as Mock).mockReturnValue(new Promise(() => {}));
+  const { result } = renderHook(() => usePatients(), { wrapper: makeWrapper() });
+  expect(result.current.isLoading).toBe(true);
+});
+
+it('deve exibir estado de erro quando API falha', async () => {
+  (patientsApi.getAll as Mock).mockRejectedValue(new Error('Network error'));
+  const { result } = renderHook(() => usePatients(), { wrapper: makeWrapper() });
+  await waitFor(() => expect(result.current.isError).toBe(true));
+});
+```
+
+### Testes de componentes
+
+```typescript
+it('deve renderizar o botão com texto correto', () => {
+  render(<Button>Salvar</Button>);
+  expect(screen.getByRole('button', { name: 'Salvar' })).toBeInTheDocument();
+});
+
+it('deve chamar handler ao clicar', async () => {
+  const onClick = vi.fn();
+  render(<Button onClick={onClick}>Salvar</Button>);
+  await userEvent.click(screen.getByRole('button'));
+  expect(onClick).toHaveBeenCalledOnce();
+});
+
+it('deve estar desabilitado quando prop disabled=true', () => {
+  render(<Button disabled>Salvar</Button>);
+  expect(screen.getByRole('button')).toBeDisabled();
+});
+```
+
+### Regras de acessibilidade nos testes
+
+- Sempre buscar elementos por `role` antes de `testId`: `getByRole('button')`, `getByRole('dialog')`, `getByRole('textbox')`.
+- Usar `name` option quando múltiplos elementos do mesmo role existem: `getByRole('button', { name: 'Confirmar' })`.
+- Nunca usar `querySelector` ou `className` para buscar elementos em testes.
+
+---
+
+## 4. AI Service — Padrão pytest
+
+### Naming e localização
+
+- Arquivo: `test_{modulo}.py` em `ai-service/tests/{area}/`
+- Classes de teste: `class Test{Regra}:` (ex: `class TestR01FebrilNeutropenia:`)
+- Métodos: descritivos em snake_case: `def test_fever_38_with_active_chemo_fires_er_immediate(self):`
+
+### Setup padrão
+
+```python
+# conftest.py — somente sys.path
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+```
+
+### Helpers de fixture
+
+```python
+# Padrão observado em test_clinical_rules.py
+def _engine():
+    return clinical_rules_engine  # singleton global
+
+def _ctx(**kwargs):
+    base = {
+        "patient": {"age": 55, "cancerType": "bladder"},
+        "treatments": [],
+        "medications": [],
+        "comorbidities": [],
+    }
+    base.update(kwargs)
+    return base
+
+def _symptoms(*names):
+    return {
+        "detectedSymptoms": [{"name": n, "severity": "HIGH"} for n in names],
+        "structuredData": {"scales": {}},
+    }
+```
+
+### Testes obrigatórios para clinical_rules
+
+```python
+class TestR01FebrilNeutropenia:
+    def test_fever_38_with_active_chemo_fires_er_immediate(self):
+        ctx = _ctx(treatments=[{"status": "ACTIVE", "startDate": "2026-01-01"}])
+        symptoms = {"detectedSymptoms": [{"name": "febre", "severity": "HIGH"}],
+                    "structuredData": {"scales": {"temperature": 38.0}}}
+        result = _engine().evaluate(symptoms, ctx)
+        assert result.disposition == "ER_IMMEDIATE"
+        assert any(f.rule_id == "R01_FEBRILE_NEUTROPENIA" for f in result.findings)
+
+    def test_fever_37_9_does_not_fire(self):
+        # Caso negativo: limiar exato (37.9°C não dispara)
+        ctx = _ctx(treatments=[{"status": "ACTIVE", "startDate": "2026-01-01"}])
+        symptoms = {"detectedSymptoms": [],
+                    "structuredData": {"scales": {"temperature": 37.9}}}
+        result = _engine().evaluate(symptoms, ctx)
+        assert result.disposition != "ER_IMMEDIATE"
+```
+
+### Cobertura mínima para novas regras
+
+Cada nova regra hard deve ter no mínimo:
+1. Teste do caso positivo com limiar exato (dispara)
+2. Teste do caso negativo com limiar exato − 0.1 ou − 1 (não dispara)
+3. Teste de precedência: ER_IMMEDIATE bloqueia avaliação de ER_DAYS
+
+---
+
+## 5. O Que SEMPRE Testar
+
+| Cenário | Obrigatório |
+|---------|-------------|
+| `tenantId` presente na query Prisma | Sim — todo service backend |
+| `NotFoundException` para registro não encontrado | Sim — todo `findOne`, `update`, `delete` |
+| Mutação bloqueada sem ownership | Sim — todo service backend |
+| Loading state em hook React Query | Sim |
+| Error state em hook React Query | Sim |
+| Happy path com dados válidos | Sim |
+| Limiares clínicos exatos (R01–R23) | Sim — uma regra por classe de teste |
+| Limiar negativo (valor − epsilon) | Sim — junto com o positivo |
+
+---
+
+## 6. O Que NÃO Testar em Testes Automatizados
+
+- Orchestrator end-to-end com chamadas LLM reais → usar `ai-service/tools/manual/`
+- RAG retrieval com embeddings reais → pesado demais para CI
+- Full page components com múltiplas dependências externas → testes E2E manuais
+- Eventos Socket.io → testar com backend rodando localmente
+
+---
+
+## 7. Comandos de Execução
+
+```bash
+# Backend
+cd backend && npm test
+cd backend && npm run test:cov    # com cobertura
+cd backend && npm run test:e2e    # E2E
+
+# Frontend
+cd frontend && npm test
+
+# AI Service
+cd ai-service && python -m pytest tests/ -v --tb=short
+cd ai-service && python -m pytest tests/agent/test_clinical_rules.py -v  # módulo específico
+```
+
+CI executa backend com `--forceExit` para evitar handles abertos.
+
+---
+
+## 8. O Que NUNCA Fazer
+
+- **Nunca** commitar código sem testes correspondentes para lógica nova.
+- **Nunca** usar `querySelector` ou seletor por `className` em testes de componente — usar `getByRole`.
+- **Nunca** criar mock de Prisma inline no `it()` — usar factory `createMockPrisma()` no `beforeEach`.
+- **Nunca** testar implementação interna — testar comportamento observável.
+- **Nunca** omitir teste do caso negativo para regras clínicas — limiar exato deve ser testado nos dois lados.
+- **Nunca** criar testes de componentes que dependem de estado global não mockado.
+- **Nunca** fazer testes de integração real com LLM ou RAG no CI.
