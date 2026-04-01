@@ -48,8 +48,8 @@ services:
       context: ./backend
       dockerfile: Dockerfile
       target: dev
-    secrets:
-      - DATABASE_URL
+      secrets:
+        - DATABASE_URL
     container_name: backend
     restart: on-failure
     depends_on:

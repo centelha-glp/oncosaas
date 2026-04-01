@@ -314,8 +314,6 @@ jobs:
           } >> ai-service/.env
 
       - name: Build and start stack
-        env:
-          DATABASE_URL: postgresql://ONCONAV:ONCONAV_dev@postgres:5432/ONCONAV_development
         run: docker compose -f docker-compose.dev.yml up -d --build
 
       - name: Wait for healthy containers
