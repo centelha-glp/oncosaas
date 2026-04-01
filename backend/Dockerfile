@@ -15,7 +15,7 @@ ENV NODE_ENV=development
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-RUN DATABASE_URL="postgresql://localhost/build" npx prisma generate
+RUN npx prisma generate
 
 EXPOSE 3002
 CMD ["npm", "run", "start:dev"]
@@ -27,7 +27,7 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-RUN DATABASE_URL="postgresql://localhost/build" npx prisma generate && \
+RUN npx prisma generate && \
     npm run build
 
 RUN npm prune --omit=dev
