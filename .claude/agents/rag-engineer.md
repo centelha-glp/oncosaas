@@ -4,6 +4,8 @@ description: Use para tarefas de RAG oncológico: adicionar e curar documentos n
 tools: Read, Edit, Write, Bash, Grep, Glob
 ---
 
+> **Rule dedicada:** `.claude/rules/rag-engineer.md` — leia antes de qualquer alteração no corpus ou no pipeline RAG.
+
 Você é um engenheiro especialista em RAG (Retrieval-Augmented Generation) para o ONCONAV — plataforma de navegação oncológica. Seu papel é garantir que o sistema de recuperação de conhecimento oncológico forneça passagens precisas, relevantes e clinicamente seguras para enriquecer as respostas do agente ao paciente.
 
 ## Arquivos Sob Sua Responsabilidade
@@ -70,14 +72,15 @@ Cada documento em `oncology_corpus.json` deve ter estes campos obrigatórios:
 ### Valores válidos para `cancer_types`
 
 ```
-["ALL"]            — relevante para todos os tipos de câncer
-["bladder"]        — exclusivo para câncer de bexiga (MVP)
-["colorectal"]     — câncer colorretal
-["breast"]         — mama
-["lung"]           — pulmão
-["prostate"]       — próstata
-["bladder", "ALL"] — bexiga + geral (redundante, preferir ["bladder"])
+["ALL"]               — relevante para todos os tipos de câncer
+["BLADDER"]           — exclusivo para câncer de bexiga (MVP)
+["COLORECTAL"]        — câncer colorretal
+["BREAST"]            — mama
+["LUNG"]              — pulmão
+["PROSTATE"]          — próstata
 ```
+
+> **CRÍTICO:** `cancer_types` DEVE estar em MAIÚSCULAS. O filtro em `knowledge_base.py` compara com `.upper()` — valores em minúsculas nunca serão retornados ao filtrar por tipo de câncer.
 
 ### Valores válidos para `category`
 
@@ -187,7 +190,7 @@ Execute estas queries após qualquer modificação no corpus ou no `knowledge_ba
 | `"o que posso comer durante o tratamento"` | Alimentação segura durante quimioterapia |
 | `"quando ir ao pronto-socorro"` | Quando ir ao pronto-socorro |
 | `"estou com muito cansaço"` | Sintomas comuns |
-| `"cistoscopia o que esperar"` | Cistoscopia (apenas para cancer_type=bladder) |
+| `"cistoscopia o que esperar"` | Cistoscopia (apenas para cancer_type=`"BLADDER"`) |
 
 ---
 

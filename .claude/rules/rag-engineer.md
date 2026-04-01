@@ -147,6 +147,30 @@ Os valores são comparados com `.upper()` — usar MAIÚSCULAS no corpus para co
 6. Invalidar o cache FAISS após qualquer alteração no corpus (o hash MD5 muda automaticamente, mas o cache só é reconstruído na próxima chamada)
 7. Testar retrieval para confirmar que o novo documento é recuperado nas queries esperadas
 
+### Checklist de validação clínica antes do commit
+
+Todo documento adicionado ao corpus deve ser revisado pelo agente `clinical-domain` se contiver:
+- Orientações sobre quando ir ao pronto-socorro ou chamar emergência
+- Limiares numéricos (temperatura, SpO2, nível de dor)
+- Informações sobre neutropenia febril, MASCC, CISNE ou scores clínicos
+- Instruções relacionadas a quimioterapia, imunoterapia ou protocolos oncológicos
+
+**Checklist obrigatório para documentos de `category: "emergencia"`:**
+
+- [ ] Instrui o paciente a buscar avaliação médica — nunca substitui consulta presencial
+- [ ] Limiares numéricos estão corretos (38°C para febre, SpO2 < 92% para dispneia grave, dor ≥ 9/10)
+- [ ] Fonte reconhecida citada no `content` (ASCO, NCCN, MASCC, INCA, AC Camargo, ICESP)
+- [ ] Sem PII ou PHI de pacientes reais
+- [ ] Revisão aprovada pelo agente `clinical-domain` antes do merge
+
+**Fluxo obrigatório para qualquer adição ao corpus:**
+```
+oncology_corpus.json modificado
+    → clinical-domain (se category "emergencia" ou limiares clínicos)
+    → teste retrieval (5 queries de referência — seção 8)
+    → github-organizer
+```
+
 ### Invalidar o cache FAISS
 
 ```bash

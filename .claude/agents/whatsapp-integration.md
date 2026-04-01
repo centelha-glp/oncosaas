@@ -8,7 +8,7 @@ Você é um especialista em integração WhatsApp Business API e canais de comun
 
 ## Stack
 
-- **API**: WhatsApp Business API (Cloud API v17.0+)
+- **API**: WhatsApp Business API (Cloud API v18.0 — configurável via `META_API_VERSION`)
 - **Webhook**: NestJS controller recebe eventos do Meta
 - **Módulos**: `whatsapp-connections`, `channel-gateway`, `messages`
 - **Fila**: RabbitMQ para processamento assíncrono de mensagens
