@@ -1,0 +1,251 @@
+# documentation — Rules & Patterns
+
+Rules derivadas da estrutura real em `docs/` e dos padrões de documentação do ONCONAV. Aplica-se à documentação técnica, guias de API, docs de pesquisa CEP/EBSERH e READMEs.
+
+---
+
+## 1. Estrutura de Diretórios
+
+```
+docs/
+├── arquitetura/          ← diagramas, decisões de design, stack tecnológico
+├── banco-dados/          ← ERD, estrutura PostgreSQL, quick reference
+├── analise-dashboard/    ← specs de UI/UX do dashboard
+├── apresentacao/         ← apresentações executivas, calculadora ROI
+├── casos-uso/            ← fluxos reais de uso clínico
+├── compliance-legal/     ← LGPD, HIPAA, documentos regulatórios
+├── dados/                ← gestão de dados, exportação, retreino ML
+├── dashboard-enfermagem/ ← especificações do dashboard de enfermagem
+├── desenvolvimento/      ← guias para desenvolvedores
+├── ia-modelo-priorizacao/ ← documentação do modelo LightGBM
+├── pesquisa/             ← documentos CEP/EBSERH, metodologia
+└── producao/             ← runbooks, INFRA.md, procedimentos operacionais
+```
+
+Novos documentos sempre entram no diretório temático correto — nunca na raiz de `docs/`.
+
+---
+
+## 2. Tipos de Documento e Quando Criar
+
+| Tipo | Localização | Quando criar |
+|------|-------------|-------------|
+| Decisão arquitetural (ADR) | `docs/arquitetura/` | Decisão irreversível ou com trade-offs significativos |
+| Guia de integração | `docs/desenvolvimento/` | Nova integração externa (FHIR, WhatsApp, etc.) |
+| Especificação de API | `docs/desenvolvimento/` | Endpoint sem Swagger/OpenAPI |
+| Runbook operacional | `docs/producao/` | Procedimento de emergência ou deploy |
+| Metodologia ML | `docs/ia-modelo-priorizacao/` | Mudança no modelo ou features |
+| Documento CEP/EBSERH | `docs/pesquisa/` | Submissão para aprovação ética |
+
+---
+
+## 3. Formato Padrão — Markdown
+
+### Cabeçalho obrigatório para documentos técnicos
+
+```markdown
+# Título Descritivo
+
+> **Status:** Rascunho | Em revisão | Aprovado | Obsoleto
+> **Versão:** 1.0
+> **Última atualização:** YYYY-MM-DD
+> **Autores:** [lista]
+
+## Sumário
+- [Seção 1](#seção-1)
+- [Seção 2](#seção-2)
+```
+
+### Estrutura para ADR (Architecture Decision Record)
+
+```markdown
+# ADR-{número}: {título da decisão}
+
+> **Status:** Aceito | Proposto | Obsoleto | Substituído por ADR-{n}
+> **Data:** YYYY-MM-DD
+
+## Contexto
+[Qual problema ou necessidade motivou esta decisão]
+
+## Decisão
+[O que foi decidido — uma frase clara]
+
+## Justificativa
+[Por quê esta opção foi escolhida versus alternativas]
+
+## Alternativas consideradas
+- Opção A: [pros/contras]
+- Opção B: [pros/contras]
+
+## Consequências
+[O que muda, o que fica mais fácil, o que fica mais difícil]
+```
+
+### Estrutura para runbook
+
+```markdown
+# Runbook: {título}
+
+## Pré-requisitos
+- Acesso a X
+- Credenciais Y configuradas
+
+## Procedimento
+### Passo 1: {nome}
+```bash
+comando exato aqui
+```
+**Verificação:** [como confirmar que o passo foi bem-sucedido]
+
+### Passo 2: {nome}
+...
+
+## Rollback
+[Comandos para reverter caso algo dê errado]
+
+## Contatos
+[Quem acionar em caso de problema]
+```
+
+---
+
+## 4. Documentação de API
+
+### Status atual: sem Swagger/OpenAPI decorators
+
+O projeto não usa `@ApiTags()`, `@ApiOperation()` ou `@ApiResponse()` nos controllers. A documentação de API é feita em Markdown em `docs/desenvolvimento/`.
+
+### Quando adicionar Swagger
+
+Adicionar `@nestjs/swagger` ao backend apenas se:
+- O produto expõe API pública para integradores externos
+- O time clínico ou de pesquisa precisa de documentação interativa
+
+Por enquanto: documentar endpoints críticos em Markdown.
+
+### Formato de documentação de endpoint
+
+```markdown
+## POST /api/v1/risk/predict
+
+**Autenticação:** JWT Bearer + X-Tenant-Id
+
+**Request body:**
+```json
+{
+  "patientId": "uuid",
+  "symptoms": [...],
+  "clinicalContext": {...}
+}
+```
+
+**Response 200:**
+```json
+{
+  "disposition": "ER_IMMEDIATE",
+  "confidence": 0.95,
+  "reasoning": "...",
+  "findings": [...]
+}
+```
+
+**Erros:**
+- 401: Token inválido ou expirado
+- 403: Paciente não pertence ao tenant
+- 422: Dados clínicos insuficientes
+```
+
+---
+
+## 5. Documentos CEP/EBSERH
+
+### Localização: `docs/pesquisa/`
+
+Documentos para aprovação ética (Plataforma Brasil) e integração com Rede EBSERH devem seguir a estrutura formal:
+
+- **TCLE** (Termo de Consentimento Livre e Esclarecido) — linguagem acessível, sem jargão técnico
+- **Protocolo de pesquisa** — metodologia ML, critérios clínicos, MASCC/CISNE
+- **Análise de risco** — proteção de dados, LGPD, anonimização
+- **Fluxo de dados** — como dados de pacientes são coletados, processados e armazenados
+
+### Regras para docs de pesquisa
+
+- Nunca incluir dados reais de pacientes em documentos — sempre anonimizados ou sintéticos.
+- Toda referência a algoritmos clínicos deve citar a fonte bibliográfica (MASCC: Klastersky et al. 2000; CISNE: Carmona-Bayonas et al. 2015).
+- Versionar documentos de pesquisa com número de versão no nome do arquivo: `tcle-v1.2.md`.
+- Mudanças substanciais no protocolo aprovado requerem emenda ao CEP — documentar como nova versão.
+
+---
+
+## 6. READMEs
+
+### README raiz (`/README.md`)
+
+Deve conter:
+- Descrição do projeto (1 parágrafo)
+- Stack tecnológica resumida
+- Comandos de início rápido (docker compose up)
+- Links para documentação detalhada
+
+### READMEs de módulo
+
+Para módulos complexos com configuração não-óbvia, criar `README.md` no diretório:
+- `ai-service/README.md` — como configurar API keys, retreinar modelo
+- `infra/README.md` — como provisionar com Terraform
+
+Nunca criar README para módulos simples que seguem o padrão óbvio do projeto.
+
+---
+
+## 7. Diagramas
+
+Usar Mermaid para diagramas inline em Markdown — sem dependências externas:
+
+```markdown
+```mermaid
+graph TD
+    A[Webhook WhatsApp] --> B[Channel Gateway]
+    B --> C{Paciente encontrado?}
+    C -->|Sim| D[Persistir Mensagem]
+    C -->|Não| E[Log Warning]
+    D --> F[Trigger Agente IA]
+```
+```
+
+Diagramas de arquitetura complexos podem usar ferramentas externas (Draw.io, Excalidraw) exportados como imagem em `docs/arquitetura/assets/`.
+
+---
+
+## 8. Manutenção de Documentação
+
+### Quando atualizar
+
+| Mudança | Documento a atualizar |
+|---------|----------------------|
+| Novo endpoint de API | `docs/desenvolvimento/api-*.md` |
+| Mudança em regra clínica | `docs/arquitetura/` + commentário em `clinical_rules.py` |
+| Nova decision arquitetural | `docs/arquitetura/adr-{n}-*.md` |
+| Mudança de schema Prisma | `docs/banco-dados/diagrama-erd-visual.md` |
+| Mudança em features do modelo ML | `docs/ia-modelo-priorizacao/` |
+| Mudança em procedimento de deploy | `docs/producao/INFRA.md` |
+
+### Documentação obsoleta
+
+Marcar como obsoleto — nunca deletar:
+
+```markdown
+> ⚠️ **OBSOLETO:** Este documento foi substituído por [novo-doc.md](./novo-doc.md) em YYYY-MM-DD.
+```
+
+---
+
+## 9. O Que NUNCA Fazer
+
+- **Nunca** incluir dados reais de pacientes (CPF, nome, diagnóstico) em qualquer documento.
+- **Nunca** commitar documentos CEP com dados identificáveis — sempre anonimizar.
+- **Nunca** criar documentação em formato binário (`.docx`, `.pdf`) para documentos que precisam de versionamento — usar Markdown.
+- **Nunca** deixar documentação de API desatualizada por mais de um sprint após mudança de contrato.
+- **Nunca** criar README para módulo que segue padrão óbvio do projeto.
+- **Nunca** documentar código autoexplicativo — documentar apenas o não-óbvio.
+- **Nunca** criar ADR sem seção de "Consequências" — a decisão precisa de contexto para ser reavaliada no futuro.
+- **Nunca** referenciar issues ou PRs como única fonte de verdade para decisões de design — migrar para ADR.
