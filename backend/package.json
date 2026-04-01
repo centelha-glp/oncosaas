@@ -61,10 +61,10 @@
     "pg": "^8.20.0",
     "reflect-metadata": "^0.2.1",
     "rxjs": "^7.8.1",
-    "socket.io": "^4.7.4",
-    "prisma": "^7.6.0"
+    "socket.io": "^4.7.4"
   },
   "devDependencies": {
+    "prisma": "^7.6.0",
     "@nestjs/cli": "^11.0.16",
     "@nestjs/schematics": "^11.0.9",
     "@nestjs/testing": "^11.1.16",

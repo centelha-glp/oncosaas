@@ -42,14 +42,10 @@ ENV NODE_ENV=production
 
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/prisma ./prisma
-COPY --from=builder /app/package*.json ./
-COPY docker-entrypoint.sh ./docker-entrypoint.sh
 
-RUN chmod +x ./docker-entrypoint.sh \
-    && chown -R node:node /app
+RUN chown -R node:node /app
 
 USER node
 
 EXPOSE 3002
-ENTRYPOINT ["./docker-entrypoint.sh"]
+CMD ["node", "dist/src/main"]
