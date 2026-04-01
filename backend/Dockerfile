@@ -11,13 +11,12 @@ FROM node:24.14.0-alpine3.23 AS dev
 WORKDIR /app
 
 ENV NODE_ENV=development
-# DATABASE_URL is required by prisma generate for schema parsing only — no real connection is made at build time
-ARG DATABASE_URL=postgresql://placeholder:placeholder@localhost:5432/placeholder
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-RUN DATABASE_URL=${DATABASE_URL} npx prisma generate
+# DATABASE_URL is required by prisma generate for schema parsing only — no real DB connection is made
+RUN DATABASE_URL=postgresql://x:x@localhost/x npx prisma generate
 
 EXPOSE 3002
 CMD ["npm", "run", "start:dev"]
@@ -26,12 +25,11 @@ CMD ["npm", "run", "start:dev"]
 FROM node:24.14.0-alpine3.23 AS builder
 WORKDIR /app
 
-ARG DATABASE_URL=postgresql://placeholder:placeholder@localhost:5432/placeholder
-
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-RUN DATABASE_URL=${DATABASE_URL} npx prisma generate && \
+# DATABASE_URL is required by prisma generate for schema parsing only — no real DB connection is made
+RUN DATABASE_URL=postgresql://x:x@localhost/x npx prisma generate && \
     npm run build
 
 RUN npm prune --omit=dev
