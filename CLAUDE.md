@@ -159,9 +159,29 @@ Every backend query must include `tenantId` to enforce data isolation. Controlle
 - Rate limiting: 100 req/min general, 10 req/min for auth endpoints
 - No `console.log` in production frontend code
 
+## Rules por Domínio
+
+Rules detalhadas geradas pelos especialistas de cada squad, baseadas no código real:
+
+| Arquivo | Domínio | Agente responsável |
+|---|---|---|
+| `.claude/rules/backend.md` | NestJS, guards, DTOs, multi-tenant, testes | `backend-nestjs` |
+| `.claude/rules/frontend.md` | Next.js, React Query, Zustand, WebSocket | `frontend-nextjs` |
+| `.claude/rules/ai-service.md` | Orchestrator, clinical rules, ML, FastAPI | `ai-service` |
+| `.claude/rules/clinical-domain.md` | Protocolos oncológicos, MASCC/CISNE, disposições | `clinical-domain` |
+| `.claude/rules/database.md` | Prisma schema, migrations, índices, LGPD | `database-engineer` |
+| `.claude/rules/security.md` | JWT, LGPD, HIPAA, OWASP, audit trail | `seguranca-compliance` |
+| `.claude/rules/devops.md` | Docker, CI/CD, health checks, deploy EC2 | `devops` |
+| `.claude/rules/llm-agent-architect.md` | Arquitetura multi-agente, orchestrator, subagentes, tracer | `llm-agent-architect` |
+| `.claude/rules/llm-context-engineer.md` | System prompts, context_builder, janela de contexto, caching | `llm-context-engineer` |
+| `.claude/rules/rag-engineer.md` | Corpus RAG, FAISS, embeddings, retrieval oncológico | `rag-engineer` |
+
 ## Agent Workflow
 
-Agents obrigatórios em toda sessão de desenvolvimento:
+### Ordem obrigatória pré-commit (sempre)
+```
+código alterado → test-generator → seguranca-compliance (se backend) → github-organizer
+```
 
 | Situação | Agent | Quando acionar |
 |---|---|---|
@@ -169,16 +189,39 @@ Agents obrigatórios em toda sessão de desenvolvimento:
 | Criar/modificar endpoint, service, DTO ou guard no backend | `seguranca-compliance` | **Sempre** — após `test-generator`, antes do commit |
 | Qualquer commit | `github-organizer` | **Sempre** — nunca commitar diretamente |
 
-**Ordem obrigatória pré-commit:**
-```
-código alterado → test-generator → seguranca-compliance (se backend) → github-organizer
-```
+### Squads (19 agentes em 6 squads)
 
-Agents situacionais (acionar para tarefas complexas):
+Ver `.claude/squads.md` para referência completa.
+
+| Squad | Agentes | Área |
+|---|---|---|
+| **Produto** | `product-owner`, `architect`, `documentation` | Visão, arquitetura, docs |
+| **Clínico** | `clinical-domain`, `fhir-integration`, `whatsapp-integration` | Domínio oncológico, integrações de saúde |
+| **Plataforma** | `backend-nestjs`, `frontend-nextjs`, `database-engineer`, `ux-accessibility` | Engenharia core |
+| **IA/Dados** | `ai-service`, `data-scientist`, `llm-agent-architect`, `llm-context-engineer`, `rag-engineer` | ML, agente conversacional, RAG, prompts |
+| **Infra/Cloud** | `devops`, `aws`, `terraform` | AWS, IaC, CI/CD |
+| **Qualidade** | `seguranca-compliance`, `test-generator`, `performance`, `github-organizer` | Transversal |
+
+### Agents situacionais (acionar por área)
 
 | Situação | Agent |
 |---|---|
 | Tarefas em `backend/src/` ou `backend/prisma/` | `backend-nestjs` |
 | Tarefas em `frontend/src/` | `frontend-nextjs` |
 | Tarefas em `ai-service/` | `ai-service` |
-| Gestão de backlog, milestones, issues no GitHub | `product-owner` (via `/po`) |
+| Schema Prisma, migrations, queries lentas | `database-engineer` |
+| Modelos ML, features, MASCC/CISNE | `data-scientist` |
+| Prompts, context_builder, janela de contexto LLM | `llm-context-engineer` |
+| Corpus RAG, FAISS, qualidade de retrieval | `rag-engineer` |
+| Arquitetura de orchestrator, subagentes, agentic loops | `llm-agent-architect` |
+| Docker, CI/CD de aplicação | `devops` |
+| Infraestrutura AWS (ECS, RDS, VPC) | `aws` |
+| Terraform IaC | `terraform` |
+| HL7/FHIR, interoperabilidade hospitalar | `fhir-integration` |
+| WhatsApp Business API, webhook | `whatsapp-integration` |
+| Validação de lógica clínica oncológica | `clinical-domain` |
+| UX, acessibilidade WCAG | `ux-accessibility` |
+| Performance, bundle, N+1 | `performance` |
+| Documentação técnica, OpenAPI, docs CEP | `documentation` |
+| Decisões arquiteturais cross-layer | `architect` |
+| Gestão de backlog, milestones, issues | `product-owner` (via `/po`) |

@@ -1,0 +1,115 @@
+---
+name: code-simplifier
+description: Simplifica e refina código recém-modificado para clareza e manutenibilidade, respeitando as convenções do ONCONAV
+---
+
+# code-simplifier — Rules & Patterns
+
+Rules para simplificação de código no ONCONAV. O `code-simplifier` atua **exclusivamente sobre código recém-modificado** — nunca refatora além do escopo da mudança que motivou o acionamento.
+
+---
+
+## 1. Escopo de Atuação
+
+O `code-simplifier` deve ser acionado após alterações em código existente para revisar clareza, consistência e manutenibilidade. **Nunca simplificar código não relacionado à mudança atual.**
+
+| Quando acionar | Quando NÃO acionar |
+|---|---|
+| Após implementação de nova feature | Para refatorar módulos não tocados |
+| Após correção de bug | Para "melhorar" código que já funciona |
+| Após sugestão de melhoria pontual | Para adicionar features além do solicitado |
+| Quando há duplicação óbvia introduzida | Para resolver débito técnico histórico |
+
+---
+
+## 2. Convenções do Projeto — Nunca Violar
+
+### Backend NestJS
+
+- Manter `private readonly logger = new Logger(ClassName.name)` — nunca trocar por `console.log`
+- Manter `tenantId` em toda query Prisma — nunca remover por "simplificação"
+- Manter guard stack `@UseGuards(JwtAuthGuard, TenantGuard, RolesGuard)` — nunca consolidar ou remover
+- DTOs sempre com `class-validator` — nunca simplificar para objetos sem validação
+- Nunca remover `ParseUUIDPipe` de parâmetros `:id`
+
+### Frontend Next.js
+
+- Manter separação `apiClient → hooks → components` — nunca colapsar camadas
+- Manter `staleTime` explícito em hooks React Query — nunca omitir
+- Server Components são o padrão — nunca adicionar `"use client"` desnecessariamente
+- Nunca consolidar queries React Query de domínios diferentes
+
+### AI Service Python
+
+- Manter `logging.getLogger(__name__)` — nunca usar `print()`
+- Nunca mover `clinical_rules_engine.evaluate()` de lugar — é invariante de segurança
+- Manter `tool_executor=None` em subagentes — nunca "simplificar" adicionando executor
+- Nunca remover verificações de `has_any_llm_key()` — pipeline tem fallback intencional
+
+---
+
+## 3. O Que Simplificar
+
+### Código duplicado recentemente introduzido
+
+```typescript
+// Antes — duplicação óbvia
+const patientA = await this.prisma.patient.findFirst({ where: { id: idA, tenantId } });
+const patientB = await this.prisma.patient.findFirst({ where: { id: idB, tenantId } });
+
+// Depois — Promise.all quando independentes
+const [patientA, patientB] = await Promise.all([
+  this.prisma.patient.findFirst({ where: { id: idA, tenantId } }),
+  this.prisma.patient.findFirst({ where: { id: idB, tenantId } }),
+]);
+```
+
+### Condicionais desnecessariamente complexas
+
+```typescript
+// Antes
+if (value !== null && value !== undefined && value !== '') { ... }
+// Depois
+if (value) { ... }  // somente se semanticamente equivalente no contexto
+```
+
+### Nomenclatura inconsistente com o projeto
+
+- Variáveis devem usar `camelCase` (TS) ou `snake_case` (Python)
+- Nunca renomear para inglês o que está em português com razão (ex.: nomes de campos clínicos)
+
+---
+
+## 4. O Que NUNCA Simplificar
+
+- **Nunca** remover comentários que explicam decisões clínicas ou de segurança
+- **Nunca** consolidar regras clínicas distintas em um único bloco — cada regra tem ID e razão
+- **Nunca** simplificar verificações de `tenantId` — redundância intencional protege isolamento
+- **Nunca** remover `try/catch` de steps não-bloqueantes do pipeline do agente
+- **Nunca** inlinar constantes clínicas (ex.: `38.0`, `92`, `9`) — manter named constants
+- **Nunca** trocar `NotFoundException` por retorno `null` — o filtro global depende de exceções tipadas
+- **Nunca** remover `forwardRef` de componentes primitivos — quebra refs em formulários
+- **Nunca** consolidar testes de regras clínicas distintas em um único `it()` — cada regra tem seu teste
+
+---
+
+## 5. Limites de Responsabilidade
+
+O `code-simplifier` **não é** um agente de domínio. Ele não valida:
+- Correção clínica de limiares (`clinical-domain` é responsável)
+- Segurança de novas implementações (`seguranca-compliance` é responsável)
+- Cobertura de testes (`test-generator` é responsável)
+
+Se durante a simplificação for detectado problema de segurança (ex.: `tenantId` ausente) ou lógica clínica suspeita, **reportar ao usuário** e acionar o agente responsável — não corrigir silenciosamente.
+
+---
+
+## 6. O Que NUNCA Fazer
+
+- **Nunca** simplificar além do escopo do código modificado na sessão
+- **Nunca** adicionar comentários, docstrings ou type annotations ao código não modificado
+- **Nunca** introduzir abstrações especulativas ("vai ser útil depois")
+- **Nunca** mudar comportamento sob pretexto de simplificação
+- **Nunca** remover validações de segurança por parecerem "verbosas"
+- **Nunca** alterar ordem de guards, interceptors ou steps do pipeline clínico
+- **Nunca** renomear campos de banco de dados ou enums sem migration correspondente
