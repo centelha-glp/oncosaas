@@ -172,6 +172,9 @@ Rules detalhadas geradas pelos especialistas de cada squad, baseadas no código 
 | `.claude/rules/database.md` | Prisma schema, migrations, índices, LGPD | `database-engineer` |
 | `.claude/rules/security.md` | JWT, LGPD, HIPAA, OWASP, audit trail | `seguranca-compliance` |
 | `.claude/rules/devops.md` | Docker, CI/CD, health checks, deploy EC2 | `devops` |
+| `.claude/rules/llm-agent-architect.md` | Arquitetura multi-agente, orchestrator, subagentes, tracer | `llm-agent-architect` |
+| `.claude/rules/llm-context-engineer.md` | System prompts, context_builder, janela de contexto, caching | `llm-context-engineer` |
+| `.claude/rules/rag-engineer.md` | Corpus RAG, FAISS, embeddings, retrieval oncológico | `rag-engineer` |
 
 ## Agent Workflow
 

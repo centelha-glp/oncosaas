@@ -1,0 +1,356 @@
+# rag-engineer — Rules & Patterns
+
+Rules extraídas do código real em `ai-service/src/agent/rag/`. Qualquer alteração no sistema RAG oncológico deve obedecer estas convenções.
+
+---
+
+## 1. Arquitetura do Pipeline RAG
+
+O RAG oncológico é composto por três arquivos:
+
+| Arquivo | Responsabilidade |
+|---|---|
+| `ai-service/src/agent/rag/knowledge_base.py` | `OncologyKnowledgeRAG` — embedding, indexação FAISS, retrieval |
+| `ai-service/src/agent/rag/oncology_corpus.json` | Corpus de conhecimento oncológico (documentos em JSON) |
+| `ai-service/src/agent/context_builder.py` | Integração do RAG no pipeline via `build_with_rag()` |
+
+### Fluxo de execução
+
+```
+oncology_corpus.json
+        │
+        ▼
+_load_corpus()           — lê e deserializa JSON
+        │
+        ▼
+_load_embedding_model()
+  1. fastembed.TextEmbedding    — prod Docker (_FastEmbedWrapper)
+  2. SentenceTransformer        — fallback dev
+  3. None                       — RAG desabilitado silenciosamente
+        │
+        ▼
+_build_or_load_index()
+  FAISS IndexFlatIP (inner product, vetores normalizados = cosine similarity)
+  Cache em .index_cache/faiss.index + meta.json
+  (Windows com Unicode no path: %LOCALAPPDATA%/OncoNav/rag_index_cache/)
+        │
+        ▼
+retrieve(query, cancer_type, top_k)
+  → encoda query com o mesmo modelo de embedding
+  → busca k*3 candidatos no FAISS
+  → filtra: cancer_type (se não "ALL") + score >= _SCORE_THRESHOLD
+  → retorna top-k passages: {id, title, content, category, score}
+        │
+        ▼
+format_context(passages)
+  → "## Base de Conhecimento Relevante\n**[1] título**\nconteúdo\n..."
+  → injetado no system prompt via context_builder.build_with_rag()
+```
+
+### Invariante de falha
+
+`retrieve()` retorna `[]` em qualquer erro. `format_context([])` retorna `""`. Falha do RAG nunca quebra o pipeline — o orquestrador continua sem contexto de conhecimento. Sempre checar `knowledge_rag.is_ready` antes de usar.
+
+---
+
+## 2. Parâmetros de Retrieval
+
+Configuráveis via variáveis de ambiente:
+
+| Variável | Default | Significado |
+|---|---|---|
+| `RAG_EMBEDDING_MODEL` | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` | Modelo de embedding |
+| `RAG_TOP_K` | `4` | Máximo de passagens retornadas |
+| `RAG_SCORE_THRESHOLD` | `0.30` | Score mínimo de similaridade coseno |
+
+### Escala de threshold
+
+```
+0.20 — muito permissivo: recupera mais docs, maior risco de ruído
+0.30 — default: balanceia relevância e cobertura (recomendado)
+0.40 — conservador: apenas docs muito relevantes, pode perder contexto útil
+0.50 — muito restritivo: usar só para queries muito específicas
+```
+
+Nunca configurar `_SCORE_THRESHOLD` abaixo de 0.20 em produção.
+
+### Filtro por cancer_type
+
+`retrieve()` aceita `cancer_type` (string opcional). Comportamento:
+
+- `cancer_type=None` ou `cancer_type="ALL"` — retorna documentos de todos os tipos
+- `cancer_type="BLADDER"` — retorna documentos com `cancer_types` contendo `"BLADDER"` ou `"ALL"`
+- O valor é comparado com `doc.get("cancer_types", ["ALL"])` — documentos sem o campo são tratados como universais
+- `_extract_cancer_type()` em `context_builder.py` extrai o tipo de `patient.cancerType` ou `diagnoses[0].cancerType` e converte para maiúsculas antes de passar ao RAG
+
+---
+
+## 3. Schema do Corpus
+
+Cada documento em `oncology_corpus.json` deve ter estes campos obrigatórios:
+
+```json
+{
+  "id": "categoria-topico-numero",
+  "category": "nutricao",
+  "cancer_types": ["ALL"],
+  "title": "Título claro e descritivo em português",
+  "content": "Conteúdo completo em português. Linguagem acessível ao paciente..."
+}
+```
+
+### Valores válidos para `cancer_types`
+
+```
+["ALL"]         — relevante para todos os tipos de câncer
+["BLADDER"]     — exclusivo para câncer de bexiga (MVP)
+["COLORECTAL"]  — câncer colorretal
+["BREAST"]      — mama
+["LUNG"]        — pulmão
+["PROSTATE"]    — próstata
+```
+
+Os valores são comparados com `.upper()` — usar MAIÚSCULAS no corpus para consistência com a extração de `cancerType` do contexto clínico.
+
+### Valores de `category` observados no corpus real
+
+| Categoria | Conteúdo típico |
+|---|---|
+| `nutricao` | Alimentação segura durante quimio, náusea, hidratação |
+| `efeitos_colaterais` | Alopecia, mucosite, fadiga, neuropatia periférica |
+| `exercicio` | Atividade física durante o tratamento |
+| `emocional` | Apoio psicológico, grupos de suporte |
+| `emergencia` | Neutropenia febril, sinais de alerta, quando ir ao PS |
+| `tratamento` | Protocolos específicos por tipo de câncer |
+| `dor` | Manejo da dor oncológica, opioides |
+| `cuidados` | Cateter portocath, estoma, cuidados gerais |
+| `direitos` | FGTS, INSS, Lei dos 60 dias, transporte gratuito |
+| `seguimento` | Follow-up pós-tratamento, prevenção de recidiva |
+
+### Limites de tamanho
+
+- **Mínimo**: 100 caracteres de conteúdo útil
+- **Máximo**: ~1500 caracteres por documento (aproximadamente 375 tokens)
+- Documentos maiores devem ser divididos em dois com sufixo `-parte-1`, `-parte-2`
+
+---
+
+## 4. Adicionando Documentos ao Corpus
+
+### Passos obrigatórios
+
+1. Ler o corpus atual para entender o escopo existente e evitar duplicação
+2. Definir `id` único no formato `{categoria}-{topico}-{numero}` (ex: `emergencia-neutropenia-02`)
+3. Escrever `content` em português acessível — paciente oncológico, sem jargão técnico não explicado
+4. Definir `cancer_types` em MAIÚSCULAS — usar `["ALL"]` apenas quando genuinamente universal
+5. Nunca incluir PII de pacientes reais no corpus
+6. Invalidar o cache FAISS após qualquer alteração no corpus (o hash MD5 muda automaticamente, mas o cache só é reconstruído na próxima chamada)
+7. Testar retrieval para confirmar que o novo documento é recuperado nas queries esperadas
+
+### Invalidar o cache FAISS
+
+```bash
+# Via shell (Linux/Mac)
+rm -rf ai-service/src/agent/rag/.index_cache/
+
+# Em Windows com path Unicode (ex: "Área de Trabalho"), o cache fica em:
+# %LOCALAPPDATA%\OncoNav\rag_index_cache\
+```
+
+```python
+# Via Python
+from pathlib import Path
+import shutil
+
+index_cache = Path("src/agent/rag/.index_cache")
+if index_cache.exists():
+    shutil.rmtree(index_cache)
+```
+
+O cache é invalidado automaticamente quando o hash MD5 do corpus muda (`_corpus_hash()` combina `id` + `content` de todos os documentos) ou quando `_MODEL_NAME` muda.
+
+---
+
+## 5. Cache FAISS
+
+### Localização
+
+- **Linux/Mac/Windows com path ASCII**: `ai-service/src/agent/rag/.index_cache/`
+- **Windows com Unicode no path** (ex: "Área de Trabalho"): `%LOCALAPPDATA%/OncoNav/rag_index_cache/`
+
+A escolha é feita automaticamente em `_get_index_dir()` — tenta codificar o path como ASCII e usa `LOCALAPPDATA` se falhar.
+
+### Arquivos do cache
+
+| Arquivo | Conteúdo |
+|---|---|
+| `faiss.index` | Índice FAISS serializado |
+| `meta.json` | `{"hash": "<md5>", "model": "<model_name>", "n_docs": <n>}` |
+
+### Quando rebuild ocorre automaticamente
+
+1. `meta.json` não existe ou `faiss.index` não existe
+2. `meta["hash"]` difere do hash atual do corpus
+3. `meta["model"]` difere de `_MODEL_NAME`
+
+### Quando forçar rebuild manual
+
+- Após atualizar `oncology_corpus.json` (o hash muda, mas deletar o cache adianta o rebuild)
+- Após trocar `RAG_EMBEDDING_MODEL` (modelo diferente = vetores incompatíveis)
+- Se suspeitar de índice corrompido após crash durante indexação
+
+O rebuild nunca deve ocorrer dentro do critical path de uma request — apenas no startup via `knowledge_rag.initialize()`.
+
+---
+
+## 6. Modelo de Embedding
+
+### Modelo padrão
+
+`sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` — multilingual, suporta português, dimensão 384.
+
+### Hierarquia de carregamento (`_load_embedding_model`)
+
+```
+1. fastembed.TextEmbedding(_MODEL_NAME)    — prod Docker
+   → encapsulado em _FastEmbedWrapper (adapta interface .embed() para .encode())
+2. SentenceTransformer(_MODEL_NAME)         — dev local (fallback)
+3. None                                     → RAG desabilitado silenciosamente
+```
+
+A interface `.encode(texts, normalize_embeddings=True)` é comum entre os dois caminhos. O `_FastEmbedWrapper` normaliza este contrato para que o restante do código não precise distinguir.
+
+### Trocando o modelo de embedding
+
+Qualquer mudança de modelo exige:
+1. Atualizar `RAG_EMBEDDING_MODEL` no `.env`
+2. Invalidar o cache FAISS (hash do modelo muda → rebuild automático na próxima chamada)
+3. Testar retrieval com as queries de referência da seção 8
+4. Verificar que fastembed suporta o novo modelo em produção (nem todos os modelos HuggingFace estão disponíveis no fastembed)
+
+### Tipo de índice FAISS
+
+`IndexFlatIP` (inner product). Com vetores normalizados, inner product é equivalente a cosine similarity. Nunca usar `IndexFlatL2` — a lógica de score e threshold assume inner product.
+
+---
+
+## 7. Integração com context_builder
+
+`ClinicalContextBuilder.build_with_rag()` em `context_builder.py` é o único ponto de entrada para o RAG no pipeline:
+
+```python
+# Fluxo interno de build_with_rag()
+base_context = self.build(clinical_context, ...)
+
+cancer_type = self._extract_cancer_type(clinical_context)
+rag_query = self._rag_query_for_message(patient_message, conversation_history)
+passages = knowledge_rag.retrieve(query=rag_query, cancer_type=cancer_type)
+
+if passages:
+    rag_block = knowledge_rag.format_context(passages)
+    return f"{base_context}\n\n{rag_block}"
+
+return base_context
+```
+
+### Lógica de query para mensagens genéricas
+
+`_rag_query_for_message()` trata confirmações curtas como "sim", "não", "ok", "é", "isso" (comprimento < 15 ou membro de `_GENERIC_REPLIES`): usa a última mensagem do assistente (até 200 chars) como query em vez da mensagem do paciente. Isso evita recuperar passagens irrelevantes para respostas de confirmação.
+
+### Extração de cancer_type
+
+`_extract_cancer_type()` procura em `patient.cancerType` primeiro, depois em `diagnoses[0].cancerType`, e converte para `.upper()`. Retorna `None` se não encontrar. Com `cancer_type=None`, o RAG não filtra por tipo de câncer.
+
+---
+
+## 8. Testando e Debugando Retrieval
+
+### Teste de recuperação básico
+
+```python
+import sys
+sys.path.insert(0, ".")
+from src.agent.rag.knowledge_base import knowledge_rag
+
+knowledge_rag.initialize()
+
+results = knowledge_rag.retrieve(
+    query="estou com febre depois da quimioterapia",
+    cancer_type="BLADDER",
+    top_k=4
+)
+
+for r in results:
+    print(f"[{r['score']:.3f}] {r['title']}")
+    print(f"  {r['content'][:100]}...")
+```
+
+### Diagnóstico quando RAG não retorna resultados
+
+```python
+# 1. RAG inicializado?
+print("RAG ready:", knowledge_rag.is_ready)
+
+# 2. Corpus carregado?
+print("Docs carregados:", len(knowledge_rag._documents))
+
+# 3. Checar se o threshold está eliminando resultados
+import os
+print("Score threshold:", float(os.getenv("RAG_SCORE_THRESHOLD", "0.30")))
+
+# 4. Testar com top_k maior (candidatos são k*3 antes do filtro)
+results = knowledge_rag.retrieve("febre", top_k=10)
+if not results:
+    print("PROBLEMA: nenhum resultado — corpus existe? modelo carregou? índice FAISS criado?")
+```
+
+### Queries de referência para validação pós-mudança
+
+Executar após qualquer modificação no corpus ou em `knowledge_base.py`. Todas devem retornar pelo menos 1 resultado com score >= 0.30:
+
+| Query | Documento esperado (título aproximado) |
+|---|---|
+| `"febre após quimio"` | Neutropenia febril — o que é e o que fazer |
+| `"o que posso comer durante o tratamento"` | Alimentação segura durante quimioterapia |
+| `"quando ir ao pronto-socorro"` | Quando procurar emergência durante o tratamento |
+| `"estou com muito cansaço"` | Fadiga e cansaço durante tratamento oncológico |
+| `"dor muito forte"` | Manejo da dor oncológica |
+
+### Diagnóstico por tipo de problema
+
+| Problema | Causa provável | Solução |
+|---|---|---|
+| Query "febre" não recupera docs de emergência | Documentos não mencionam "febre" diretamente | Adicionar variações na redação do `content` |
+| Muitos resultados irrelevantes | Threshold muito baixo | Aumentar `RAG_SCORE_THRESHOLD` para 0.35 |
+| Documentos de tipo específico não aparecem | `cancer_types` em minúsculas no corpus | Usar MAIÚSCULAS: `["BLADDER"]` não `["bladder"]` |
+| Latência alta no primeiro request | Índice FAISS não cacheado | Garantir que `.index_cache/` persiste entre restarts |
+| RAG retorna `[]` em produção | Modelo de embedding não carregou | Verificar fastembed instalado; checar logs de startup |
+| Cache nunca é reutilizado | Path com Unicode em Windows | Cache está em `%LOCALAPPDATA%/OncoNav/rag_index_cache/` |
+
+---
+
+## 9. Segurança e Compliance
+
+- **Nunca** incluir dados reais de pacientes (nome, CPF, diagnóstico, prontuário) no corpus
+- **Nunca** incluir informações clínicas não validadas como fatos — usar fontes reconhecidas (ASCO, NCCN, MASCC, INCA, protocolos do AC Camargo/ICESP)
+- O corpus é versionado no git — nunca incluir nada sensível ou proprietário sem autorização explícita
+- Documentos de `category: "emergencia"` devem sempre recomendar buscar avaliação médica — nunca substituem consulta presencial
+- `_corpus_hash()` combina `id` + `content` de cada documento — nunca inclui campos pessoais de pacientes
+
+---
+
+## 10. O Que NUNCA Fazer
+
+- **Nunca** incluir PII ou PHI de pacientes reais no `oncology_corpus.json`
+- **Nunca** adicionar documento com informação clínica incorreta ou não validada por fonte reconhecida
+- **Nunca** injetar `passages` brutas no prompt sem passar por `format_context()`
+- **Nunca** chamar `knowledge_rag.retrieve()` em loops sem necessidade — embedding é operação custosa
+- **Nunca** configurar `_SCORE_THRESHOLD` abaixo de 0.20 em produção — passagens irrelevantes degradam a qualidade clínica da resposta
+- **Nunca** commitar `oncology_corpus.json` com dados sensíveis — arquivo é rastreado pelo git
+- **Nunca** fazer rebuild do índice FAISS dentro do critical path de uma request — apenas no startup
+- **Nunca** usar `IndexFlatL2` (distância euclidiana) — o código usa `IndexFlatIP` com vetores normalizados (cosine similarity)
+- **Nunca** alterar o modelo de embedding em produção sem invalidar o cache e reindexar
+- **Nunca** assumir que RAG está disponível — sempre checar `knowledge_rag.is_ready` antes de usar
+- **Nunca** omitir `cancer_types` em MAIÚSCULAS no corpus — a comparação com `_extract_cancer_type()` usa `.upper()`
+- **Nunca** adicionar lógica de retrieval ou scoring fora de `knowledge_base.py` — toda lógica RAG fica encapsulada no singleton `knowledge_rag`
+- **Nunca** expor o corpus via endpoint de API sem autenticação — o arquivo contém conhecimento clínico proprietário
