@@ -2,7 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { NotFoundException } from '@nestjs/common';
 import { MedicationsService } from './medications.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { MedicationCategory } from '@prisma/client';
+import { MedicationCategory } from '@generated/prisma/client';
 
 const mockPrisma = {
   medication: {

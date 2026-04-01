@@ -22,7 +22,7 @@ import {
   JourneyStage,
   AlertSeverity,
   AlertStatus,
-} from '@prisma/client';
+} from '@generated/prisma/client';
 
 @Injectable()
 export class DashboardService {

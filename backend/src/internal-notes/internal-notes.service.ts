@@ -6,7 +6,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateInternalNoteDto } from './dto/create-internal-note.dto';
 import { UpdateInternalNoteDto } from './dto/update-internal-note.dto';
-import { UserRole } from '@prisma/client';
+import { UserRole } from '@generated/prisma/client';
 
 @Injectable()
 export class InternalNotesService {

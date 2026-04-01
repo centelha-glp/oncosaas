@@ -17,7 +17,7 @@ import {
   TreatmentIntent,
   TreatmentStatus,
   TreatmentResponse,
-} from '@prisma/client';
+} from '@generated/prisma/client';
 
 export class CreateTreatmentDto {
   @IsUUID()

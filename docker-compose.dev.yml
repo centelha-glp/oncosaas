@@ -44,10 +44,12 @@ services:
       retries: 5
 
   backend:
-    image: ${ECR_REGISTRY:-oncosaas}/oncosaas-backend:${IMAGE_TAG:-latest}
     build:
       context: ./backend
       dockerfile: Dockerfile
+      target: dev
+    secrets:
+      - DATABASE_URL
     container_name: backend
     restart: on-failure
     depends_on:
@@ -64,10 +66,12 @@ services:
     environment:
       NODE_ENV: development
       PORT: '3002'
-      DATABASE_URL: postgresql://ONCONAV:ONCONAV_dev@postgres:5432/ONCONAV_development
       REDIS_URL: redis://redis:6379
       RABBITMQ_URL: amqp://ONCONAV:ONCONAV_dev@rabbitmq:5672
       AI_SERVICE_URL: http://ai-service:8001
+    volumes:
+      - backend_uploads:/app/uploads
+    command: npm run start:dev
     healthcheck:
       test:
         - CMD-SHELL
@@ -77,14 +81,30 @@ services:
       timeout: 10s
       retries: 5
       start_period: 60s
-    volumes:
-      - backend_uploads:/app/uploads
+    develop:
+      watch:
+        - path: ./backend/src
+          action: sync
+          target: /app/src
+          initial_sync: true
+        - path: ./backend/prisma
+          action: sync
+          target: /app/prisma
+          initial_sync: true
+        - path: ./backend/package.json
+          action: rebuild
+        - path: ./backend/package-lock.json
+          action: rebuild
+        - path: ./backend/tsconfig.json
+          action: rebuild
+        - path: ./backend/nest-cli.json
+          action: rebuild
 
   frontend:
-    image: ${ECR_REGISTRY:-oncosaas}/oncosaas-frontend:${IMAGE_TAG:-latest}
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      target: dev
     container_name: frontend
     restart: on-failure
     depends_on:
@@ -96,9 +116,27 @@ services:
       - ./frontend/.env
     environment:
       NODE_ENV: development
+    command: npm run dev
+    develop:
+      watch:
+        - path: ./frontend/src
+          action: sync
+          target: /app/src
+          initial_sync: true
+        - path: ./frontend/public
+          action: sync
+          target: /app/public
+          initial_sync: true
+        - path: ./frontend/package.json
+          action: rebuild
+        - path: ./frontend/package-lock.json
+          action: rebuild
+        - path: ./frontend/next.config.js
+          action: rebuild
+        - path: ./frontend/tsconfig.json
+          action: rebuild
 
   ai-service:
-    image: ${ECR_REGISTRY:-oncosaas}/oncosaas-ai-service:${IMAGE_TAG:-latest}
     build:
       context: ./ai-service
       dockerfile: Dockerfile
@@ -113,12 +151,31 @@ services:
       - ./ai-service/.env
     environment:
       BACKEND_URL: http://backend:3002
+    command: uvicorn main:app --host 0.0.0.0 --port 8001 --reload
     healthcheck:
       test: ['CMD-SHELL', 'python -c "import urllib.request; urllib.request.urlopen(\"http://localhost:8001/health\")"']
       interval: 30s
       timeout: 10s
       retries: 5
       start_period: 60s
+    develop:
+      watch:
+        - path: ./ai-service/main.py
+          action: sync
+          target: /app/main.py
+          initial_sync: true
+        - path: ./ai-service/src
+          action: sync
+          target: /app/src
+          initial_sync: true
+        - path: ./ai-service/requirements.txt
+          action: rebuild
+        - path: ./ai-service/requirements-dev.txt
+          action: rebuild
+
+secrets:
+  DATABASE_URL: 
+    environment: "DATABASE_URL"
 
 volumes:
   postgres_data:

@@ -6,7 +6,8 @@
  * percentuais > 100) e que statusDistribution soma ~100%.
  */
 
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from '@generated/prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
 import * as dotenv from 'dotenv';
 import { resolve } from 'path';
 import { DashboardService } from '../src/dashboard/dashboard.service';
@@ -14,7 +15,10 @@ import { PrismaService } from '../src/prisma/prisma.service';
 
 dotenv.config({ path: resolve(__dirname, '../.env') });
 
-const prisma = new PrismaClient();
+const adapter = new PrismaPg({
+  connectionString: process.env.DATABASE_URL,
+});
+const prisma = new PrismaClient({ adapter });
 
 function isInvalidNumber(value: unknown): boolean {
   if (value === null || value === undefined) {return false;}
@@ -38,8 +42,7 @@ async function main() {
 
   const tenant = await prisma.tenant.findFirst();
   if (!tenant) {
-    console.error('❌ Nenhum tenant encontrado. Execute prisma:seed primeiro.');
-    process.exit(1);
+    throw new Error('Nenhum tenant encontrado. Execute prisma:seed primeiro.');
   }
 
   const tenantId = tenant.id;
@@ -139,17 +142,20 @@ async function main() {
     errors.push(
       `Erro ao executar verificação: ${err instanceof Error ? err.message : String(err)}`
     );
-  } finally {
-    await prisma.$disconnect();
   }
 
   if (errors.length > 0) {
-    console.error('❌ Verificação falhou:\n');
-    errors.forEach((e) => console.error(`  - ${e}`));
-    process.exit(1);
+    throw new Error(`Verificação falhou:\n- ${errors.join('\n- ')}`);
   }
 
   console.log('✅ Todas as métricas passaram na verificação.');
 }
 
-main();
+main()
+  .catch((e) => {
+    console.error(e);
+    process.exitCode = 1;
+  })
+  .finally(async () => {
+    await prisma.$disconnect();
+  });

@@ -1,5 +1,5 @@
 import { IsOptional, IsUUID, IsEnum, IsDateString } from 'class-validator';
-import { ScheduledActionStatus, ScheduledActionType } from '@prisma/client';
+import { ScheduledActionStatus, ScheduledActionType } from '@generated/prisma/client';
 
 export class QueryScheduledActionsDto {
   @IsOptional()

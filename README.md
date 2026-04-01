@@ -58,7 +58,7 @@ cp ai-service/.env.example ai-service/.env
 ### Opção A: stack completa de desenvolvimento
 
 ```bash
-docker compose -f docker-compose.dev.yml up -d --build
+docker compose -f docker-compose.dev.yml up --watch
 ```
 
 ### Opção B: somente infraestrutura (para rodar apps localmente)

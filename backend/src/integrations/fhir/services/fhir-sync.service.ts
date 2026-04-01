@@ -8,7 +8,7 @@ import { PrismaService } from '@/prisma/prisma.service';
 import { FHIRClientService } from './fhir-client.service';
 import { FHIRTransformerService } from './fhir-transformer.service';
 import { FHIRIntegrationConfig } from '../interfaces/fhir-config.interface';
-import { Observation } from '@prisma/client';
+import { Observation } from '@generated/prisma/client';
 
 @Injectable()
 export class FHIRSyncService {

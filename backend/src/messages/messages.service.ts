@@ -2,7 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateMessageDto } from './dto/create-message.dto';
 import { UpdateMessageDto } from './dto/update-message.dto';
-import { ChannelType, Message } from '@prisma/client';
+import { ChannelType, Message } from '@generated/prisma/client';
 import { MessagesGateway } from '../gateways/messages.gateway';
 import { AgentService } from '../agent/agent.service';
 

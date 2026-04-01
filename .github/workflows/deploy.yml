@@ -1,11 +1,13 @@
 name: Deploy
 
 on:
-  push:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
     branches: [main]
 
 concurrency:
-  group: deploy-${{ github.ref }}
+  group: deploy-${{ github.event.workflow_run.head_branch || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -23,6 +25,7 @@ env:
 jobs:
   build-and-push:
     name: Build & push - ${{ matrix.service }}
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
 
     strategy:
@@ -39,6 +42,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
@@ -60,14 +65,30 @@ jobs:
           WS_URL="${WS_URL/http:\/\//ws://}"
           echo "url=$WS_URL" >> "$GITHUB_OUTPUT"
 
-      - name: Build and push ${{ matrix.service }}
+      - name: Build and push backend
+        if: matrix.service == 'backend'
         uses: docker/build-push-action@v6
         with:
           context: ${{ matrix.context }}
           platforms: linux/arm64
           push: true
           tags: |
-            ${{ env.ECR_REGISTRY }}/oncosaas-${{ matrix.service }}:${{ github.sha }}
+            ${{ env.ECR_REGISTRY }}/oncosaas-${{ matrix.service }}:${{ github.event.workflow_run.head_sha }}
+            ${{ env.ECR_REGISTRY }}/oncosaas-${{ matrix.service }}:latest
+          secrets: |
+            DATABASE_URL=${{ secrets.DATABASE_URL }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+      - name: Build and push non-backend
+        if: matrix.service != 'backend'
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          platforms: linux/arm64
+          push: true
+          tags: |
+            ${{ env.ECR_REGISTRY }}/oncosaas-${{ matrix.service }}:${{ github.event.workflow_run.head_sha }}
             ${{ env.ECR_REGISTRY }}/oncosaas-${{ matrix.service }}:latest
           build-args: |
             NEXT_PUBLIC_API_URL=${{ env.APP_URL }}
@@ -98,7 +119,7 @@ jobs:
       - name: Pull ARM64 image
         run: |
           docker pull --platform linux/arm64 \
-            "${{ env.ECR_REGISTRY }}/oncosaas-${{ matrix.service }}:${{ github.sha }}"
+            "${{ env.ECR_REGISTRY }}/oncosaas-${{ matrix.service }}:${{ github.event.workflow_run.head_sha }}"
 
       - name: Set up Trivy
         uses: aquasecurity/setup-trivy@v0.2.6
@@ -114,7 +135,7 @@ jobs:
             --ignore-unfixed \
             --format table \
             --exit-code 0 \
-            "${{ env.ECR_REGISTRY }}/oncosaas-${{ matrix.service }}:${{ github.sha }}"
+            "${{ env.ECR_REGISTRY }}/oncosaas-${{ matrix.service }}:${{ github.event.workflow_run.head_sha }}"
 
       - name: Scan ${{ matrix.service }} for CRITICAL vulnerabilities
         shell: bash
@@ -131,7 +152,7 @@ jobs:
             --ignore-unfixed \
             --format table \
             --exit-code "${EXIT_CODE}" \
-            "${{ env.ECR_REGISTRY }}/oncosaas-${{ matrix.service }}:${{ github.sha }}"
+            "${{ env.ECR_REGISTRY }}/oncosaas-${{ matrix.service }}:${{ github.event.workflow_run.head_sha }}"
 
   deploy:
     name: Deploy to EC2 via SSM
@@ -141,6 +162,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
@@ -190,7 +213,7 @@ jobs:
       - name: Run deployment command on EC2
         id: ssm
         env:
-          IMAGE_TAG: ${{ github.sha }}
+          IMAGE_TAG: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
 
@@ -214,10 +237,15 @@ jobs:
               "docker tag \"$ECR_REGISTRY/oncosaas-backend:$IMAGE_TAG\" \"$ECR_REGISTRY/oncosaas-backend:latest\"",
               "docker tag \"$ECR_REGISTRY/oncosaas-frontend:$IMAGE_TAG\" \"$ECR_REGISTRY/oncosaas-frontend:latest\"",
               "docker tag \"$ECR_REGISTRY/oncosaas-ai-service:$IMAGE_TAG\" \"$ECR_REGISTRY/oncosaas-ai-service:latest\"",
+              "if ! test -f \"$CURRENT_DIR/backend/.env\"; then echo \"Missing env file at $CURRENT_DIR/backend/.env\"; ls -la \"$CURRENT_DIR/backend\" || true; exit 1; fi",
+              "if ! test -f \"$CURRENT_DIR/frontend/.env\"; then echo \"Missing env file at $CURRENT_DIR/frontend/.env\"; ls -la \"$CURRENT_DIR/frontend\" || true; exit 1; fi",
+              "if ! test -f \"$CURRENT_DIR/ai-service/.env\"; then echo \"Missing env file at $CURRENT_DIR/ai-service/.env\"; ls -la \"$CURRENT_DIR/ai-service\" || true; exit 1; fi",
               "export ECR_REGISTRY IMAGE_TAG",
               "cd \"$CURRENT_DIR\"",
-              "docker compose -f docker-compose.prod.yml config >/dev/null",
-              "docker compose -f docker-compose.prod.yml up -d --no-build --force-recreate --remove-orphans",
+              "docker compose --project-directory \"$CURRENT_DIR\" --env-file \"$CURRENT_DIR/backend/.env\" -f docker-compose.prod.yml config >/dev/null",
+              "docker compose --project-directory \"$CURRENT_DIR\" --env-file \"$CURRENT_DIR/backend/.env\" -f docker-compose.prod.yml run --rm --no-deps -T backend npx prisma migrate status",
+              "docker compose --project-directory \"$CURRENT_DIR\" --env-file \"$CURRENT_DIR/backend/.env\" -f docker-compose.prod.yml run --rm --no-deps -T backend npx prisma migrate deploy",
+              "docker compose --project-directory \"$CURRENT_DIR\" --env-file \"$CURRENT_DIR/backend/.env\" -f docker-compose.prod.yml up -d  --force-recreate --remove-orphans",
               "curl -fsS http://127.0.0.1:3002/api/v1/health >/dev/null",
               "curl -fsS http://127.0.0.1:8001/health >/dev/null",
               "curl -fsS http://127.0.0.1:3000 >/dev/null",

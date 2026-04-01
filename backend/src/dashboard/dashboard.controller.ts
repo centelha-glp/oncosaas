@@ -5,14 +5,14 @@ import { TenantGuard } from '../auth/guards/tenant.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
-import { UserRole } from '@prisma/client';
+import { UserRole } from '@generated/prisma/client';
 import { DashboardMetricsDto } from './dto/dashboard-metrics.dto';
 import { DashboardStatisticsDto } from './dto/dashboard-statistics.dto';
 import { NurseMetricsDto } from './dto/nurse-metrics.dto';
 import { NavigationMetricsDto } from './dto/navigation-metrics.dto';
 import { PatientWithCriticalStepDto } from './dto/patients-with-critical-steps.dto';
 import { CriticalTimelinesDto } from './dto/critical-timelines.dto';
-import { JourneyStage } from '@prisma/client';
+import { JourneyStage } from '@generated/prisma/client';
 
 @Controller('dashboard')
 @UseGuards(JwtAuthGuard, TenantGuard, RolesGuard)

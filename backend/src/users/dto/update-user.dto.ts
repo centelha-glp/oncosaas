@@ -6,7 +6,7 @@ import {
   IsOptional,
   IsBoolean,
 } from 'class-validator';
-import { UserRole } from '@prisma/client';
+import { UserRole } from '@generated/prisma/client';
 
 export class UpdateUserDto {
   @IsOptional()

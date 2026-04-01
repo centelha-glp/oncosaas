@@ -1,5 +1,5 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { JourneyStage, PatientStatus, NavigationStepStatus } from '@prisma/client';
+import { JourneyStage, PatientStatus, NavigationStepStatus } from '@generated/prisma/client';
 import { AlertsService } from '../alerts/alerts.service';
 import { PrismaService } from '../prisma/prisma.service';
 import {

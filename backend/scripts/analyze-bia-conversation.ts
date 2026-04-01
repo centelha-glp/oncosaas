@@ -5,13 +5,17 @@
  * Executar: cd backend && npx ts-node scripts/analyze-bia-conversation.ts
  */
 
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from '@generated/prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
 import * as dotenv from 'dotenv';
 import { resolve } from 'path';
 
 dotenv.config({ path: resolve(__dirname, '../.env') });
 
-const prisma = new PrismaClient();
+const adapter = new PrismaPg({
+  connectionString: process.env.DATABASE_URL,
+});
+const prisma = new PrismaClient({ adapter });
 
 interface MessageRow {
   direction: string;
@@ -50,13 +54,13 @@ async function main() {
 
   if (!patient) {
     console.log('❌ Paciente Bia não encontrado.');
-    process.exit(1);
+    throw new Error('Paciente Bia não encontrado.');
   }
 
   const conv = patient.conversations[0];
   if (!conv || !conv.messages.length) {
     console.log('❌ Nenhuma conversa com mensagens.');
-    process.exit(1);
+    throw new Error('Nenhuma conversa com mensagens.');
   }
 
   const messages = conv.messages as unknown as MessageRow[];
@@ -221,9 +225,10 @@ async function main() {
 }
 
 main()
-  .then(() => prisma.$disconnect())
   .catch((e) => {
     console.error(e);
-    prisma.$disconnect();
-    process.exit(1);
+    process.exitCode = 1;
+  })
+  .finally(async () => {
+    await prisma.$disconnect();
   });

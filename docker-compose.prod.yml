@@ -1,9 +1,6 @@
 services:
   backend:
     image: ${ECR_REGISTRY:-oncosaas}/oncosaas-backend:${IMAGE_TAG:-latest}
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
     container_name: backend
     restart: on-failure
     ports:
@@ -28,9 +25,6 @@ services:
 
   frontend:
     image: ${ECR_REGISTRY:-oncosaas}/oncosaas-frontend:${IMAGE_TAG:-latest}
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
     container_name: frontend
     restart: on-failure
     depends_on:
@@ -45,9 +39,6 @@ services:
 
   ai-service:
     image: ${ECR_REGISTRY:-oncosaas}/oncosaas-ai-service:${IMAGE_TAG:-latest}
-    build:
-      context: ./ai-service
-      dockerfile: Dockerfile
     container_name: ai-service
     restart: on-failure
     depends_on:

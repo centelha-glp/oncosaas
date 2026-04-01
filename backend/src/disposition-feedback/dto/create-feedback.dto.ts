@@ -1,5 +1,5 @@
 import { IsEnum, IsNotEmpty, IsOptional, IsString, IsNumber, IsObject } from 'class-validator';
-import { ClinicalDisposition } from '@prisma/client';
+import { ClinicalDisposition } from '@generated/prisma/client';
 
 export class CreateDispositionFeedbackDto {
   @IsString()

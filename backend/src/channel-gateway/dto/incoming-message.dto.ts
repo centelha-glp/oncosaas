@@ -5,7 +5,7 @@ import {
   IsString,
   IsInt,
 } from 'class-validator';
-import { ChannelType, MessageType } from '@prisma/client';
+import { ChannelType, MessageType } from '@generated/prisma/client';
 
 export class IncomingMessageDto {
   @IsString()

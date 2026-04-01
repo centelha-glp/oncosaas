@@ -18,9 +18,10 @@
     "forceConsistentCasingInFileNames": false,
     "noFallthroughCasesInSwitch": false,
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["src/*"],
+      "@generated/*": ["generated/*"]
     }
   },
-  "include": ["src/**/*", "test/**/*", "prisma/**/*", "scripts/**/*", "prisma.config.ts"],
+  "include": ["src/**/*", "test/**/*", "prisma/**/*", "scripts/**/*", "prisma.config.mjs"],
   "exclude": ["node_modules", "dist", ".env"]
 }

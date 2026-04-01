@@ -12,7 +12,7 @@ import {
   AgentDecisionType,
   ScheduledActionType,
   ChannelType,
-} from '@prisma/client';
+} from '@generated/prisma/client';
 
 export class AgentProcessRequestDto {
   @IsString()

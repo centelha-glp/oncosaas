@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { AgentDecisionType } from '@prisma/client';
+import { AgentDecisionType } from '@generated/prisma/client';
 import { AgentDecision } from './interfaces/agent-decision.interface';
 
 /**

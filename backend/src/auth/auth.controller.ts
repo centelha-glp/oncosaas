@@ -27,7 +27,7 @@ import { RegisterInstitutionDto } from './dto/register-institution.dto';
 import { Public } from './decorators/public.decorator';
 import { Roles } from './decorators/roles.decorator';
 import { RolesGuard } from './guards/roles.guard';
-import { UserRole } from '@prisma/client';
+import { UserRole } from '@generated/prisma/client';
 
 class RefreshDto {
   @IsString()

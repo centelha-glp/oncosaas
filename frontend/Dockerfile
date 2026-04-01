@@ -5,6 +5,18 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 
+# ---- dev ----
+FROM node:24.14.0-alpine3.23 AS dev
+WORKDIR /app
+
+ENV NODE_ENV=development
+
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+
+EXPOSE 3000
+CMD ["npm", "run", "dev"]
+
 # ---- builder ----
 FROM node:24.14.0-alpine3.23 AS builder
 WORKDIR /app
@@ -20,7 +32,7 @@ ENV NEXT_PUBLIC_WS_URL=$NEXT_PUBLIC_WS_URL
 RUN npm run build
 
 # ---- production ----
-FROM gcr.io/distroless/nodejs24-debian13:nonroot
+FROM gcr.io/distroless/nodejs24-debian13:nonroot AS production
 WORKDIR /app
 
 ENV NODE_ENV=production

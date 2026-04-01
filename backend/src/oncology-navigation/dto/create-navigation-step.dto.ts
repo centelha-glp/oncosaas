@@ -8,7 +8,7 @@ import {
   IsObject,
   IsUUID,
 } from 'class-validator';
-import { JourneyStage } from '@prisma/client';
+import { JourneyStage } from '@generated/prisma/client';
 
 export class CreateNavigationStepDto {
   @IsUUID()

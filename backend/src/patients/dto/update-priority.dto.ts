@@ -1,5 +1,5 @@
 import { IsInt, IsEnum, IsOptional, IsString, Min, Max } from 'class-validator';
-import { PriorityCategory } from '@prisma/client';
+import { PriorityCategory } from '@generated/prisma/client';
 
 export class UpdatePriorityDto {
   @IsInt()

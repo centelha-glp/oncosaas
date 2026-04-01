@@ -1,23 +1,17 @@
-import * as dotenv from 'dotenv';
-import { resolve } from 'path';
-
-// Carregar variáveis de ambiente ANTES de qualquer importação que use Prisma
-// O Prisma Client precisa do DATABASE_URL no momento da inicialização
-dotenv.config({ path: resolve(__dirname, '../.env') });
-
+import 'dotenv/config';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { join } from 'path';
-import { AppModule } from './app.module';
+import { AppModule } from '@/app.module';
 import { existsSync, mkdirSync, readFileSync } from 'fs';
-import { HttpExceptionFilter } from './common/filters/http-exception.filter';
-import { PrismaExceptionFilter } from './common/filters/prisma-exception.filter';
+import { HttpExceptionFilter } from '@/common/filters/http-exception.filter';
+import { PrismaExceptionFilter } from '@/common/filters/prisma-exception.filter';
 
 const logger = new Logger('Bootstrap');
 
 /** Crash loudly in production when required env vars are missing. */
-function validateEnv() {
+function validateEnv(): void {
   const isProduction = process.env.NODE_ENV === 'production';
   if (!isProduction) {
     return;
@@ -32,7 +26,7 @@ function validateEnv() {
   }
 }
 
-async function bootstrap() {
+async function bootstrap(): Promise<void> {
   validateEnv();
 
   // Verificar se deve usar HTTPS
@@ -67,17 +61,18 @@ async function bootstrap() {
     AppModule,
     httpsOptions ? { httpsOptions } : {}
   );
+  app.enableShutdownHooks();
 
-  // Criar diretório de uploads se não existir
-  const uploadsDir = join(process.cwd(), 'uploads', 'navigation-steps');
-  if (!existsSync(uploadsDir)) {
-    mkdirSync(uploadsDir, { recursive: true });
-  }
+  // // Criar diretório de uploads se não existir
+  // const uploadsDir = join(process.cwd(), 'uploads', 'navigation-steps');
+  // if (!existsSync(uploadsDir)) {
+  //   mkdirSync(uploadsDir, { recursive: true });
+  // }
 
-  // Servir arquivos estáticos da pasta uploads
-  app.useStaticAssets(join(process.cwd(), 'uploads'), {
-    prefix: '/uploads',
-  });
+  // // Servir arquivos estáticos da pasta uploads
+  // app.useStaticAssets(join(process.cwd(), 'uploads'), {
+  //   prefix: '/uploads',
+  // });
 
   // CORS - origens permitidas configuradas por variável de ambiente
   const frontendUrl =
@@ -142,4 +137,9 @@ async function bootstrap() {
   }
 }
 
-bootstrap();
+bootstrap().then(() => {
+  logger.log('Bootstrap completed successfully');
+}).catch((error) => {
+  logger.error('Bootstrap failed', error);
+  process.exit(1);
+});

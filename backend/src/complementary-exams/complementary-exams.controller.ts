@@ -20,7 +20,7 @@ import { CreateComplementaryExamResultDto } from './dto/create-complementary-exa
 import { UpdateComplementaryExamResultDto } from './dto/update-complementary-exam-result.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { TenantGuard } from '../auth/guards/tenant.guard';
-import { ComplementaryExamType } from '@prisma/client';
+import { ComplementaryExamType } from '@generated/prisma/client';
 
 @Controller('patients/:patientId/complementary-exams')
 @UseGuards(JwtAuthGuard, TenantGuard)

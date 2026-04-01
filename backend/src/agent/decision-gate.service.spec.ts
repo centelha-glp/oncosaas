@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { DecisionGateService } from './decision-gate.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { AgentDecisionType } from '@prisma/client';
+import { AgentDecisionType } from '@generated/prisma/client';
 import { AgentDecision } from './interfaces/agent-decision.interface';
 
 describe('DecisionGateService', () => {

@@ -2,7 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { PriorityRecalculationService } from '../oncology-navigation/priority-recalculation.service';
 import { CreateQuestionnaireResponseDto } from './dto/create-questionnaire-response.dto';
-import { QuestionnaireResponse } from '@prisma/client';
+import { QuestionnaireResponse } from '@generated/prisma/client';
 
 @Injectable()
 export class QuestionnaireResponsesService {

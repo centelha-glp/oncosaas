@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { PrismaClient, UserRole } from '@prisma/client';
+import { Prisma, UserRole } from '@generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import * as bcrypt from 'bcrypt';
@@ -438,7 +438,7 @@ export class AuthService {
 
     const hashedPassword = await bcrypt.hash(dto.password, 10);
 
-    const { tenant, user } = await this.prisma.$transaction(async (tx: PrismaClient) => {
+    const { tenant, user } = await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const newTenant = await tx.tenant.create({
         data: {
           name: dto.institutionName,

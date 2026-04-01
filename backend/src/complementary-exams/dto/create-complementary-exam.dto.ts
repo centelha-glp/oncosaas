@@ -5,7 +5,7 @@ import {
   IsEnum,
   IsBoolean,
 } from 'class-validator';
-import { ComplementaryExamType, LabCategory } from '@prisma/client';
+import { ComplementaryExamType, LabCategory } from '@generated/prisma/client';
 
 export class CreateComplementaryExamDto {
   @IsEnum(ComplementaryExamType)

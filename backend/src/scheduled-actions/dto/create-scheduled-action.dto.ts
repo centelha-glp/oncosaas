@@ -7,7 +7,7 @@ import {
   IsString,
   IsObject,
 } from 'class-validator';
-import { ChannelType, ScheduledActionType } from '@prisma/client';
+import { ChannelType, ScheduledActionType } from '@generated/prisma/client';
 
 export class CreateScheduledActionDto {
   @IsUUID()

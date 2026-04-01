@@ -8,7 +8,7 @@ import {
   Max,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { AuditAction } from '@prisma/client';
+import { AuditAction } from '@generated/prisma/client';
 
 export class QueryAuditLogDto {
   @IsOptional()

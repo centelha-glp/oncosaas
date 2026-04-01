@@ -9,13 +9,17 @@
  * - QuestionnaireResponse (para validar persistência pós-conclusão)
  */
 
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from '@generated/prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
 import * as dotenv from 'dotenv';
 import { resolve } from 'path';
 
 dotenv.config({ path: resolve(__dirname, '../.env') });
 
-const prisma = new PrismaClient();
+const adapter = new PrismaPg({
+  connectionString: process.env.DATABASE_URL,
+});
+const prisma = new PrismaClient({ adapter });
 
 async function main() {
   console.log('🔍 Verificando fluxo de questionários...\n');
@@ -24,8 +28,7 @@ async function main() {
 
   const tenant = await prisma.tenant.findFirst();
   if (!tenant) {
-    console.error('❌ Nenhum tenant encontrado.');
-    process.exit(1);
+    throw new Error('Nenhum tenant encontrado.');
   }
 
   const tenantId = tenant.id;
@@ -126,9 +129,7 @@ async function main() {
 
   console.log('\n--- Resumo ---');
   if (errors.length > 0) {
-    console.error('❌ Erros:\n');
-    errors.forEach((e) => console.error(`   - ${e}`));
-    process.exit(1);
+    throw new Error(`Erros:\n- ${errors.join('\n- ')}`);
   }
   if (warnings.length > 0) {
     console.warn('⚠️ Avisos:\n');
@@ -143,9 +144,10 @@ async function main() {
 }
 
 main()
-  .then(() => prisma.$disconnect())
   .catch((e) => {
     console.error(e);
-    prisma.$disconnect();
-    process.exit(1);
+    process.exitCode = 1;
+  })
+  .finally(async () => {
+    await prisma.$disconnect();
   });

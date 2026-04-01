@@ -1,4 +1,4 @@
-import { ChannelType } from '@prisma/client';
+import { ChannelType } from '@generated/prisma/client';
 
 export interface IncomingMessage {
   patientPhone: string;

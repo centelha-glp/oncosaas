@@ -6,7 +6,7 @@ import {
   IsUrl,
   Matches,
 } from 'class-validator';
-import { WhatsAppAuthMethod } from '@prisma/client';
+import { WhatsAppAuthMethod } from '@generated/prisma/client';
 
 export class CreateWhatsAppConnectionDto {
   @IsString()

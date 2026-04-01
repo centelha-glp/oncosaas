@@ -20,7 +20,7 @@ import { ConversationService } from './conversation.service';
 import { DecisionGateService } from './decision-gate.service';
 import { AgentService } from './agent.service';
 import { ApproveDecisionDto } from './dto/agent-response.dto';
-import { ConversationStatus, ChannelType } from '@prisma/client';
+import { ConversationStatus, ChannelType } from '@generated/prisma/client';
 
 @Controller('agent')
 @UseGuards(JwtAuthGuard, TenantGuard)
