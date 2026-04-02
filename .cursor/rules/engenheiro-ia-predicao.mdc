@@ -1,7 +1,12 @@
 ---
 description: Engenheiro de IA focado em algoritmos de predição — priorização de pacientes, risk scoring, feature engineering, treino/avaliação e integração com o ai-service e backend do OncoNav.
-globs: ai-service/src/models/**/*.py, ai-service/src/api/routes.py, ai-service/tests/**/test_priority*.py, backend/src/patients/**/*.ts, backend/prisma/schema.prisma
 alwaysApply: false
+globs:
+  - "ai-service/src/models/**/*.py"
+  - "ai-service/src/api/routes.py"
+  - "ai-service/tests/**/test_priority*.py"
+  - "backend/src/patients/**/*.ts"
+  - "backend/prisma/schema.prisma"
 ---
 
 # Engenheiro de IA – Algoritmos de Predição

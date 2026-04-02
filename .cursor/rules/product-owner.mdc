@@ -1,0 +1,195 @@
+---
+description: "product-owner — Rules & Patterns"
+alwaysApply: false
+---
+
+# product-owner — Rules & Patterns
+
+Rules para gestão de produto do ONCONAV via GitHub: backlog, milestones, issues e priorização. Acionado via skill `/po`.
+
+---
+
+## 1. Estrutura de Milestones
+
+Cada milestone representa uma fase de entrega com escopo definido:
+
+```
+Milestone: v{major}.{minor} — {nome descritivo}
+  Descrição: objetivo da fase e critério de conclusão
+  Due date: data alvo (sempre absoluta, nunca "próximo sprint")
+  Issues: épicos e tasks vinculados
+```
+
+### Milestones ativos (referência)
+
+| Milestone | Foco | Status |
+|-----------|------|--------|
+| MVP — Câncer de Bexiga | Plataforma funcional para bexiga, pesquisa CEP/EBSERH | Em andamento |
+| v1.1 — Outros Tipos de Câncer | Expandir `enabledCancerTypes` com revisão clínica | Planejado |
+| v1.2 — FHIR Produção | Integração HL7/FHIR ativa com HUCAM/UFES | Planejado |
+
+---
+
+## 2. Hierarquia de Issues
+
+```
+Épico (label: epic)
+  └── Feature (label: feature)
+        ├── Task backend (label: backend)
+        ├── Task frontend (label: frontend)
+        ├── Task ai-service (label: ai-service)
+        └── Task infra (label: infra)
+```
+
+### Template de épico
+
+```markdown
+## Objetivo
+[O que será entregue e qual problema resolve]
+
+## Critério de aceitação
+- [ ] Critério 1 mensurável
+- [ ] Critério 2 mensurável
+
+## Sub-tarefas
+- [ ] #<issue-number> — Task 1
+- [ ] #<issue-number> — Task 2
+
+## Impacto clínico
+[Como esta feature beneficia paciente ou equipe de saúde]
+```
+
+### Template de task
+
+```markdown
+## Contexto
+[Qual épico esta task pertence e por quê é necessária]
+
+## Descrição técnica
+[O que precisa ser implementado — módulos, arquivos, APIs]
+
+## Definition of Done
+- [ ] Código implementado seguindo as rules do domínio
+- [ ] Testes unitários (`test-generator`)
+- [ ] Revisão de segurança (`seguranca-compliance`) se backend
+- [ ] PR criada via `github-organizer`
+- [ ] CI passando
+
+## Estimativa
+[P (< 4h), M (4–16h), G (> 16h)]
+```
+
+---
+
+## 3. Labels Padronizadas
+
+| Label | Cor | Uso |
+|-------|-----|-----|
+| `epic` | Roxo | Épico de feature |
+| `feature` | Azul | Nova funcionalidade |
+| `bug` | Vermelho | Correção de bug |
+| `backend` | Verde escuro | Trabalho em NestJS |
+| `frontend` | Azul claro | Trabalho em Next.js |
+| `ai-service` | Laranja | Trabalho no Python service |
+| `infra` | Cinza | Docker, CI/CD, AWS, Terraform |
+| `clinical` | Roxo claro | Lógica clínica oncológica |
+| `security` | Vermelho escuro | Segurança e compliance |
+| `research` | Amarelo | Pesquisa CEP/EBSERH |
+| `blocked` | Laranja escuro | Issue bloqueada por dependência |
+| `priority: critical` | Vermelho brilhante | Bloqueia milestone |
+| `priority: high` | Laranja | Alta prioridade |
+| `priority: medium` | Amarelo | Prioridade normal |
+| `priority: low` | Verde claro | Pode esperar |
+
+---
+
+## 4. Priorização do Backlog
+
+### Critérios de prioridade
+
+| Critério | Peso |
+|----------|------|
+| Segurança do paciente (regras clínicas ER_IMMEDIATE) | Crítico — sempre primeiro |
+| Bloqueio de pesquisa CEP/EBSERH | Alta |
+| Feature solicitada pelo time clínico | Alta |
+| Débito técnico que afeta performance | Média |
+| Melhoria de UX | Média |
+| Feature nice-to-have | Baixa |
+
+### Regra do MVP
+
+O MVP foca exclusivamente em **câncer de bexiga**. Issues que expandem para outros tipos de câncer pertencem ao milestone v1.1 — nunca ao MVP.
+
+Issues com `label: clinical` devem ter validação do agente `clinical-domain` antes de entrar no milestone ativo.
+
+---
+
+## 5. Fluxo de Issue
+
+```
+Backlog → To Do → In Progress → In Review → Done
+
+Backlog:    sem milestone, não priorizada
+To Do:      milestone definido, prioridade definida, sem assignee
+In Progress: assignee ativo, branch criada
+In Review:  PR aberta, aguardando revisão
+Done:       PR merged, CI passando
+```
+
+Issues com `label: blocked` devem ter comentário explicando o bloqueio e referência à issue bloqueante.
+
+---
+
+## 6. Quebra de Épicos em Tasks
+
+### Regra de granularidade
+
+Uma task deve ser completável em no máximo **um dia de trabalho** (< 8h). Se maior, quebrar.
+
+### Dependências entre tasks
+
+Identificar e declarar dependências explicitamente:
+```markdown
+## Dependências
+- Requer #42 (schema Prisma) antes de iniciar
+- Bloqueada por #38 (guard de autenticação)
+```
+
+### Paralelização
+
+Tasks independentes de squad diferente podem correr em paralelo:
+- `backend-nestjs` + `frontend-nextjs` + `database-engineer` → paralelo
+- `clinical-domain` + `ai-service` → sequencial (clinical valida primeiro)
+
+---
+
+## 7. Comunicação de Status
+
+### Atualização semanal de milestone
+
+Para cada milestone ativo, verificar:
+1. Issues bloqueadas (remover bloqueio ou realocar para próximo milestone)
+2. Issues sem estimativa (adicionar estimativa P/M/G)
+3. Issues In Progress sem atualização há > 3 dias (fazer check-in)
+4. Issues que precisam de revisão clínica antes de implementar
+
+### Critério de Go/No-Go para milestone
+
+Um milestone está pronto para entrega quando:
+- [ ] Todos os critérios de aceitação dos épicos estão marcados
+- [ ] CI passando em `main`
+- [ ] `seguranca-compliance` revisou todos os PRs de backend
+- [ ] `clinical-domain` validou toda lógica clínica nova
+- [ ] Testes de fumaça em staging passando
+
+---
+
+## 8. O Que NUNCA Fazer
+
+- **Nunca** criar issue sem label de domínio (`backend`, `frontend`, `ai-service`, etc.).
+- **Nunca** criar task > 8h sem quebrar em sub-tasks.
+- **Nunca** marcar issue como Done sem PR merged e CI passando.
+- **Nunca** adicionar issue de novo tipo de câncer ao milestone MVP.
+- **Nunca** mover issue com `label: clinical` para In Progress sem validação do `clinical-domain`.
+- **Nunca** criar milestone sem due date e critério de conclusão definidos.
+- **Nunca** fechar issue bloqueada sem resolver ou documentar o bloqueio.

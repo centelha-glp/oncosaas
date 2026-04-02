@@ -1,0 +1,294 @@
+---
+description: "ux-accessibility — Rules & Patterns"
+alwaysApply: false
+globs: frontend/**/*.tsx
+---
+
+# ux-accessibility — Rules & Patterns
+
+Rules derivadas dos padrões reais de UX e acessibilidade em `frontend/src/`. Aplica-se a todos os componentes em `frontend/src/components/` e páginas em `frontend/src/app/`.
+
+---
+
+## 1. WCAG 2.1 AA — Requisitos Mínimos
+
+Todo componente visual deve satisfazer:
+
+| Critério | Requisito | Verificação |
+|----------|-----------|-------------|
+| Contraste de texto | ≥ 4.5:1 (texto normal), ≥ 3:1 (texto grande) | Ferramenta: axe DevTools |
+| Foco visível | Sempre visível com anel de foco | `focus-visible:ring-2 focus-visible:ring-ring` |
+| Navegação por teclado | Todos os elementos interativos acessíveis por Tab | Teste manual |
+| Labels em formulários | Toda entrada tem label associado | `htmlFor={formItemId}` |
+| Alt text em imagens | Toda `<img>` tem `alt` descritivo | Revisão de código |
+| Controles ARIA | Elementos com `role` têm atributos ARIA completos | aria-required, aria-selected, etc. |
+
+---
+
+## 2. Componentes UI — Padrões do Projeto
+
+### Variantes com CVA (class-variance-authority)
+
+Todo componente com múltiplas variantes usa CVA — nunca condicionais de className inline:
+
+```typescript
+import { cva, type VariantProps } from 'class-variance-authority';
+
+const buttonVariants = cva(
+  // Base classes — aplicadas sempre
+  'inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50',
+  {
+    variants: {
+      variant: {
+        default:     'bg-primary text-primary-foreground hover:bg-primary/90',
+        destructive: 'bg-destructive text-destructive-foreground hover:bg-destructive/90',
+        outline:     'border border-input bg-background hover:bg-accent',
+        secondary:   'bg-secondary text-secondary-foreground hover:bg-secondary/80',
+        ghost:       'hover:bg-accent hover:text-accent-foreground',
+        link:        'text-primary underline-offset-4 hover:underline',
+      },
+      size: {
+        default: 'h-10 px-4 py-2',
+        sm:      'h-9 rounded-md px-3',
+        lg:      'h-11 rounded-md px-8',
+        icon:    'h-10 w-10',
+      },
+    },
+    defaultVariants: { variant: 'default', size: 'default' },
+  }
+);
+```
+
+### `forwardRef` obrigatório em primitivos
+
+Todo componente primitivo (Button, Input, Card, etc.) deve usar `forwardRef` e definir `displayName`:
+
+```typescript
+const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
+  ({ className, variant, size, ...props }, ref) => (
+    <button
+      className={cn(buttonVariants({ variant, size, className }))}
+      ref={ref}
+      {...props}
+    />
+  )
+);
+Button.displayName = 'Button';
+```
+
+### Estados visuais obrigatórios
+
+Todo elemento interativo deve ter estados visuais distintos:
+
+| Estado | Tailwind class |
+|--------|---------------|
+| Hover | `hover:bg-primary/90` |
+| Focus | `focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2` |
+| Disabled | `disabled:pointer-events-none disabled:opacity-50` |
+| Loading | Skeleton ou spinner — nunca deixar área em branco |
+| Error | `text-destructive` + ícone de erro |
+| Success | `text-green-600` ou variante `success` |
+
+---
+
+## 3. Design Tokens Clínicos
+
+### Cores de prioridade — nunca hardcodar
+
+Usar tokens do `tailwind.config.ts` — proibido hardcodar hexadecimais de prioridade:
+
+```typescript
+// CORRETO — usando tokens
+<Badge className="bg-priority-critical text-white">Crítico</Badge>
+<Badge className="bg-priority-high text-white">Alto</Badge>
+<Badge className="bg-priority-medium text-white">Médio</Badge>
+<Badge className="bg-priority-low text-white">Baixo</Badge>
+
+// ERRADO — cor hardcoded
+<Badge className="bg-red-600 text-white">Crítico</Badge>
+```
+
+### Tokens disponíveis
+
+```typescript
+// tailwind.config.ts
+colors: {
+  medical: { blue: '...', green: '...' },
+  priority: {
+    critical: '...',  // vermelho — ER_IMMEDIATE
+    high:     '...',  // laranja — ER_DAYS
+    medium:   '...',  // amarelo — ADVANCE_CONSULT
+    low:      '...',  // verde   — SCHEDULED_CONSULT / REMOTE_NURSING
+  }
+}
+```
+
+---
+
+## 4. Formulários Clínicos
+
+### Estrutura obrigatória com React Hook Form + shadcn/ui
+
+```typescript
+<Form {...form}>
+  <form onSubmit={form.handleSubmit(onSubmit)}>
+    <FormField
+      control={form.control}
+      name="fieldName"
+      render={({ field }) => (
+        <FormItem>
+          <FormLabel>Rótulo visível</FormLabel>
+          <FormControl>
+            <Input placeholder="..." {...field} />
+          </FormControl>
+          <FormDescription>Texto de ajuda opcional</FormDescription>
+          <FormMessage />  {/* erros de validação */}
+        </FormItem>
+      )}
+    />
+  </form>
+</Form>
+```
+
+### Regras para formulários clínicos
+
+- Toda entrada de dados clínicos (diagnóstico, sintomas, medicamentos) deve ter label visível — nunca somente `placeholder`.
+- Mensagens de erro devem ser descritivas: "Temperatura deve ser entre 35°C e 42°C" — não "Campo inválido".
+- Campos obrigatórios devem ter indicador visual além do asterisco (cor + texto `aria-required="true"`).
+- Formulários de dados sensíveis (CPF, telefone) devem ter `autocomplete="off"`.
+- Confirm dialogs para ações destrutivas (excluir paciente, encerrar protocolo).
+
+---
+
+## 5. Padrões para Profissionais de Saúde sob Pressão
+
+O dashboard de enfermagem e oncologista é usado em ambiente de alta carga cognitiva. Regras específicas:
+
+### Hierarquia de informação
+
+- Pacientes críticos (`priority: critical`) sempre no topo da lista, destacados visualmente.
+- Alertas de `ER_IMMEDIATE` devem ter indicador visual persistente (badge pulsante ou cor diferenciada) — nunca apenas ícone.
+- Status clínico deve ser legível em < 1 segundo de leitura.
+
+### Feedback de estado obrigatório
+
+Todo processo assíncrono deve ter três estados visíveis:
+
+```typescript
+// Loading
+{isLoading && <Skeleton className="h-4 w-32" />}
+
+// Error
+{isError && (
+  <Alert variant="destructive">
+    <AlertDescription>Falha ao carregar dados. Tente novamente.</AlertDescription>
+  </Alert>
+)}
+
+// Success (implícito — dados exibidos)
+{data && <PatientCard patient={data} />}
+```
+
+Nunca deixar área em branco sem feedback — o profissional precisa saber se o dado está carregando ou ausente.
+
+### Confirmação antes de ações irreversíveis
+
+```typescript
+// Para ações como assumir conversa, alterar disposição clínica, encerrar navegação
+<AlertDialog>
+  <AlertDialogTrigger asChild>
+    <Button variant="destructive">Encerrar protocolo</Button>
+  </AlertDialogTrigger>
+  <AlertDialogContent>
+    <AlertDialogTitle>Confirmar encerramento</AlertDialogTitle>
+    <AlertDialogDescription>
+      Esta ação encerrará o protocolo ativo para este paciente. Não pode ser desfeita.
+    </AlertDialogDescription>
+    <AlertDialogFooter>
+      <AlertDialogCancel>Cancelar</AlertDialogCancel>
+      <AlertDialogAction onClick={handleConfirm}>Confirmar</AlertDialogAction>
+    </AlertDialogFooter>
+  </AlertDialogContent>
+</AlertDialog>
+```
+
+---
+
+## 6. Semântica HTML e ARIA
+
+### Elementos semânticos obrigatórios
+
+```typescript
+// Navegação principal
+<nav aria-label="Navegação principal">...</nav>
+
+// Região de conteúdo principal
+<main>...</main>
+
+// Listas de pacientes/alertas
+<ul role="list" aria-label="Lista de pacientes">
+  <li key={p.id}><PatientCard patient={p} /></li>
+</ul>
+
+// Badges de status
+<span role="status" aria-label={`Prioridade: ${priority}`}>
+  <Badge className={priorityClass}>{priorityLabel}</Badge>
+</span>
+```
+
+### Atributos ARIA obrigatórios por role
+
+| Role | Atributos obrigatórios |
+|------|----------------------|
+| `button` | Texto descritivo (ou `aria-label`) |
+| `dialog` | `aria-labelledby` apontando para título |
+| `option` | `aria-selected` |
+| `checkbox` | `aria-checked` |
+| `progressbar` | `aria-valuenow`, `aria-valuemin`, `aria-valuemax` |
+| `alert` | `role="alert"` ativo — conteúdo anunciado automaticamente |
+| `status` | Para atualizações não urgentes |
+
+### Ícones decorativos
+
+Ícones sem texto devem ter `aria-hidden="true"`. Ícones funcionais precisam de `aria-label`:
+
+```typescript
+// Decorativo — ocultar do leitor de tela
+<ChevronRight aria-hidden="true" />
+
+// Funcional — descrever a ação
+<Button aria-label="Fechar painel de alertas">
+  <X aria-hidden="true" />
+</Button>
+```
+
+---
+
+## 7. Responsividade
+
+O dashboard é usado em monitores de estação de trabalho hospitalar (1280px+) e tablets (768px+). Não é otimizado para mobile.
+
+```typescript
+// Grid responsivo para cards de dashboard
+<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+
+// Tabelas em telas menores — scroll horizontal
+<div className="overflow-x-auto">
+  <table className="min-w-full">...</table>
+</div>
+```
+
+---
+
+## 8. O Que NUNCA Fazer
+
+- **Nunca** hardcodar cores de prioridade clínica — usar tokens `priority.*`.
+- **Nunca** usar `<div>` clicável sem `role="button"` e `tabIndex={0}` — usar `<button>`.
+- **Nunca** omitir label visível em formulário clínico — somente placeholder não é suficiente.
+- **Nunca** deixar estado de loading como tela em branco — sempre usar Skeleton ou spinner.
+- **Nunca** usar `aria-hidden="true"` em elementos interativos (removerá do tab order).
+- **Nunca** criar dialog sem `aria-labelledby` apontando para o título.
+- **Nunca** usar `role="option"` sem `aria-selected`.
+- **Nunca** suavizar visualmente alertas de `ER_IMMEDIATE` — clareza salva vidas.
+- **Nunca** usar `onClick` em `<div>` ou `<span>` — usar `<button>` ou `<a>`.
+- **Nunca** remover o anel de foco (`outline: none`) sem alternativa visível (`focus-visible:ring`).

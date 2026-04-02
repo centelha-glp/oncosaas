@@ -1,289 +1,47 @@
-# Regras do Cursor para Projeto de Livros Médicos
+# Regras do Cursor — ONCONAV
 
-Este diretório contém as regras do Cursor que orientam o desenvolvimento e manutenção do projeto de conversão de livros médicos.
+Este diretório contém **regras de projeto** (`.mdc`) usadas pelo Cursor para orientar código, domínio clínico e agentes. O índice geral do repositório está em `AGENTS.md` na raiz.
 
-## Regras Disponíveis
+## Como o Cursor aplica
 
-### 🌐 projeto-medicina.mdc
+- Arquivos **`.mdc`** aqui entram como **Project Rules** conforme o frontmatter YAML (`alwaysApply`, `globs`, `description`).
+- Arquivos **`.md`** nesta pasta (`guardrail-*.md`, `atualizar-resumos.md`, `GUARDRAILS-RESUMO.md`) são **documentação de apoio**: use `@arquivo` no chat se precisar do conteúdo; não substituem regras `.mdc`.
 
-**Tipo:** Sempre aplicada (`alwaysApply: true`)
+## Grupos de regras
 
-Fornece contexto geral sobre o projeto, incluindo:
+| Grupo | Exemplos | Uso típico |
+|-------|----------|------------|
+| Stack e padrões | `backend-padroes`, `frontend-padroes`, `desenvolvimento-modular` | NestJS, Next.js, modularidade |
+| Módulos técnicos | `backend`, `frontend`, `ai-service`, `database`, `security`, `devops`, `performance`, `terraform`, `aws` | Por área ao editar paths cobertos por `globs` |
+| Domínio oncológico / clínico | `clinical-domain`, `navegacao-oncologica`, `oncologista`, `fhir-integration` | Lógica de navegação, FHIR, oncologia |
+| Especialidades (sempre aplicadas) | `medicina-familia`, `clinica-medica`, `clinica-cirurgica`, `emergencista`, `pronto-socorro`, `intensivista`, `equipe-saas-healthtech` | Contexto clínico amplo em qualquer chat |
+| IA / LLM / RAG | `llm-agent-architect`, `llm-context-engineer`, `rag-engineer`, `engenheiro-ia-agentes`, `engenheiro-ia-predicao` | Orchestrator, prompts, RAG, ML |
+| Fluxo de agentes / qualidade | `github-organizer`, `test-generator`, `code-simplifier`, `product-owner`, `ux-accessibility`, `whatsapp-integration`, `documentation` | PRs, testes, a11y, WhatsApp, docs |
+| Sob demanda | `template-especialista`, `captacao-fapes` | Criar novas regras de especialidade; editais FAPES ES |
 
-- Estrutura do projeto
-- Scripts disponíveis
-- Lista de livros
-- Dependências Python
+## Inventário `.mdc` (atual)
 
-Esta regra é carregada automaticamente em todas as interações.
+`ai-service`, `architect`, `aws`, `backend-padroes`, `backend`, `captacao-fapes`, `clinica-cirurgica`, `clinica-medica`, `clinical-domain`, `code-simplifier`, `database`, `desenvolvimento-modular`, `devops`, `documentation`, `emergencista`, `engenheiro-ia-agentes`, `engenheiro-ia-predicao`, `equipe-saas-healthtech`, `fhir-integration`, `frontend-padroes`, `frontend`, `github-organizer`, `intensivista`, `llm-agent-architect`, `llm-context-engineer`, `medicina-familia`, `navegacao-oncologica`, `oncologista`, `performance`, `product-owner`, `pronto-socorro`, `rag-engineer`, `security`, `template-especialista`, `terraform`, `test-generator`, `ux-accessibility`, `whatsapp-integration`.
 
+## Frontmatter (referência rápida)
+
+```yaml
 ---
-
-### 🐍 python-conversao.mdc
-
-**Tipo:** Aplicada a arquivos Python (`globs: *.py`)
-
-Define padrões para os scripts de conversão:
-
-- Encoding e shebang
-- Nomenclatura de funções e variáveis
-- Estrutura de funções
-- Tratamento de erros
-- Boas práticas de processamento de PDFs
-
-Ativa automaticamente ao editar arquivos `.py`.
-
+description: "Uma linha clara do que a regra cobre"
+alwaysApply: false
+globs:
+  - "backend/**/*.ts"
+  - "prisma/**/*.prisma"
 ---
+```
 
-### 📁 organizacao-arquivos.mdc
-
-**Tipo:** Sob demanda (`description`)
-
-Regras de organização do projeto:
-
-- Estrutura de diretórios
-- Convenções de nomenclatura
-- Paths importantes
-- Regras de criação de arquivos
-
-Use quando trabalhar com estrutura de arquivos ou organização.
-
----
-
-### 📝 markdown-livros.mdc
-
-**Tipo:** Aplicada a arquivos Markdown (`globs: *.md`)
-
-Padrões para documentos Markdown dos livros:
-
-- Estrutura de documento
-- Formatação de cabeçalhos
-- Inserção de imagens
-- Tratamento de páginas especiais
-
-Ativa automaticamente ao editar arquivos `.md`.
-
----
-
-## Regras de Especialidades Médicas
-
-### 👨‍⚕️ medicina-familia.mdc
-
-**Tipo:** Sempre aplicada (`alwaysApply: true`)
-
-Conhecimento detalhado em Medicina de Família e Comunidade:
-
-- Terminologia de APS
-- Protocolos: HAS, DM, saúde da mulher, criança, idoso
-- Vacinação, pré-natal, puericultura
-- Rastreamentos oncológicos e cardiovasculares
-- Medicações essenciais na atenção primária
-
----
-
-### 🩺 clinica-medica.mdc
-
-**Tipo:** Sempre aplicada (`alwaysApply: true`)
-
-Conhecimento detalhado em Clínica Médica:
-
-- Terminologia de doenças sistêmicas
-- Cardiologia: IC, FA, SCA, valvulopatias
-- Pneumologia: DPOC, asma, pneumonia, derrame pleural
-- Nefrologia: DRC, distúrbios hidroeletrolíticos
-- Gastroenterologia: DRGE, H. pylori, hepatites, cirrose
-- Endocrinologia: tireoide, diabetes, obesidade
-- Hematologia: anemias, anticoagulação
-- Scores: CHADS2-VASc, CURB-65, Child-Pugh
-
----
-
-### ✂️ clinica-cirurgica.mdc
-
-**Tipo:** Sempre aplicada (`alwaysApply: true`)
-
-Conhecimento detalhado em Clínica Cirúrgica:
-
-- Terminologia cirúrgica e anatomia
-- Classificação ASA, índice de Lee
-- Antibioticoprofilaxia cirúrgica
-- Abdome agudo: apendicite, colecistite, pancreatite
-- Obstrução intestinal, hérnias
-- Úlcera perfurada, diverticulite
-- Queimaduras (Regra dos 9)
-- Complicações pós-operatórias
-
----
-
-### 🚑 emergencista.mdc
-
-**Tipo:** Sempre aplicada (`alwaysApply: true`)
-
-Conhecimento detalhado em Medicina de Emergência:
-
-- Triagem de Manchester
-- Protocolos ACLS: PCR, FV/TVSP, AESP
-- Protocolo ATLS: trauma, ABCDE, choque hemorrágico
-- PALS: RCP pediátrica
-- Emergências cardiológicas: IAM, EAP, arritmias
-- Emergências neurológicas: AVC, convulsões
-- Scores: Glasgow, qSOFA, FAST
-- Intoxicações, queimaduras
-
----
-
-### 🏥 pronto-socorro.mdc
-
-**Tipo:** Sempre aplicada (`alwaysApply: true`)
-
-Conhecimento detalhado em Medicina de Pronto Socorro/UPA:
-
-- Diferenciação: Urgência vs Emergência
-- Classificação de risco adaptada
-- Urgências comuns: cólica renal, lombalgia, cefaleia
-- Crise hipertensiva (urgência), crise asmática leve/moderada
-- Suturas, imobilizações, curativos
-- Orientações de alta e sinais de retorno
-- Critérios de transferência para emergência
-- Manejo ambulatorial de urgências de menor complexidade
-
----
-
-### 🏥 intensivista.mdc
-
-**Tipo:** Sempre aplicada (`alwaysApply: true`)
-
-Conhecimento detalhado em Medicina Intensiva:
-
-- Scores: APACHE II, SOFA, SAPS 3
-- Sepse e choque séptico (pacote de 1h)
-- Ventilação mecânica: estratégia protetora, SARA, desmame
-- Sedação e analgesia: escala RASS, protocolos
-- Vasopressores e inotrópicos
-- Hemodinâmica e ressuscitação
-- IRA e diálise
-- Distúrbios ácido-base
-- Hipertensão intracraniana
-- Nutrição, delirium, bloqueio neuromuscular
-
----
-
-## Regras de Resumos Médicos
-
-### 📝 resumo-medico-estruturado.mdc
-
-**Tipo:** Sob demanda (usado pelo comando `.resumo`)
-
-Estrutura completa para criar resumos médicos detalhados:
-
-- Todas as seções obrigatórias
-- Profundidade máxima (~200+ páginas)
-- Foco em completude acadêmica
-- Inclui fisiopatologia molecular, farmacologia completa, exemplos práticos extensos
-
-### 📄 resumo-conciso.mdc
-
-**Tipo:** Sob demanda (usado pelo comando `.resumo-conciso`)
-
-Estrutura para criar resumos médicos concisos (≤30 páginas):
-
-- 15 seções obrigatórias focadas em aplicabilidade
-- Equilibra profundidade com objetividade
-- Orientado para tomada de decisão clínica
-- Ideal para: consulta rápida, revisão pré-plantão, checklist
-
-**Use quando:**
-
-- Criar resumos para aplicação prática imediata
-- Material para plantão ou atendimento
-- Revisão focada em ação clínica
-
----
-
-## Regras de Desenvolvimento (OncoNav / Agentes)
-
-### 🤖 engenheiro-ia-agentes.mdc
-
-**Tipo:** Aplicada a arquivos do agente (`globs: ai-service/**/*.py`, `backend/src/agent/**/*.ts`)
-
-Subagente **Engenheiro de IA para desenvolvimento de agentes**:
-
-- Arquitetura do pipeline: ChannelGateway → AgentService → AI Service (Orchestrator) → DecisionGate
-- Componentes: orchestrator, symptom_analyzer, protocol_engine, context_builder, questionnaire_engine, llm_provider
-- Decisões auto-aprovadas vs exigem aprovação; estado do agente (`agent_state`)
-- Protocolos clínicos, questionários conversacionais (ESAS, PRO-CTCAE), prompts e guardrails
-- Boas práticas e checklist ao implementar ou alterar o agente
-- Roadmap: intent detection, respostas curtas/streaming, RAG interno, modelo duplo
-
-Ativa ao editar arquivos em `ai-service/` (Python) ou `backend/src/agent/` (TypeScript).
-
----
-
-## Meta-Regra
-
-### 📋 template-especialista.mdc
-
-**Tipo:** Sob demanda (`alwaysApply: false`)
-
-**Template e guia para criar regras de especialidades médicas.**
-
-Esta meta-regra documenta:
-
-- Estrutura padrão completa de regras de especialidades
-- Metodologia de raciocínio clínico (7 subseções obrigatórias)
-- Stack de habilidades do especialista
-- Guia passo a passo de preenchimento
-- Checklist de qualidade
-- Princípios fundamentais
-- Exemplos de referência
-
-**Use quando:**
-
-- Criar uma nova especialidade (ex: Cardiologia, Neurologia, Pediatria)
-- Revisar/melhorar regras existentes
-- Garantir consistência entre especialidades
-- Validar completude de uma regra
-
-**Baseada na análise de:** Medicina de Família, Clínica Médica, Clínica Cirúrgica, Emergencista e Intensivista
-
----
-
-## Como Usar
-
-As regras são automaticamente aplicadas pelo Cursor baseado em:
-
-1. **alwaysApply: true** - Sempre ativa
-2. **globs** - Ativa para tipos de arquivo específicos
-3. **description** - Pode ser referenciada manualmente
+- Padrões que começam com `**` em YAML devem ficar **entre aspas** (evita erro de parse).
+- Prefira **lista** para `globs` quando houver mais de um padrão.
 
 ## Manutenção
 
-Para modificar ou adicionar regras:
+1. Editar ou criar apenas arquivos `.mdc` para novas regras automáticas.
+2. Rodar validação local (ex.: `python3` + `yaml.safe_load` no primeiro bloco `---` … `---`) após mudanças em massa no frontmatter.
+3. Manter `description` preenchida em todo `.mdc`.
 
-1. Edite os arquivos `.mdc` existentes
-2. Ou crie novos arquivos `.mdc` neste diretório
-3. Use a sintaxe de frontmatter YAML para metadados
-4. Referencie arquivos usando `[nome](mdc:caminho/relativo)`
-
-## Estrutura de uma Regra
-
-```markdown
----
-alwaysApply: false
-description: "Descrição da regra"
-globs: *.extensao
----
-
-# Título da Regra
-
-Conteúdo em Markdown com instruções e exemplos...
-
-## Referências
-
-Use [nome do arquivo](mdc:caminho/arquivo.ext) para referenciar arquivos.
-```
-
----
-
-**Criado em:** 27 de outubro de 2025  
-**Projeto:** Conversão de Livros Médicos para Markdown
+**Projeto:** ONCONAV — plataforma SaaS multi-tenant de navegação oncológica.

@@ -1,7 +1,9 @@
 ---
 description: Engenheiro de IA focado em desenvolvimento de agentes conversacionais — arquitetura, orquestração, pipelines, state, decisões e integração com o ai-service do OncoNav.
-globs: ai-service/**/*.py, backend/src/agent/**/*.ts
 alwaysApply: false
+globs:
+  - "ai-service/**/*.py"
+  - "backend/src/agent/**/*.ts"
 ---
 
 # Engenheiro de IA – Desenvolvimento de Agentes

@@ -1,3 +1,9 @@
+---
+name: ai-ml-engineer
+model: inherit
+description: Use para tarefas do ai-service Python: agente conversacional (orchestrator, LLM provider, symptom analyzer, questionnaire engine, protocol engine, prompts), modelos de predição (priority model, clinical rules, clinical scores MASCC/CISNE, feature engineering, treino LightGBM), e endpoints FastAPI. Acione quando a tarefa envolver arquivos em ai-service/.
+---
+
 # Subagent: AI/ML Engineer
 
 ## Papel

@@ -1,0 +1,275 @@
+---
+description: "fhir-integration — Rules & Patterns"
+alwaysApply: false
+globs: backend/src/integrations/fhir/**/*.ts
+---
+
+# fhir-integration — Rules & Patterns
+
+Rules extraídas do código real em `backend/src/integrations/fhir/`. Qualquer alteração neste módulo deve obedecer estas convenções.
+
+---
+
+## 1. Estrutura do Módulo
+
+```
+integrations/fhir/
+├── fhir.module.ts
+├── fhir.controller.ts
+├── fhir-config.controller.ts
+├── services/
+│   ├── fhir-auth.service.ts       ← autenticação multi-método, cache de tokens
+│   ├── fhir-client.service.ts     ← Axios por tenant, operações CRUD FHIR
+│   ├── fhir-sync.service.ts       ← push/pull entre ONCONAV e EHR externo
+│   ├── fhir-transformer.service.ts ← mapeamento ONCONAV ↔ FHIR R4
+│   ├── fhir-config.service.ts     ← configuração por tenant
+│   └── fhir-scheduler.service.ts  ← sync periódico agendado
+├── interfaces/
+│   ├── fhir-config.interface.ts
+│   └── fhir-resource.interface.ts
+└── utils/
+    └── retry.util.ts              ← exponential backoff
+```
+
+---
+
+## 2. Configuração por Tenant
+
+Cada tenant tem sua própria configuração FHIR armazenada no banco:
+
+```typescript
+interface FHIRIntegrationConfig {
+  tenantId: string;
+  enabled: boolean;
+  baseUrl: string;
+  auth: FHIRAuthConfig;
+  syncDirection: 'pull' | 'push' | 'bidirectional';
+  syncFrequency: 'realtime' | 'hourly' | 'daily';
+  retryConfig?: {
+    maxRetries: number;      // padrão: 3
+    initialDelay: number;    // padrão: 1000ms
+    maxDelay: number;        // padrão: 30000ms
+    backoffMultiplier: number; // padrão: 2
+  };
+}
+```
+
+### Métodos de autenticação suportados
+
+```typescript
+interface FHIRAuthConfig {
+  type: 'oauth2' | 'basic' | 'apikey';
+  // oauth2: clientId, clientSecret, tokenUrl, scope
+  // basic:  username, password
+  // apikey: apiKey, apiKeyHeader
+}
+```
+
+Nunca hardcodar credenciais. Sempre ler de `FHIRIntegrationConfig` armazenado no banco (criptografado).
+
+---
+
+## 3. Client HTTP — Padrão por Tenant
+
+O `FhirClientService` mantém instâncias Axios cacheadas por `tenantId`. Nunca criar instância Axios fora deste service para chamadas FHIR.
+
+```typescript
+// Acesso correto
+const client = await this.fhirClientService.getClient(config);
+```
+
+### Cache de tokens OAuth
+
+- TTL do cache = expiração do token − 5 minutos (buffer de segurança).
+- Cache é tenant-aware: `clearCache(tenantId?)` purga apenas o tenant especificado ou todos se `undefined`.
+- Token nunca é logado — apenas sua presença é confirmada em logs.
+
+---
+
+## 4. Estratégia de Retry — Exponential Backoff
+
+Toda chamada ao EHR externo usa retry com backoff configurável via `retry.util.ts`:
+
+| Parâmetro | Padrão |
+|-----------|--------|
+| `maxRetries` | 3 |
+| `initialDelay` | 1000ms |
+| `maxDelay` | 30000ms |
+| `backoffMultiplier` | 2 |
+
+### Erros com retry
+- 5xx (erros de servidor)
+- 429 (rate limit)
+- 503 (serviço indisponível)
+
+### Erros SEM retry
+- 401 (autenticação falhou — forçar refresh de token antes de tentar novamente)
+- 4xx genéricos (erro de cliente — retry não vai resolver)
+
+Nunca fazer retry de 401 diretamente — limpar cache de token, obter novo token, depois retry.
+
+---
+
+## 5. Recursos FHIR R4 Suportados
+
+### Patient
+
+```typescript
+interface FHIRPatient {
+  resourceType: 'Patient';
+  id?: string;
+  identifier: Array<{ system: string; value: string }>;
+  name: Array<{ use: string; family: string; given: string[] }>;
+  birthDate: string;    // ISO 8601: YYYY-MM-DD
+  gender: 'male' | 'female' | 'other' | 'unknown';
+  telecom: Array<{ system: string; value: string; use?: string }>;
+  address: Array<{ ...endereço padronizado... }>;
+}
+```
+
+**CPF como identifier:**
+```typescript
+{ system: 'http://www.brazil.gov.br/cpf', value: cpfValue }
+```
+
+### Observation
+
+```typescript
+interface FHIRObservation {
+  resourceType: 'Observation';
+  status: 'registered' | 'preliminary' | 'final' | 'amended';
+  code: { coding: Array<{ system: string; code: string; display?: string }>; text?: string };
+  subject: { reference: string }; // ex: 'Patient/123'
+  effectiveDateTime: string;      // ISO 8601
+  valueQuantity?: { value: number; unit: string; system: string; code: string };
+  valueString?: string;
+  valueCodeableConcept?: { coding: [...]; text?: string };
+  note?: Array<{ text: string }>;
+}
+```
+
+**Sistema de codificação LOINC obrigatório:**
+```typescript
+{ system: 'http://loinc.org', code: '<loinc-code>', display: '<nome>' }
+```
+
+**Unidades de medida:**
+```typescript
+{ system: 'http://unitsofmeasure.org', ... }
+```
+
+### Bundle
+
+```typescript
+interface FHIRBundle {
+  resourceType: 'Bundle';
+  type: 'searchset' | 'history' | 'transaction' | 'batch' | 'collection' | 'document' | 'message';
+  total?: number;
+  entry?: Array<{ resource: FHIRResource; ... }>;
+}
+```
+
+---
+
+## 6. Operações de Sincronização
+
+### Push (ONCONAV → EHR)
+
+```
+syncPatientToEHR(config, patientId)
+  1. Buscar patient com tenantId no banco (validar ownership)
+  2. toFHIRPatient() — transformar para FHIR R4
+  3. upsertPatient() — PUT se ehrPatientId existe, POST se novo
+  4. Persistir ehrPatientId retornado no banco local
+
+syncObservationToEHR(config, observationId)
+  1. Se patient sem ehrPatientId → syncPatientToEHR() primeiro
+  2. toFHIRObservation() — transformar para FHIR R4
+  3. createObservation() ou updateObservation()
+  4. Persistir fhirResourceId no banco local
+```
+
+### Pull (EHR → ONCONAV)
+
+```
+pullObservationsFromEHR(config, patientId)
+  1. searchObservations() — buscar por patient reference
+  2. Para cada observation no Bundle:
+     a. Verificar se fhirResourceId já existe no banco (deduplicação)
+     b. Se novo: fromFHIRObservation() → persistir com tenantId
+  3. Retornar count de registros criados
+```
+
+### Sync em lote
+
+`syncUnsyncedObservations(config, limit=50)` processa em batches de 50. Nunca processar sem limite — risco de timeout.
+
+---
+
+## 7. Transformer — Regras de Mapeamento
+
+### `toFHIRPatient(patient)`
+
+- Nome: dividir `patient.name` em palavras; última palavra → `family`, restante → `given[]`.
+- Gênero: mapear para `'male' | 'female' | 'other' | 'unknown'` (nunca `null`).
+- CPF identifier: usar sistema `http://www.brazil.gov.br/cpf`.
+- Telefone: sistema `'phone'`, use `'mobile'`.
+
+### `fromFHIRPatient(fhirPatient)`
+
+- Extrair `given.join(' ') + ' ' + family` como nome completo.
+- Mapear `identifier` com sistema CPF → campo `cpf` local (criptografar antes de salvar).
+- Nunca salvar `cpf` em texto claro no retorno do transformer — criptografar no service.
+
+### `toFHIRObservation(observation)`
+
+- `valueQuantity` quando há valor numérico + unidade.
+- `valueString` quando valor é texto.
+- `valueCodeableConcept` quando valor é código.
+- `effectiveDateTime` sempre em ISO 8601 completo com timezone.
+
+### `fromFHIRObservation(fhirObs, tenantId, patientId)`
+
+- Sempre incluir `tenantId` e `patientId` fornecidos — nunca extrair do recurso FHIR.
+- Persistir `fhirResourceId` para deduplicação futura.
+
+---
+
+## 8. Multi-tenancy e Segurança
+
+- Toda query de sincronização deve incluir `tenantId` na cláusula `where`.
+- Clientes Axios são instâncias distintas por tenant — nunca reutilizar cliente de outro tenant.
+- Credenciais FHIR armazenadas criptografadas (mesmo mecanismo AES-256-GCM das outras integrações).
+- Patient ownership validado antes de qualquer sync — nunca sincronizar paciente de outro tenant.
+- Nunca logar valores de credenciais (clientSecret, password, apiKey).
+
+---
+
+## 9. Erros e Logging
+
+```python
+# Padrão de log no serviço FHIR
+this.logger.log(`Sincronizando observação ${observationId} → EHR`);
+this.logger.error(`Falha ao sincronizar: ${error.message}`, error);
+this.logger.warn(`Retry ${attempt}/${maxRetries} para tenant ${tenantId}`);
+```
+
+- Log de sucesso: `logger.log()`
+- Log de retry: `logger.warn()` com número de tentativa
+- Log de falha definitiva: `logger.error()` com objeto de erro completo
+- Nunca logar body completo de resposta do EHR — pode conter PHI
+
+---
+
+## 10. O Que NUNCA Fazer
+
+- **Nunca** criar instância Axios fora de `FhirClientService` para chamadas FHIR.
+- **Nunca** fazer retry de erro 401 diretamente — limpar cache de token primeiro.
+- **Nunca** omitir `tenantId` em queries de sincronização.
+- **Nunca** usar sistema de codificação diferente de LOINC para Observations.
+- **Nunca** salvar `cpf` retornado de FHIR em texto claro — sempre criptografar antes de persistir.
+- **Nunca** sincronizar observation sem verificar se patient já tem `ehrPatientId`.
+- **Nunca** processar sync em lote sem limite (`take: 50` mínimo).
+- **Nunca** logar credenciais de autenticação FHIR, tokens ou secrets.
+- **Nunca** fazer retry de erros 4xx (exceto 401 com renovação de token).
+- **Nunca** ativar integração FHIR em tenant de produção sem configuração validada manualmente.

@@ -1,0 +1,233 @@
+---
+description: "llm-context-engineer — Rules & Patterns"
+alwaysApply: false
+globs: ai-service/src/agent/**/*.py
+---
+
+# llm-context-engineer — Rules & Patterns
+
+Rules extraídas do código real em `ai-service/src/agent/prompts/` e `ai-service/src/agent/context_builder.py`. Qualquer alteração em prompts ou construção de contexto deve obedecer estas convenções.
+
+---
+
+## 1. Arquitetura de Prompts
+
+O sistema tem três camadas de prompt distintas:
+
+| Arquivo | Função | Usado por |
+|---|---|---|
+| `prompts/orchestrator_prompt.py` | System prompt do orchestrator (Opus) + ferramentas de roteamento | `AgentOrchestrator` |
+| `prompts/system_prompt.py` | System prompt do agente base + regras de detecção de sintomas | Fallback sem multi-agent |
+| `prompts/action_tools.py` | Definições de tools de ação dos subagentes | `BaseSubAgent` (via `tools` property) |
+| `prompts/symptom_prompts.py` | Prompts de análise de sintomas com LLM | `SymptomAnalyzer` |
+| `prompts/questionnaire_prompts.py` | Prompts de aplicação de questionários ESAS/PRO-CTCAE | `QuestionnaireEngine` |
+
+### Ponto de entrada principal
+
+`build_orchestrator_prompt(clinical_context: str) -> str` em `orchestrator_prompt.py` é chamado pelo orchestrator a cada request. Recebe o contexto clínico já formatado e enriquecido com RAG.
+
+### Função de construção de contexto
+
+`ClinicalContextBuilder.build_with_rag()` em `context_builder.py` é o único ponto de montagem de contexto clínico. Retorna uma string pronta para injeção no system prompt.
+
+---
+
+## 2. Estrutura do System Prompt do Orchestrator
+
+`build_orchestrator_prompt()` retorna um f-string com as seguintes seções, nesta ordem:
+
+```
+# Orquestrador Principal - ONCONAV          ← identidade e função
+## SUA FUNÇÃO                                ← 4 passos: analisar, invocar, integrar, formular
+## SUBAGENTES DISPONÍVEIS                    ← tabela de 4 subagentes com nomes de tools
+## DIRETRIZES DE ROTEAMENTO                  ← quando invocar cada subagente
+## SÍNTESE DA RESPOSTA                       ← como formular a resposta final
+## CONTEXTO CLÍNICO DO PACIENTE              ← bloco injetado: clinical_context (variável)
+```
+
+O bloco `## CONTEXTO CLÍNICO DO PACIENTE` é sempre a **última seção** — o conteúdo variável fica no final para facilitar prompt caching (partes estáticas no início).
+
+### Quando adicionar nova seção ao orchestrator prompt
+
+- Seções estáticas (instruções que não mudam por request): inserir **antes** do bloco `## CONTEXTO CLÍNICO`
+- Seções dinâmicas (variáveis por request): inserir **dentro** do `clinical_context` via `context_builder.py`
+- Nunca adicionar blocos dinâmicos hardcoded dentro de `build_orchestrator_prompt()` — usar `context_builder`
+
+---
+
+## 3. Estrutura do Contexto Clínico (context_builder)
+
+`ClinicalContextBuilder.build()` monta seções na seguinte ordem:
+
+```
+1. TÓPICO EM DISCUSSÃO          ← se agent_state["last_symptoms"] presente
+2. Dados do paciente            ← _format_patient_data(patient)
+3. Diagnósticos                 ← _format_diagnoses(diagnoses)
+4. Tratamentos                  ← _format_treatments(treatments)
+5. Medicamentos                 ← _format_medications(medications)
+6. Comorbidades                 ← _format_comorbidities(comorbidities)
+7. Etapas de Navegação          ← _format_navigation_steps(nav_steps)
+                                   (omitidas se sintoma HIGH/CRITICAL ativo)
+8. Alertas Recentes             ← _format_recent_alerts(alerts)
+9. Histórico de Questionários   ← _format_questionnaire_history(qr)
+10. Observações                 ← _format_observations(observations)
+11. Protocolo Clínico           ← _format_protocol_context(protocol)
+12. Análise de Sintomas         ← _format_symptom_analysis(symptom_analysis)
+13. Base de Conhecimento RAG    ← appended por build_with_rag() se houver resultados
+```
+
+Seções ausentes no `clinical_context` são simplesmente omitidas — nunca geram texto vazio ou placeholder.
+
+### Controle de tópico ativo (symptom_topic_active)
+
+Quando `agent_state["last_symptom_severity"]` é `"HIGH"` ou `"CRITICAL"`, as etapas de navegação são substituídas por:
+
+```
+### Etapas de Navegação
+(Omitidas neste turno — concluir discussão do sintoma antes de mencionar exames ou agendamentos.)
+```
+
+Isso previne que o LLM mude de assunto durante discussão de sintoma urgente. **Nunca remover esta lógica.**
+
+---
+
+## 4. Regras de Coerência de Tópico no System Prompt
+
+O system prompt contém a seção `## COERÊNCIA DE TÓPICO (OBRIGATÓRIO)` com 4 regras críticas:
+
+1. **Nunca mudar abruptamente de assunto** — concluir tópico atual antes de iniciar outro
+2. **Confirmações curtas** ("sim", "é isso") → continuar o tópico anterior, não iniciar novo
+3. **Sintomas têm prioridade absoluta** sobre etapas de navegação
+4. **Febre ≥38°C confirmada** → concluir orientações de urgência e escalar — nunca dizer "Ótimo!" e mudar
+
+Estas regras são instruções comportamentais que complementam as regras hard do `clinical_rules.py`. Não removê-las nem enfraquecê-las — representam aprendizados de casos reais de under-triage.
+
+---
+
+## 5. Regras de Detecção de Sintomas no System Prompt
+
+`_get_symptom_detection_rules()` em `system_prompt.py` define três níveis de severidade no prompt:
+
+### CRÍTICO (Escalar Imediatamente)
+Febre ≥38°C em quimio, dispneia severa, sangramento ativo, dor 8-10/10, vômitos incoercíveis >24h, sinais de infecção, confusão mental, trombose, obstrução intestinal, compressão medular.
+
+### ALTA GRAVIDADE (Alertar Enfermagem)
+Diarreia severa >6 episódios/dia, mucosite grau 3-4, neuropatia limitante, dor 6-7/10, perda de peso significativa, hematúria, hipertensão severa, síndrome mão-pé grau 2-3.
+
+### MODERADO (Registrar e Monitorar)
+Fadiga limitante, náusea recorrente, constipação >3 dias, insônia, ansiedade/depressão, apetite reduzido, neuropatia leve.
+
+**Regra**: os limiares de sintomas no prompt devem ser **consistentes** com os limiares das regras hard em `clinical_rules.py`. Nunca divergir entre os dois — o prompt ensina o LLM o que detectar, as regras hard executam a decisão.
+
+---
+
+## 6. Ferramentas de Roteamento (`ORCHESTRATOR_ROUTING_TOOLS`)
+
+Definidas em `orchestrator_prompt.py`. São 4 tools que o orchestrator usa para invocar subagentes:
+
+| Tool name | Subagente | Input schema |
+|---|---|---|
+| `consultar_agente_sintomas` | `SymptomAgent` | `foco: string` (opcional) |
+| `consultar_agente_navegacao` | `NavigationAgent` | `foco: string` (opcional) |
+| `consultar_agente_questionario` | `QuestionnaireAgent` | `tipo_sugerido: enum ESAS\|PRO_CTCAE\|auto` |
+| `consultar_agente_suporte_emocional` | `EmotionalSupportAgent` | `emocao: string` (opcional) |
+
+### Como adicionar nova ferramenta de roteamento
+
+1. Adicionar o dict de tool em `ORCHESTRATOR_ROUTING_TOOLS` seguindo o mesmo formato
+2. A `description` deve ser clara sobre **quando usar** — é esta descrição que guia o LLM a rotear corretamente
+3. Registrar o handler correspondente no `routing_tool_executor` do orchestrator
+4. Atualizar a seção `## SUBAGENTES DISPONÍVEIS` no `build_orchestrator_prompt()` para listar o novo subagente
+
+---
+
+## 7. Gestão de Janela de Contexto
+
+### Budget de tokens por componente (orchestrator, modelo Opus)
+
+| Componente | Tokens estimados | Nota |
+|---|---|---|
+| System prompt base (orchestrator) | ~600 | Parte estática, cacheable |
+| Contexto clínico do paciente | ~800–2000 | Depende da complexidade |
+| Bloco RAG (4 passagens) | ~600 | Appended pelo `build_with_rag()` |
+| Histórico de conversa (últimas N mensagens) | variável | Truncado pelo backend NestJS |
+| `max_tokens` do orchestrator | 16000 | Inclui adaptive thinking budget |
+
+### Estratégia de redução de contexto
+
+Quando o contexto clínico está muito longo:
+
+1. **Primeiro cortar**: `observations` e `questionnaireResponses` antigos — menor impacto clínico
+2. **Cortar se sintoma ativo**: etapas de navegação (substituídas pelo placeholder de tópico ativo)
+3. **Nunca cortar**: dados do paciente (idade, tipo de câncer), tratamentos ativos, medicações atuais, análise de sintomas atual
+4. **Nunca cortar**: bloco `TÓPICO EM DISCUSSÃO` quando presente — é crítico para coerência
+
+### Prompt caching
+
+O system prompt do orchestrator é estruturado para maximizar cache hit: partes estáticas (instruções, subagentes, diretrizes) ficam no início da string, o contexto dinâmico (dados do paciente) fica no final.
+
+**Nunca reordenar seções movendo texto dinâmico para antes do texto estático** — isso invalida o cache de prompt.
+
+---
+
+## 8. Seção PRAZO vs AGENDAMENTO
+
+O system prompt contém instrução explícita sobre como falar de etapas de navegação:
+
+- A data nas etapas é **PRAZO** (meta), **não** agendamento confirmado
+- **Nunca** dizer "sua consulta no dia X" só porque existe um prazo
+- **Sempre** usar "o prazo para [etapa] é dia X" e perguntar se já tem agendamento
+
+Esta instrução existe porque testes revelaram que o LLM confundia prazos com agendamentos, causando expectativa incorreta no paciente. **Nunca remover ou suavizar esta instrução.**
+
+---
+
+## 9. Modificando Prompts Existentes
+
+### Antes de modificar qualquer prompt
+
+1. Ler o prompt completo — entender todas as seções e o propósito de cada instrução
+2. Identificar se a modificação é em texto estático (instrução) ou lógica de montagem (Python)
+3. Checar se a instrução que você quer modificar tem histórico de problemas (comentários no código)
+
+### Processo obrigatório para mudanças em prompts de produção
+
+```
+código modificado → testar manualmente com cenários críticos (febre, dor 9/10, confusão mental)
+                 → revisar consistência com clinical_rules.py
+                 → test-generator (testes de smoke do sistema)
+                 → github-organizer
+```
+
+### O que não mudar sem revisão clínica
+
+- Limiares numéricos nas regras de detecção de sintomas (38°C, 8-10/10, etc.)
+- A seção `## COERÊNCIA DE TÓPICO` — contém aprendizados de falhas reais
+- Qualquer instrução que afete o comportamento em `ER_IMMEDIATE`
+- A ordem de prioridade: sintomas > etapas de navegação
+
+---
+
+## 10. Idioma e Tom
+
+- Todo prompt usa **português brasileiro (pt-BR)** — nunca inglês em instruções ao paciente
+- Terminologia com o paciente: linguagem simples, sem jargão médico não explicado
+- Terminologia interna (código, variáveis, logs): inglês
+- Escala de dor: sempre 0-10 (nunca outra escala nas mensagens ao paciente)
+- Referências a etapas de navegação: sempre o nome exato da etapa (nunca "consulta" genérica)
+
+---
+
+## 11. O Que NUNCA Fazer
+
+- **Nunca mover o bloco de contexto dinâmico** para antes das seções estáticas no system prompt — invalida prompt caching
+- **Nunca remover a seção `## COERÊNCIA DE TÓPICO`** — contém aprendizados de falhas reais de under-triage
+- **Nunca divergir limiares** entre `system_prompt.py` (instruções LLM) e `clinical_rules.py` (regras hard)
+- **Nunca adicionar lógica de montagem de contexto** fora de `context_builder.py` — único ponto de construção
+- **Nunca injetar texto dinâmico hardcoded** dentro de `build_orchestrator_prompt()` — usar `context_builder`
+- **Nunca remover a lógica `symptom_topic_active`** que omite etapas de navegação quando sintoma HIGH/CRITICAL está ativo
+- **Nunca usar inglês** em textos que o paciente verá (mensagens WhatsApp, questionários)
+- **Nunca suavizar a instrução de PRAZO vs AGENDAMENTO** — confunde pacientes com expectativas incorretas
+- **Nunca passar orch_config para subagentes** — subagentes têm seu próprio prompt e `max_tokens: 1024`
+- **Nunca modificar `_get_symptom_detection_rules()`** sem verificar consistência com `clinical_rules.py`
+- **Nunca omitir `## CONTEXTO CLÍNICO DO PACIENTE`** da montagem do orchestrator prompt — é o único dado personalizado por paciente que o LLM recebe

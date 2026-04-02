@@ -1,0 +1,280 @@
+---
+description: "Security Rules — ONCONAV"
+alwaysApply: false
+globs: backend/**/*.ts
+---
+
+# Security Rules — ONCONAV
+
+Plataforma SaaS oncológica com dados de saúde sensíveis. Estas regras derivam da implementação real em `backend/src/auth/`, `backend/src/common/guards/`, `backend/src/audit-log/`, e `backend/src/main.ts`. Qualquer desvio exige justificativa explícita e revisão do agente `seguranca-compliance`.
+
+---
+
+## 1. Autenticação e Tokens JWT
+
+### Estrutura obrigatória do payload
+
+```typescript
+interface JwtPayload {
+  sub: string;      // userId
+  email: string;
+  tenantId: string; // isolamento multi-tenant
+  role: string;
+}
+```
+
+### Regras
+
+- `JWT_SECRET` é obrigatório em produção. O serviço recusa inicializar se ausente (`validateEnv()` em `main.ts`).
+- Access token: 24 horas, stateless.
+- Refresh token: 7 dias, armazenado em Redis como `rt:<token> → userId`. Um uso por token — ao ser trocado, o token antigo é invalidado imediatamente (rotação obrigatória).
+- `JwtStrategy.validate()` re-busca o usuário no banco a cada requisição. Usuários deletados e mudanças de role entram em vigor sem rotação de token.
+- Tokens de reset de senha ficam em Redis como `prt:<token> → userId` com TTL de 1 hora e são invalidados após um único uso.
+- Em endpoints WebSocket, o JWT deve ser extraído de `handshake.auth.token` ou `Authorization: Bearer`. Em produção, a conexão é rejeitada se `JWT_SECRET` não estiver configurado. **Nunca usar fallback hardcoded.**
+- Nunca expor o access token em logs, responses de erro, ou traces.
+
+### Account lockout
+
+- 5 tentativas falhas consecutivas bloqueiam a conta por 15 minutos.
+- Contadores em Redis: `auth:failed:<email>` e `auth:locked:<email>`.
+- Usar `redisService.increment()` (atômico via `MULTI/EXEC`) — nunca `GET` + `SET` separados para contadores.
+- Mensagem de erro para credenciais inválidas é idêntica independente de o email existir ou não (evita user enumeration).
+
+---
+
+## 2. Autorização — Guards e Roles
+
+### Ordem obrigatória dos guards por controller protegido
+
+```
+ThrottleGuard (global) → JwtAuthGuard (global) → TenantGuard → RolesGuard
+```
+
+`TenantGuard` e `RolesGuard` são **por controller**, não globais. Todo controller protegido deve declarar:
+
+```typescript
+@UseGuards(JwtAuthGuard, TenantGuard, RolesGuard)
+```
+
+### Roles disponíveis
+
+| Role | Descrição |
+|------|-----------|
+| `ADMIN` | Administrador da instituição |
+| `ONCOLOGIST` | Oncologista |
+| `DOCTOR` | Médico |
+| `NURSE_CHIEF` | Enfermeiro-chefe |
+| `NURSE` | Enfermeiro |
+| `COORDINATOR` | Coordenador |
+
+### Regras
+
+- `RolesGuard` permite acesso se nenhum `@Roles()` for declarado — portanto, declarar explicitamente em todo endpoint privilegiado.
+- `@Public()` bypassa `JwtAuthGuard`. Endpoints públicos devem ser listados e revisados. O padrão é protegido.
+- `tenantId` vem SOMENTE do JWT (via `@CurrentUser()`). **Nunca aceitar `tenantId` do body, query params, ou path params.**
+- Nunca enfraquecer a ordem dos guards ou suprimir verificações por conveniência.
+
+---
+
+## 3. Isolamento Multi-Tenant
+
+### Invariante crítica
+
+Toda query Prisma que acesse dados de um tenant DEVE incluir `tenantId` na cláusula `where` — incluindo `update()` e `delete()`.
+
+```typescript
+// Correto
+await this.prisma.patient.update({
+  where: { id, tenantId },
+  data: dto,
+});
+
+// ERRADO — nunca fazer
+await this.prisma.patient.update({
+  where: { id },
+  data: dto,
+});
+```
+
+### Regras
+
+- Uma verificação de existência prévia (ex.: `findFirst`) não torna o `update()` subsequente seguro — as duas operações não são atômicas.
+- Rooms WebSocket isoladas: `tenant:${tenantId}` para broadcast; `patient:${patientId}:tenant:${tenantId}` para paciente específico.
+- Subscrições a rooms de paciente exigem verificação no banco de que o paciente pertence ao tenant antes do `join`. `patientId` fornecido pelo cliente é não confiável.
+- O hook `.claude/hooks/pre-tool-tenant-check.sh` bloqueia edições de `.service.ts` e `.controller.ts` que contenham chamadas Prisma sem `tenantId`.
+
+---
+
+## 4. LGPD — Proteção de Dados Sensíveis
+
+### Campos sensíveis e tratamentos obrigatórios
+
+| Campo | Tratamento |
+|-------|-----------|
+| `cpf` | Criptografar AES-256-GCM antes de salvar |
+| `phone` | Criptografar AES-256-GCM; manter `phoneHash` (SHA-256) para busca indexada |
+| `oauthAccessToken`, `apiToken`, `appSecret` | Criptografar AES-256-GCM |
+| `anthropicApiKey`, `openaiApiKey`, etc. | Criptografar AES-256-GCM |
+| `password` | Hash bcrypt (fator 10) — nunca criptografar simetricamente |
+| `mfaSecret` | Nunca expor em responses ou logs |
+
+### Funções de criptografia
+
+- `encryptSensitiveData` / `decryptSensitiveData` em `backend/src/whatsapp-connections/utils/encryption.util.ts`
+- Algoritmo: AES-256-GCM com salt (16 bytes) e IV (12 bytes) aleatórios por operação + auth tag (16 bytes)
+- Chave derivada de `ENCRYPTION_KEY` via PBKDF2
+- Busca por telefone: sempre usar `hashPhoneNumber` de `backend/src/common/utils/phone.util.ts` (SHA-256 normalizado)
+
+### ENCRYPTION_KEY
+
+- Obrigatória em produção. Serviço recusa inicializar se ausente.
+- Em `channel-gateway/channels/whatsapp.channel.ts` existe um fallback de desenvolvimento — risco conhecido, **nunca replicar esse padrão**.
+- Nunca hardcodar chaves de criptografia em nenhum arquivo do repositório.
+
+### Responses e DTOs
+
+- Campos sensíveis nunca aparecem em responses de API.
+- O hook `.claude/hooks/pre-tool-lgpd-check.sh` bloqueia edições de controllers e DTOs que exponham: `password`, `mfaSecret`, `anthropicApiKey`, `openaiApiKey`, `oauthAccessToken`, `twilioAuthToken`, `vapiApiKey`, `elevenLabsApiKey`, `encryptionKey`.
+
+---
+
+## 5. HIPAA — Dados de Saúde
+
+Dados clínicos de pacientes oncológicos são PHI (Protected Health Information):
+
+- Acesso a PHI deve ser restrito por role. `NURSE`/`NURSE_CHIEF` não devem acessar dados que exijam `ONCOLOGIST`/`DOCTOR`.
+- Leituras de PHI em bulk (listas, exportações) devem ter audit explícito no service.
+- Dados de diagnóstico (CID, TNM, tipo de câncer, medicamentos oncológicos, comorbidades) são PHI.
+- **Retenção de audit logs: 5 anos.** Nunca deletar dentro do período de retenção.
+- Transmissão de PHI: sempre via HTTPS/TLS.
+- Exportações e integração FHIR devem preservar isolamento de tenant e registrar no audit log.
+
+---
+
+## 6. Audit Trail
+
+### O que o AuditLogInterceptor registra automaticamente
+
+POST (`CREATE`), PUT/PATCH (`UPDATE`), DELETE (`DELETE`). Campos: `tenantId`, `userId`, `action`, `resourceType`, `resourceId`, `newValues`, `ipAddress`, `userAgent`.
+
+Campos sanitizados (não armazenados): `password`, `apiToken`, `oauthAccessToken`, `appSecret`.
+
+### O que deve ser auditado explicitamente no service
+
+- Login bem-sucedido e falho
+- Account lockout ativado
+- Refresh de token
+- Reset de senha
+- Leituras de PHI em bulk ou exportações
+- Mudanças de role de usuário
+- Alterações de configuração de tenant (`enabledCancerTypes`)
+
+### Regras
+
+- O sanitizador strip apenas 4 campos e não é recursivo. Ao adicionar novos campos sensíveis, estender o sanitizador.
+- Para mutations de PHI críticas, preferir audit síncrono em vez de `setImmediate`.
+- Nunca deletar ou alterar registros de audit log.
+
+---
+
+## 7. Validação de Input
+
+### Backend (NestJS)
+
+- `ValidationPipe` global com `whitelist: true`, `forbidNonWhitelisted: true`, `transform: true`
+- Todo DTO de request deve usar decorators `class-validator`
+- Todo parâmetro UUID deve usar `ParseUUIDPipe`
+- Nunca validar manualmente um body tipado fracamente em vez de usar DTO
+
+### Frontend (Next.js)
+
+- Zod para validação de todos os formulários e dados recebidos de API
+- Nunca confiar em dados do servidor sem validar o schema esperado
+- Nunca construir URLs a partir de input do usuário sem sanitização
+
+---
+
+## 8. Proteção OWASP Top 10
+
+### Injeção SQL (A03)
+- Prisma parametriza todas as queries automaticamente. Nunca usar raw SQL (`$queryRaw`, `$executeRaw`) sem revisão explícita de segurança.
+- `PrismaExceptionFilter` mapeia erros Prisma para HTTP sem expor detalhes internos.
+
+### Autenticação Quebrada (A07)
+- Refresh tokens de uso único e rotacionados (ver seção 1)
+- Account lockout após 5 tentativas (ver seção 1)
+- Senhas hasheadas com bcrypt fator 10. **Nunca MD5, SHA-1, ou criptografia simétrica para senhas.**
+
+### CORS
+- Lista de origens explícita em `main.ts`. **Nenhuma origem curinga (`*`) em produção.**
+- Frontend: nunca usar `dangerouslySetInnerHTML` com dados de usuário sem sanitização.
+
+---
+
+## 9. Rate Limiting
+
+| Endpoint | Limite |
+|----------|--------|
+| Geral | 100 req/min por IP |
+| `POST /auth/login`, `POST /auth/register` | 10 req/min por IP |
+| Webhooks WhatsApp | 200 req/min por IP |
+| `/health`, `/ready` | Sem limite |
+
+- `ThrottleGuard` global usa Redis como store primário (fallback in-memory não funciona com múltiplas instâncias)
+- Resposta de rate limit: HTTP 429 com `retryAfter`
+
+---
+
+## 10. Variáveis de Ambiente e Segredos
+
+### Obrigatórias em produção
+
+| Variável | Uso |
+|----------|-----|
+| `DATABASE_URL` | Conexão PostgreSQL |
+| `JWT_SECRET` | Assinatura de tokens JWT |
+| `ENCRYPTION_KEY` | Chave mestra AES-256 para PHI |
+| `REDIS_URL` | Conexão Redis |
+| `FRONTEND_URL` | Origem CORS primária |
+
+### Regras
+
+- Nunca hardcodar segredos em código-fonte ou arquivos commitados
+- Nunca acessar `process.env` diretamente em services ou controllers — usar `ConfigService`
+- Nunca mutar `process.env` em runtime (bug histórico já corrigido)
+- `.env.example` com valores fictícios é o padrão; `.env` não é commitado
+
+---
+
+## 11. WebSocket Security
+
+- JWT validado no handshake antes de qualquer room join
+- Em produção, rejeitar conexão se `JWT_SECRET` ausente. Nunca fallback para chave hardcoded.
+- Subscrição a room de paciente exige verificação DB:
+  ```typescript
+  const patient = await this.prisma.patient.findFirst({
+    where: { id: data.patientId, tenantId: client.tenantId },
+  });
+  if (!patient) return { error: 'Forbidden' };
+  ```
+- Broadcasts e joins apenas APÓS escrita no banco confirmada
+- Eventos emitidos devem ter `eventId` estável (UUID) para deduplicação em reconexões
+
+---
+
+## 12. O Que Nunca Fazer
+
+- **Nunca** omitir `tenantId` em queries `update()` ou `delete()` no Prisma
+- **Nunca** aceitar `tenantId` de dados controlados pelo cliente (body, query, path)
+- **Nunca** retornar `password`, `mfaSecret`, chaves de API, ou tokens em responses
+- **Nunca** logar CPF, telefone, tokens JWT, ou chaves de criptografia
+- **Nunca** hardcodar segredos em código
+- **Nunca** usar `console.log` no backend — usar `NestJS Logger`
+- **Nunca** commitar sem `seguranca-compliance` após modificar controllers, services ou DTOs
+- **Nunca** criar endpoint `@Public()` sem revisão explícita
+- **Nunca** usar raw SQL sem revisão de segurança
+- **Nunca** deletar ou alterar registros de audit log
+- **Nunca** emitir evento WebSocket antes da escrita no banco ser confirmada
+- **Nunca** confiar em `patientId` ou `tenantId` do cliente WebSocket sem verificar no banco
+- **Nunca** usar MD5 ou SHA-1 para senhas — somente bcrypt
+- **Nunca** replicar o fallback inseguro de `ENCRYPTION_KEY` do `whatsapp.channel.ts` em código novo

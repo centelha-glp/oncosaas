@@ -1,0 +1,274 @@
+---
+description: "whatsapp-integration — Rules & Patterns"
+alwaysApply: false
+globs: backend/src/whatsapp-connections/**/*.ts
+---
+
+# whatsapp-integration — Rules & Patterns
+
+Rules extraídas do código real em `backend/src/whatsapp-connections/`, `backend/src/channel-gateway/` e `backend/src/messages/`. Qualquer alteração nesses módulos deve obedecer estas convenções.
+
+---
+
+## 1. Módulos Envolvidos
+
+| Módulo | Responsabilidade |
+|--------|-----------------|
+| `whatsapp-connections/` | Gerenciamento de credenciais e conexões com a API do Meta (OAuth, Manual, API Key) |
+| `channel-gateway/` | Webhook inbound, envio outbound, parsing de mensagens canal-agnóstico |
+| `messages/` | Persistência, histórico e assumir conversa pela enfermagem |
+
+---
+
+## 2. Formatos e Enums Obrigatórios
+
+### Número de telefone
+Sempre E.164. Validação com `@Matches(/^\+[1-9]\d{1,14}$/)` em DTOs. Armazenar normalizado via `normalizePhoneNumber()` de `backend/src/common/utils/phone.util.ts`. Busca indexada via hash SHA-256 (`hashPhoneNumber()`).
+
+### Enums de status
+```typescript
+enum WhatsAppAuthMethod  { OAUTH, MANUAL, API_KEY }
+enum WhatsAppConnectionStatus { CONNECTED, DISCONNECTED, ERROR }
+enum MessageType      { TEXT, AUDIO, IMAGE, DOCUMENT }
+enum MessageDirection { INBOUND, OUTBOUND }
+enum ProcessedBy      { AGENT, NURSING }
+```
+
+### Versão da API Meta
+Padrão: `v18.0`. Configurável via `META_API_VERSION`. Nunca hardcodar outra versão sem variável de ambiente.
+
+---
+
+## 3. Webhook — Regras de Segurança
+
+### Validação de assinatura obrigatória
+
+Todo webhook Meta **deve** ter a assinatura `X-Hub-Signature-256` validada via HMAC-SHA256:
+
+```typescript
+// WhatsAppChannel.validateWebhookSignature()
+const hmac = createHmac('sha256', META_APP_SECRET);
+hmac.update(rawBody);
+const expected = `sha256=${hmac.digest('hex')}`;
+return timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+```
+
+- Usar `timingSafeEqual` — nunca `===` direto.
+- Em desenvolvimento: skip aceito se `META_APP_SECRET` não configurado. **Em produção: nunca skip.**
+- Se assinatura inválida: retornar HTTP 403 imediatamente, sem processar payload.
+
+### Resposta em 5 segundos
+
+Meta exige `200 OK` em até 5 segundos. Todo processamento pesado (agente IA, persistência) deve ser feito assincronamente via `setImmediate()`:
+
+```typescript
+// channel-gateway.controller.ts
+res.status(200).send('OK');
+setImmediate(() => this.channelGatewayService.processIncomingMessage(...));
+```
+
+**Nunca** await no handler do webhook.
+
+### Idempotência por `whatsappMessageId`
+
+Antes de qualquer processamento, verificar se `whatsappMessageId` já existe no banco:
+
+```typescript
+const existing = await this.prisma.message.findFirst({
+  where: { whatsappMessageId: externalMessageId, tenantId },
+});
+if (existing) return null; // mensagem duplicada, ignorar silenciosamente
+```
+
+---
+
+## 4. Pipeline de Mensagem Inbound
+
+```
+Webhook recebido (Meta → POST /webhook)
+    │
+    ├─► HTTP 200 OK imediato
+    │
+    └─► setImmediate()
+          │
+          ▼
+      validateWebhookSignature()
+          │
+          ▼
+      parseWebhookPayload()  ← extrai mensagens da estrutura aninhada Meta
+          │
+          ▼
+      Lookup por phoneHash → Patient (validar ownership de tenant)
+          │
+          ├─► Não encontrado → log warning, retornar null
+          │
+          └─► Encontrado
+                │
+                ▼
+            Deduplicação por whatsappMessageId
+                │
+                ▼
+            Persistir Message (INBOUND)
+                │
+                ▼
+            Atualizar conversa (lastMessageAt, messageCount)
+                │
+                ▼
+            WebSocket emit → tenant room (APÓS persistência confirmada)
+                │
+                ▼
+            Trigger agente IA (somente TEXT, não AUDIO/IMAGE/DOCUMENT)
+```
+
+### Tipos de mensagem e pipeline IA
+
+| Tipo | Trigger agente? |
+|------|----------------|
+| TEXT | Sim |
+| AUDIO | Não (armazenar audioUrl, aguardar transcrição futura) |
+| IMAGE | Não |
+| DOCUMENT | Não |
+
+Mensagens simuladas (`whatsappMessageId` com prefixo `sim_`) seguem o mesmo pipeline completo (incluindo trigger do agente), para testes sem webhook real.
+
+---
+
+## 5. Envio de Mensagens (Outbound)
+
+### Sequência obrigatória
+
+```typescript
+// channel-gateway.service.sendMessage()
+1. Obter accessToken (OAuth expirado? → retornar erro, NÃO tentar refresh automático)
+2. Chamar Meta Graph API POST /messages
+3. Persistir Message (OUTBOUND) com externalMessageId retornado
+4. Emitir WebSocket event APÓS persistência confirmada
+```
+
+### Verificação de expiração OAuth
+
+```typescript
+if (connection.oauthExpiresAt && connection.oauthExpiresAt < new Date()) {
+  return { success: false, error: 'OAuth token expired. Please reconnect.' };
+}
+```
+
+Nunca tentar refresh automático de token OAuth do WhatsApp — exige reautenticação do usuário.
+
+### `skipExternalSend`
+
+Quando `true`, gera `externalMessageId` fictício `sim_out_${Date.now()}` e não chama a API Meta. Usado para testes de integração.
+
+---
+
+## 6. Credenciais e Criptografia
+
+### Tokens sempre criptografados em repouso
+
+Usar `encryptSensitiveData` / `decryptSensitiveData` de `backend/src/whatsapp-connections/utils/encryption.util.ts` para:
+- `oauthAccessToken`
+- `apiToken`
+- `appSecret`
+
+Nunca persistir tokens em texto claro. Nunca logar tokens, nem parcialmente.
+
+### Resolução de token para envio
+
+```typescript
+// WhatsAppChannel.getAccessToken()
+1. Se oauthAccessToken presente → decriptografar e retornar
+2. Senão → decriptografar apiToken
+// Nunca expor valor decriptografado fora do método de envio
+```
+
+### ENCRYPTION_KEY
+
+Obrigatório em produção. A service lança erro na inicialização se ausente. O fallback de desenvolvimento em `whatsapp.channel.ts` é **risco conhecido — nunca replicar em código novo**.
+
+---
+
+## 7. OAuth Flow (Meta)
+
+### Sequência
+
+```
+1. initiateOAuthFlow(tenantId)
+   → Gerar state token (UUID) com binding de tenantId
+   → Persistir state com expiração de 10 minutos
+   → Retornar { authorizationUrl, state }
+
+2. handleOAuthCallback(code, state)
+   → Verificar state no banco (validade e tenantId)
+   → Trocar code por accessToken na API Meta
+   → Persistir token criptografado + expiração
+   → Invalidar state (uso único)
+```
+
+### Segurança do state
+
+- State é UUID aleatório, associado ao `tenantId` no banco.
+- Nunca aceitar `tenantId` do query param do callback — usar o `tenantId` armazenado com o state.
+- State expirado ou já usado → rejeitar com `BadRequestException`.
+
+---
+
+## 8. Conexão Padrão (Default)
+
+- Apenas uma conexão pode ser `isDefault: true` por tenant.
+- `setDefault(id, tenantId)` deve fazer update atômico: desativar default atual + ativar nova.
+- Nunca expor lógica de default fora do `whatsapp-connections.service.ts`.
+
+---
+
+## 9. Assinatura de Webhook Meta
+
+Inscrições obrigatórias ao configurar o webhook:
+```typescript
+const WEBHOOK_FIELDS = ['messages', 'message_status', 'message_deliveries', 'message_reads'];
+```
+
+Nunca remover `messages` da lista — é o campo que recebe as mensagens inbound.
+
+---
+
+## 10. Rooms WebSocket para Mensagens
+
+- Room de tenant: `tenant:${tenantId}` — broadcast de novas mensagens
+- Room de conversa: `patient:${patientId}:tenant:${tenantId}` — atualizações específicas
+
+Verificar ownership no banco **antes** de permitir join em qualquer room de paciente.
+
+---
+
+## 11. Assumir Conversa (Enfermagem)
+
+- `assumeConversation(messageId, tenantId, userId)` — assume mensagem individual.
+- `assumeAllForPatient(patientId, tenantId, userId)` — assume todas as mensagens não assumidas.
+- Apenas mensagens INBOUND podem ser assumidas (`processedBy` → `NURSING`).
+- Emitir WebSocket event após update confirmado.
+
+---
+
+## 12. Paginação e Limites
+
+| Método | Limite |
+|--------|--------|
+| `messages.findAll()` | Máximo 200 itens (cap em código) |
+| `getConversation()` | Default 50, configurável |
+
+Nunca retornar conversa completa sem limite — risco de OOM em conversas longas.
+
+---
+
+## 13. O Que NUNCA Fazer
+
+- **Nunca** processar payload de webhook sem validar assinatura HMAC em produção.
+- **Nunca** fazer await no handler do webhook — usar `setImmediate()`.
+- **Nunca** armazenar token OAuth ou API em texto claro.
+- **Nunca** logar token, mesmo mascarado parcialmente — usar apenas confirmação de presença.
+- **Nunca** aceitar `tenantId` do cliente no callback OAuth — usar o do banco.
+- **Nunca** tentar refresh automático de token OAuth expirado — retornar erro para o usuário reconectar.
+- **Nunca** emitir WebSocket event antes da escrita no banco ser confirmada.
+- **Nunca** processar AUDIO/IMAGE/DOCUMENT no pipeline do agente IA.
+- **Nunca** permitir duas conexões `isDefault: true` para o mesmo tenant.
+- **Nunca** replicar o fallback inseguro de `ENCRYPTION_KEY` em código novo.
