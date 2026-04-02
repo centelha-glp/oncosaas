@@ -35,6 +35,8 @@ next-env.d.ts
 # IDE
 .vscode
 .idea
+# Cursor hooks — estado local (dicas CLAUDE.md por subdir)
+.cursor/.hook-claude-md-hints.json
 *.swp
 *.swo
 *.swn
