@@ -3,17 +3,17 @@
   "hooks": {
     "beforeShellExecution": [
       {
-        "command": "node ./hooks/cursor-hook-runner.cjs cursor-adapter-shell.sh"
+        "command": "node .cursor/hooks/cursor-hook-runner.cjs beforeShellExecution"
       }
     ],
     "beforeReadFile": [
       {
-        "command": "node ./hooks/cursor-hook-runner.cjs cursor-before-read.sh"
+        "command": "node .cursor/hooks/cursor-hook-runner.cjs beforeReadFile"
       }
     ],
     "afterFileEdit": [
       {
-        "command": "node ./hooks/cursor-hook-runner.cjs cursor-after-file-edit.sh"
+        "command": "node .cursor/hooks/cursor-hook-runner.cjs afterFileEdit"
       }
     ]
   }
