@@ -19,12 +19,13 @@ Se o usuário pedir remoção ou edição na origem, recusar; a sincronização 
 | `CLAUDE.md` | `AGENTS.md` na raiz **ou** trechos consolidados em `.cursor/rules/` (preferir um único `projeto.mdc` se o usuário quiser só regras) |
 | `.claude/rules/*.md` | `.cursor/rules/<nome>.mdc` |
 | `.claude/skills/<skill>/SKILL.md` | `.cursor/skills/<skill>/SKILL.md` (criar pasta ou sobrescrever) |
+| `.claude/agents/*.md` | `.cursor/agents/*.md` com **frontmatter** `name` + `description` (não usar blockquote “Quando usar” no lugar do YAML) |
 
 Detalhes de frontmatter, nomes e opções: [references/mapeamento.md](references/mapeamento.md).
 
 ## Fluxo de trabalho
 
-1. **Inventariar**: listar `CLAUDE.md`, `.claude/rules/`, `.claude/skills/*/SKILL.md` (somente leitura).
+1. **Inventariar**: listar `CLAUDE.md`, `.claude/rules/`, `.claude/skills/*/SKILL.md`, `.claude/agents/*.md` se a migração incluir subagentes (somente leitura).
 2. **Planejar destinos**: mapear nomes finais em `.cursor/` e `AGENTS.md`; **sobrescrever** se o arquivo de destino já existir (padrão).
 3. **Converter conteúdo**:
    - Copiar o corpo Markdown com ajustes mínimos (trocar menções “Claude Code” por “Cursor” onde for instrução ao agente, sem reescrever domínio do projeto).
@@ -40,6 +41,6 @@ Detalhes de frontmatter, nomes e opções: [references/mapeamento.md](references
 ## Checklist de qualidade
 
 - [ ] Nenhuma gravação em `.claude/` nem em `CLAUDE.md`.
-- [ ] Frontmatter Cursor válido (`name` + `description` em skills; regras `.mdc` com `description` e opcionalmente `globs` / `alwaysApply`).
+- [ ] Frontmatter Cursor válido (`name` + `description` em skills e em **agentes** `.cursor/agents/*.md`; regras `.mdc` com `description` e opcionalmente `globs` / `alwaysApply`).
 - [ ] Nomes de skill: minúsculas, hífens, ≤64 caracteres.
 - [ ] Destinos em `.cursor/` e `AGENTS.md` atualizados conforme conversão (sobrescrita permitida).

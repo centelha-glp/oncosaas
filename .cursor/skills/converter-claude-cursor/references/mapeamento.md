@@ -56,6 +56,23 @@ description: <até ~1024 chars; incluir O QUÊ e QUANDO usar>
 - Skills do Codex podem ter metadados extras (`agents/openai.yaml`); no Cursor não são obrigatórios — não copiar salvo pedido explícito.
 - Pastas `scripts/`, `references/`, `assets/`: copiar como estão para a nova skill em `.cursor/skills/<nome>/`.
 
+## `.claude/agents/*.md` → `.cursor/agents/*.md`
+
+### Frontmatter
+
+A UI do Cursor preenche o campo **Description** a partir do YAML `description:` no topo do arquivo. **Não** mover o texto de `description` para o corpo como blockquote `> **Quando usar:**` — isso deixa o metadata vazio e quebra a descoberta do subagente.
+
+- Copiar o **primeiro** bloco `---` … `---` da origem com:
+  - `name:` (identificador do agente)
+  - `description:` (texto integral do campo homônimo no Claude)
+  - `tools:` (opcional; manter se existir na origem)
+- **Corpo**: todo o Markdown **depois** do fechamento do frontmatter, sem prefixo `# Subagent:` nem citação “Quando usar” duplicando o `description`.
+- Ajustes de texto: trocar menções “Claude Code” por “Cursor” onde for instrução ao agente, como nas skills.
+
+### Corpo
+
+- Preservar o conteúdo após o frontmatter (títulos, tabelas, exemplos de código com `---` dentro do markdown são válidos).
+
 ## Nomenclatura de arquivos
 
 - **Colisão no destino**: sobrescrever `.cursor/rules/<nome>.mdc` / `.cursor/skills/<nome>/**` quando já existirem, desde que o mapeamento origem→destino seja o mesmo.
