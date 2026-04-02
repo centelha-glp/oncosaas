@@ -1,9 +1,5 @@
 import 'dotenv/config';
 import { defineConfig } from 'prisma/config';
-import { PrismaPg } from '@prisma/adapter-pg';
-import pg from 'pg';
-
-const { Pool } = pg;
 
 /**
  * URL do datasource para o CLI.
@@ -16,10 +12,8 @@ export default defineConfig({
   datasource: {
     url: process.env.DATABASE_URL ?? '',
   },
-  migrate: {
-    async adapter(env) {
-      const pool = new Pool({ connectionString: env.DATABASE_URL });
-      return new PrismaPg(pool);
-    },
+  migrations: {
+    path: 'prisma/migrations',
+    seed: 'ts-node prisma/seed.ts',
   },
 });
