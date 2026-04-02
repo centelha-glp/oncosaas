@@ -131,7 +131,7 @@ services:
           action: rebuild
         - path: ./frontend/package-lock.json
           action: rebuild
-        - path: ./frontend/next.config.js
+        - path: ./frontend/next.config.ts
           action: rebuild
         - path: ./frontend/tsconfig.json
           action: rebuild
