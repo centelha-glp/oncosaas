@@ -1,3 +1,9 @@
+---
+name: engenheiro-ia-predicao
+model: inherit
+is_background: true
+---
+
 # Subagent: Engenheiro de IA – Algoritmos de Predição
 
 ## Papel

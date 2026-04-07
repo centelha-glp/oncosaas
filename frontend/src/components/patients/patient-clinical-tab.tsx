@@ -8,6 +8,7 @@ import {
   CurrentMedication,
   ComplementaryExam,
   ComplementaryExamType,
+  ComplementaryExamResult,
 } from '@/lib/api/patients';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -15,11 +16,13 @@ import { Separator } from '@/components/ui/separator';
 import { Button } from '@/components/ui/button';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { LineChart as LineChartIcon, Plus } from 'lucide-react';
+import { LineChart as LineChartIcon, Pencil, Plus, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ComplementaryExamChartDialog } from './complementary-exam-chart-dialog';
 import { ComplementaryExamCreateDialog } from './complementary-exam-create-dialog';
 import { ComplementaryExamResultCreateDialog } from './complementary-exam-result-create-dialog';
+import { ComplementaryExamResultEditDialog } from './complementary-exam-result-edit-dialog';
+import { ComplementaryExamResultDeleteDialog } from './complementary-exam-result-delete-dialog';
 import { PatientSymptomTimeline } from './patient-symptom-timeline';
 
 interface PatientClinicalTabProps {
@@ -69,6 +72,14 @@ export function PatientClinicalTab({
   const [examForResult, setExamForResult] = useState<ComplementaryExam | null>(
     null
   );
+  const [resultToEdit, setResultToEdit] = useState<{
+    exam: ComplementaryExam;
+    result: ComplementaryExamResult;
+  } | null>(null);
+  const [resultToDelete, setResultToDelete] = useState<{
+    exam: ComplementaryExam;
+    result: ComplementaryExamResult;
+  } | null>(null);
 
   const complementaryExams: ComplementaryExam[] = Array.isArray(
     patient.complementaryExams
@@ -253,26 +264,56 @@ export function PatientClinicalTab({
                                   key={r.id}
                                   className="py-1 border-b border-border/50 last:border-0"
                                 >
-                                  <div className="flex items-baseline justify-between gap-2">
-                                    <span className="text-muted-foreground shrink-0">
-                                      {format(
-                                        new Date(r.performedAt),
-                                        'dd/MM/yyyy',
-                                        { locale: ptBR }
-                                      )}
-                                    </span>
-                                    <span className="text-right truncate min-w-0">
-                                      {r.components && r.components.length > 0
-                                        ? `${r.components.length} parâmetros`
-                                        : r.valueNumeric != null
-                                          ? `${r.valueNumeric}${r.unit ? ` ${r.unit}` : ''}`
-                                          : (r.valueText ?? r.report ?? '-')}
-                                      {r.isAbnormal && (
-                                        <span className="text-amber-600 ml-1">
-                                          (fora ref.)
-                                        </span>
-                                      )}
-                                    </span>
+                                  <div className="flex items-start justify-between gap-2">
+                                    <div className="flex items-baseline justify-between gap-2 min-w-0 flex-1">
+                                      <span className="text-muted-foreground shrink-0">
+                                        {format(
+                                          new Date(r.performedAt),
+                                          'dd/MM/yyyy',
+                                          { locale: ptBR }
+                                        )}
+                                      </span>
+                                      <span className="text-right truncate min-w-0">
+                                        {r.components && r.components.length > 0
+                                          ? `${r.components.length} parâmetros`
+                                          : r.valueNumeric != null
+                                            ? `${r.valueNumeric}${r.unit ? ` ${r.unit}` : ''}`
+                                            : (r.valueText ?? r.report ?? '-')}
+                                        {r.isAbnormal && (
+                                          <span className="text-amber-600 ml-1">
+                                            (fora ref.)
+                                          </span>
+                                        )}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center gap-0.5 shrink-0">
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-8 w-8"
+                                        title="Editar resultado"
+                                        aria-label={`Editar resultado de ${format(new Date(r.performedAt), 'dd/MM/yyyy', { locale: ptBR })}`}
+                                        onClick={() =>
+                                          setResultToEdit({ exam, result: r })
+                                        }
+                                      >
+                                        <Pencil className="h-4 w-4" />
+                                      </Button>
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-8 w-8 text-destructive hover:text-destructive"
+                                        title="Remover resultado"
+                                        aria-label={`Remover resultado de ${format(new Date(r.performedAt), 'dd/MM/yyyy', { locale: ptBR })}`}
+                                        onClick={() =>
+                                          setResultToDelete({ exam, result: r })
+                                        }
+                                      >
+                                        <Trash2 className="h-4 w-4" />
+                                      </Button>
+                                    </div>
                                   </div>
                                   {r.components && r.components.length > 0 && (
                                     <div className="mt-2 border rounded-md overflow-hidden">
@@ -346,6 +387,32 @@ export function PatientClinicalTab({
           onOpenChange={(open) => !open && setExamForResult(null)}
           patientId={patient.id}
           exam={examForResult}
+        />
+      )}
+
+      {resultToEdit && (
+        <ComplementaryExamResultEditDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setResultToEdit(null);
+          }}
+          patientId={patient.id}
+          exam={resultToEdit.exam}
+          result={resultToEdit.result}
+        />
+      )}
+
+      {resultToDelete && (
+        <ComplementaryExamResultDeleteDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setResultToDelete(null);
+          }}
+          patientId={patient.id}
+          examId={resultToDelete.exam.id}
+          examName={resultToDelete.exam.name}
+          performedAt={resultToDelete.result.performedAt}
+          resultId={resultToDelete.result.id}
         />
       )}
 

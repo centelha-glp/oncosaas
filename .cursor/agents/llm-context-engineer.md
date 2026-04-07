@@ -1,7 +1,9 @@
 ---
-name: llm-context-engineer
-description: 'Use para engenharia de contexto LLM: otimizar prompts do orchestrator e subagentes, gerenciar janela de contexto, estruturar seções do system prompt (clínico, histórico, RAG, tools), reduzir tokens mantendo qualidade clínica, e implementar prompt caching. Acione quando precisar modificar prompts em ai-service/src/agent/prompts/, ajustar context_builder.py, otimizar o tamanho do contexto enviado ao LLM, ou melhorar a qualidade das respostas do agente oncológico.'
 tools: Read, Edit, Write, Bash, Grep, Glob
+name: llm-context-engineer
+model: inherit
+description: Use para engenharia de contexto LLM: otimizar prompts do orchestrator e subagentes, gerenciar janela de contexto, estruturar seções do system prompt (clínico, histórico, RAG, tools), reduzir tokens mantendo qualidade clínica, e implementar prompt caching. Acione quando precisar modificar prompts em ai-service/src/agent/prompts/, ajustar context_builder.py, otimizar o tamanho do contexto enviado ao LLM, ou melhorar a qualidade das respostas do agente oncológico.
+is_background: true
 ---
 
 > **Rule dedicada:** `.claude/rules/llm-context-engineer.md` — leia antes de qualquer alteração em prompts ou no context_builder.

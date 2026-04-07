@@ -1,7 +1,9 @@
 ---
-name: rag-engineer
-description: 'Use para tarefas de RAG oncológico: adicionar e curar documentos no corpus, otimizar retrieval (threshold, top-k, filtro por cancer_type), melhorar qualidade de embeddings, gerenciar cache FAISS, implementar estratégias de hybrid search ou re-ranking, e debugar falhas de retrieval. Acione quando precisar modificar ai-service/src/agent/rag/knowledge_base.py, ai-service/src/agent/rag/oncology_corpus.json, ou resolver problemas de qualidade de contexto RAG nas respostas do agente.'
 tools: Read, Edit, Write, Bash, Grep, Glob
+name: rag-engineer
+model: inherit
+description: Use para tarefas de RAG oncológico: adicionar e curar documentos no corpus, otimizar retrieval (threshold, top-k, filtro por cancer_type), melhorar qualidade de embeddings, gerenciar cache FAISS, implementar estratégias de hybrid search ou re-ranking, e debugar falhas de retrieval. Acione quando precisar modificar ai-service/src/agent/rag/knowledge_base.py, ai-service/src/agent/rag/oncology_corpus.json, ou resolver problemas de qualidade de contexto RAG nas respostas do agente.
+is_background: true
 ---
 
 > **Rule dedicada:** `.claude/rules/rag-engineer.md` — leia antes de qualquer alteração no corpus ou no pipeline RAG.

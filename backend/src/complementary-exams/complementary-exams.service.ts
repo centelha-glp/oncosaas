@@ -5,15 +5,11 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { PriorityRecalculationService } from '../oncology-navigation/priority-recalculation.service';
-import { ComplementaryExamType, Prisma } from '@generated/prisma/client';
+import { ComplementaryExamType } from '@generated/prisma/client';
 import { CreateComplementaryExamDto } from './dto/create-complementary-exam.dto';
 import { UpdateComplementaryExamDto } from './dto/update-complementary-exam.dto';
 import { CreateComplementaryExamResultDto } from './dto/create-complementary-exam-result.dto';
 import { UpdateComplementaryExamResultDto } from './dto/update-complementary-exam-result.dto';
-
-/** Filtro de resultados ativos (soft delete). Asserção evita TS2353 se o client gerado estiver defasado. */
-const activeComplementaryExamResultWhere =
-  { deletedAt: null } as Prisma.ComplementaryExamResultWhereInput;
 
 @Injectable()
 export class ComplementaryExamsService {
@@ -44,7 +40,7 @@ export class ComplementaryExamsService {
       orderBy: [{ type: 'asc' }, { name: 'asc' }],
       include: {
         results: {
-          where: activeComplementaryExamResultWhere,
+          where: { deletedAt: null },
           orderBy: { performedAt: 'desc' },
           take: 50,
         },
@@ -67,7 +63,7 @@ export class ComplementaryExamsService {
       },
       include: {
         results: {
-          where: activeComplementaryExamResultWhere,
+          where: { deletedAt: null },
           orderBy: { performedAt: 'desc' },
           take: 50,
         },
@@ -114,11 +110,7 @@ export class ComplementaryExamsService {
       where: { id: examId, tenantId },
       data: dto,
       include: {
-        results: {
-          where: activeComplementaryExamResultWhere,
-          orderBy: { performedAt: 'desc' },
-          take: 50,
-        },
+        results: { where: { deletedAt: null }, orderBy: { performedAt: 'desc' }, take: 50 },
       },
     });
   }
@@ -148,7 +140,7 @@ export class ComplementaryExamsService {
         examId,
         tenantId,
         ...(includeDeleted ? {} : { deletedAt: null }),
-      } as Prisma.ComplementaryExamResultWhereInput,
+      },
       orderBy: { performedAt: 'desc' },
     });
   }
@@ -194,7 +186,7 @@ export class ComplementaryExamsService {
     await this.findOne(patientId, examId, tenantId);
 
     const result = await this.prisma.complementaryExamResult.findFirst({
-      where: { id: resultId, examId, tenantId },
+      where: { id: resultId, examId, tenantId, deletedAt: null },
     });
 
     if (!result) {
@@ -236,12 +228,7 @@ export class ComplementaryExamsService {
     await this.findOne(patientId, examId, tenantId);
 
     const result = await this.prisma.complementaryExamResult.findFirst({
-      where: {
-        id: resultId,
-        examId,
-        tenantId,
-        deletedAt: null,
-      } as Prisma.ComplementaryExamResultWhereInput,
+      where: { id: resultId, examId, tenantId, deletedAt: null },
     });
 
     if (!result) {
@@ -256,7 +243,7 @@ export class ComplementaryExamsService {
         deletedAt: new Date(),
         deletedByUserId: params?.deletedByUserId,
         deleteReason: params?.reason,
-      } as Prisma.ComplementaryExamResultUpdateInput,
+      },
     });
 
     return { deleted: true, result: deleted };
@@ -287,7 +274,7 @@ export class ComplementaryExamsService {
         deletedAt: null,
         deletedByUserId: null,
         deleteReason: null,
-      } as Prisma.ComplementaryExamResultUpdateInput,
+      },
     });
 
     return { restored: true, result: restored };

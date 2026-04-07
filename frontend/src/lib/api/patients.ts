@@ -745,12 +745,13 @@ export const patientsApi = {
     resultId: string,
     data: Partial<{
       performedAt: string;
-      valueNumeric: number;
+      valueNumeric: number | undefined;
       valueText: string;
       unit: string;
       referenceRange: string;
       isAbnormal: boolean;
       report: string;
+      components: ExamResultComponent[];
     }>
   ): Promise<ComplementaryExamResult> {
     return apiClient.patch<ComplementaryExamResult>(
@@ -762,10 +763,12 @@ export const patientsApi = {
   async deleteComplementaryExamResult(
     patientId: string,
     examId: string,
-    resultId: string
+    resultId: string,
+    options?: { reason?: string }
   ): Promise<void> {
     await apiClient.delete(
-      `/patients/${patientId}/complementary-exams/${examId}/results/${resultId}`
+      `/patients/${patientId}/complementary-exams/${examId}/results/${resultId}`,
+      { data: options?.reason ? { reason: options.reason } : {} }
     );
   },
 
