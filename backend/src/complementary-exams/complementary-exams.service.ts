@@ -186,11 +186,14 @@ export class ComplementaryExamsService {
     }
 
     const unitFromExam =
-      exam.unit != null && String(exam.unit).trim() !== ''
+      exam.unit !== null &&
+      exam.unit !== undefined &&
+      String(exam.unit).trim() !== ''
         ? exam.unit
         : dto.unit;
     const referenceFromExam =
-      exam.referenceRange != null &&
+      exam.referenceRange !== null &&
+      exam.referenceRange !== undefined &&
       String(exam.referenceRange).trim() !== ''
         ? exam.referenceRange
         : dto.referenceRange;
@@ -269,13 +272,16 @@ export class ComplementaryExamsService {
     }
 
     const unitResolved =
-      exam.unit != null && String(exam.unit).trim() !== ''
+      exam.unit !== null &&
+      exam.unit !== undefined &&
+      String(exam.unit).trim() !== ''
         ? exam.unit
         : dto.unit !== undefined
           ? dto.unit
           : result.unit;
     const referenceResolved =
-      exam.referenceRange != null &&
+      exam.referenceRange !== null &&
+      exam.referenceRange !== undefined &&
       String(exam.referenceRange).trim() !== ''
         ? exam.referenceRange
         : dto.referenceRange !== undefined

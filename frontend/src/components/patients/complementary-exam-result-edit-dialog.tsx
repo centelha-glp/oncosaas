@@ -62,9 +62,9 @@ function buildEditValues(
     if (result.components && result.components.length > 0) {
       components = result.components.map((c) => ({
         name: c.name,
-        unit: c.unit,
-        referenceRange: c.referenceRange,
-        valueNumeric: c.valueNumeric,
+        unit: c.unit ?? undefined,
+        referenceRange: c.referenceRange ?? undefined,
+        valueNumeric: c.valueNumeric ?? undefined,
         valueText: c.valueText ?? '',
         isAbnormal: c.isAbnormal ?? false,
       }));

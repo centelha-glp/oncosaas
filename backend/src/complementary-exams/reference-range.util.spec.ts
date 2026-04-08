@@ -2,6 +2,7 @@ import {
   parseNumericReferenceRange,
   computeIsAbnormalFromRange,
   enrichComponentsWithAbnormal,
+  normalizeLocaleNumberToken,
 } from './reference-range.util';
 
 describe('parseNumericReferenceRange', () => {
@@ -16,6 +17,20 @@ describe('parseNumericReferenceRange', () => {
     expect(parseNumericReferenceRange('4,5 - 5,5')).toEqual({
       min: 4.5,
       max: 5.5,
+    });
+  });
+
+  it('parses min-max with BR thousand separators (dots)', () => {
+    expect(parseNumericReferenceRange('4.500-11.000')).toEqual({
+      min: 4500,
+      max: 11000,
+    });
+  });
+
+  it('parses range with thousand dots and decimal comma', () => {
+    expect(parseNumericReferenceRange('1.234,5 - 2.500,0')).toEqual({
+      min: 1234.5,
+      max: 2500,
     });
   });
 
@@ -42,11 +57,27 @@ describe('parseNumericReferenceRange', () => {
   });
 });
 
+describe('normalizeLocaleNumberToken', () => {
+  it('strips thousand dots for BR-style integers', () => {
+    expect(normalizeLocaleNumberToken('4.500')).toBe('4500');
+    expect(normalizeLocaleNumberToken('11.000')).toBe('11000');
+  });
+
+  it('keeps decimals starting with 0.xxx', () => {
+    expect(normalizeLocaleNumberToken('0.123')).toBe('0.123');
+  });
+});
+
 describe('computeIsAbnormalFromRange', () => {
   it('flags outside inclusive range', () => {
     expect(computeIsAbnormalFromRange(4, '4.5-5.5')).toBe(true);
     expect(computeIsAbnormalFromRange(6, '4.5-5.5')).toBe(true);
     expect(computeIsAbnormalFromRange(5, '4.5-5.5')).toBe(false);
+  });
+
+  it('uses BR thousands in reference bounds', () => {
+    expect(computeIsAbnormalFromRange(12000, '4.500-11.000')).toBe(true);
+    expect(computeIsAbnormalFromRange(8000, '4.500-11.000')).toBe(false);
   });
 
   it('returns null without numeric value', () => {

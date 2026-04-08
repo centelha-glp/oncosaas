@@ -92,10 +92,14 @@ export function ExamCatalogCombobox<T>({
 
   const setRefs = (el: HTMLInputElement | null) => {
     innerRef.current = el;
-    if (typeof externalInputRef === 'function') externalInputRef(el);
-    else if (externalInputRef && 'current' in externalInputRef)
-      (externalInputRef as React.MutableRefObject<HTMLInputElement | null>).current =
-        el;
+    const ext = externalInputRef;
+    if (typeof ext === 'function') {
+      ext(el);
+    } else if (ext && 'current' in ext) {
+      // Merge refs: padrão React para ref object + ref interno.
+      // eslint-disable-next-line react-hooks/immutability -- atribuição a ref externa em callback ref
+      (ext as React.MutableRefObject<HTMLInputElement | null>).current = el;
+    }
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {

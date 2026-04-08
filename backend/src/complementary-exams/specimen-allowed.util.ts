@@ -37,7 +37,7 @@ export function isSpecimenAllowedForType(
   type: ComplementaryExamType,
   specimen: string | undefined | null,
 ): boolean {
-  if (specimen == null || specimen.trim() === '') {
+  if (specimen === null || specimen === undefined || specimen.trim() === '') {
     return true;
   }
   const allowed = BY_TYPE[type];

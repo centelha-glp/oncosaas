@@ -88,8 +88,11 @@ export function ComplementaryExamCreateDialog({
   const queryClient = useQueryClient();
   const [selectedCatalogEntry, setSelectedCatalogEntry] = useState<CatalogExamEntry | null>(null);
   const selectedCatalogRef = useRef<CatalogExamEntry | null>(null);
-  selectedCatalogRef.current = selectedCatalogEntry;
   const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    selectedCatalogRef.current = selectedCatalogEntry;
+  }, [selectedCatalogEntry]);
 
   const form = useForm<CreateComplementaryExamFormData>({
     resolver: zodResolver(createComplementaryExamSchema),
@@ -97,6 +100,7 @@ export function ComplementaryExamCreateDialog({
       type: 'LABORATORY',
       name: '',
       code: '',
+      specimen: '',
       unit: '',
       referenceRange: '',
       initialResult: {
