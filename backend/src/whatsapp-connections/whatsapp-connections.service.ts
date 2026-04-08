@@ -19,8 +19,6 @@ import {
   decryptSensitiveData,
 } from './utils/encryption.util';
 import * as crypto from 'crypto';
-import * as bizSdk from 'facebook-nodejs-business-sdk';
-const { FacebookAdsApi, Business, WhatsAppBusinessAccount, User } = bizSdk;
 
 interface MetaTokenResponse {
   access_token: string;
@@ -52,7 +50,6 @@ export class WhatsAppConnectionsService {
   private readonly metaAppSecret: string;
   private readonly metaOAuthRedirectUri: string;
   private readonly metaEmbeddedSignupRedirectUri: string;
-  private readonly metaEmbeddedSignupUseRedirectUri: boolean;
   private readonly encryptionKey: string;
   private readonly metaApiBaseUrl: string;
   private readonly metaConfigId: string;
@@ -77,9 +74,6 @@ export class WhatsAppConnectionsService {
       'http://localhost:3002/api/v1/whatsapp-connections/oauth/callback';
     this.metaEmbeddedSignupRedirectUri =
       this.configService.get<string>('META_EMBEDDED_SIGNUP_REDIRECT_URI') || '';
-    this.metaEmbeddedSignupUseRedirectUri =
-      this.configService.get<string>('META_EMBEDDED_SIGNUP_USE_REDIRECT_URI') !==
-      'false';
     const configuredEncryptionKey =
       this.configService.get<string>('ENCRYPTION_KEY');
     const isProduction =
@@ -279,173 +273,129 @@ export class WhatsAppConnectionsService {
   }
 
   /**
-   * Buscar Business Managers do usuário usando SDK
+   * Buscar Business Managers do usuário
    */
   private async getBusinessManagers(
     accessToken: string
   ): Promise<MetaBusiness[]> {
     try {
-      // Configurar API com access token (versão já configurada via env)
-      const api = FacebookAdsApi.init(accessToken);
-
-      // Buscar businesses do usuário
-      const user = new User('me');
-      const businesses = await user.getBusinesses([], {
-        fields: ['id', 'name'],
-      });
-
-      return businesses.map((business: any) => ({
-        id: business.id,
-        name: business.name || 'Unnamed Business',
-      }));
-    } catch (error: any) {
-      this.logger.error('Error fetching business managers:', error);
-      // Fallback para HTTP direto se SDK falhar
-      try {
-        const response = await axios.get<{ data: MetaBusiness[] }>(
-          `${this.metaApiBaseUrl}/me/businesses`,
-          {
-            params: {
-              access_token: accessToken,
-            },
-          }
-        );
-        return response.data.data || [];
-      } catch (httpError: any) {
-        throw new BadRequestException(
-          `Failed to fetch business managers: ${error.message || httpError.message}`
-        );
-      }
+      const response = await axios.get<{ data: MetaBusiness[] }>(
+        `${this.metaApiBaseUrl}/me/businesses`,
+        { params: { access_token: accessToken } }
+      );
+      return response.data.data || [];
+    } catch (err: any) {
+      this.logger.warn(
+        `/me/businesses failed: ${err.response?.data?.error?.message || err.message}`
+      );
+      return [];
     }
   }
 
   /**
-   * Inscrever Business Manager ao app usando SDK
+   * Inscrever Business Manager ao app
    */
   private async subscribeBusinessManager(
     businessId: string,
     accessToken: string
   ): Promise<void> {
     try {
-      const api = FacebookAdsApi.init(accessToken);
-      const business = new Business(businessId);
-
-      // Inscrever campos do WhatsApp
-      await business.createSubscribedApp([], {
-        subscribed_fields: ['messages', 'message_status', 'message_deliveries'],
-      });
-
+      await axios.post(
+        `${this.metaApiBaseUrl}/${businessId}/subscribed_apps`,
+        { subscribed_fields: ['messages', 'message_status', 'message_deliveries'] },
+        { params: { access_token: accessToken } }
+      );
       this.logger.log(`Business Manager ${businessId} subscribed to app`);
-    } catch (error: any) {
-      this.logger.error('Error subscribing business manager:', error);
-      // Fallback para HTTP direto
-      try {
-        await axios.post(
-          `${this.metaApiBaseUrl}/${businessId}/subscribed_apps`,
-          {
-            subscribed_fields: [
-              'messages',
-              'message_status',
-              'message_deliveries',
-            ],
-          },
-          {
-            params: {
-              access_token: accessToken,
-            },
-          }
-        );
-        this.logger.log(
-          `Business Manager ${businessId} subscribed to app (via HTTP)`
-        );
-      } catch (httpError: any) {
-        throw new BadRequestException(
-          `Failed to subscribe business manager: ${error.message || httpError.message}`
-        );
-      }
+    } catch (err: any) {
+      throw new BadRequestException(
+        `Failed to subscribe business manager: ${err.response?.data?.error?.message || err.message}`
+      );
     }
   }
 
   /**
-   * Buscar WhatsApp Business Accounts da BM usando SDK
+   * Buscar WABAs diretamente do token via /me/whatsapp_business_accounts
+   * Funciona com token do Embedded Signup sem precisar de business_management.
+   */
+  /**
+   * Obtém WABA IDs do token via debug_token granular_scopes.
+   * É a forma correta de descobrir quais WABAs o usuário concedeu acesso
+   * durante o Embedded Signup, sem precisar de business_management.
+   * Ref: https://developers.facebook.com/docs/graph-api/reference/debug_token/
+   */
+  private async getWabasFromToken(
+    accessToken: string
+  ): Promise<MetaWhatsAppBusinessAccount[]> {
+    try {
+      const appToken = `${this.metaAppId}|${this.metaAppSecret}`;
+      const response = await axios.get<{
+        data: {
+          granular_scopes?: Array<{ scope: string; target_ids?: string[] }>;
+        };
+      }>(`${this.metaApiBaseUrl}/debug_token`, {
+        params: {
+          input_token: accessToken,
+          access_token: appToken,
+          fields: 'granular_scopes',
+        },
+      });
+
+      const granularScopes = response.data?.data?.granular_scopes || [];
+      const wabaScope = granularScopes.find(
+        (s) =>
+          s.scope === 'whatsapp_business_management' ||
+          s.scope === 'whatsapp_business_messaging'
+      );
+      const wabaIds = wabaScope?.target_ids || [];
+      this.logger.log(
+        `debug_token granular_scopes: found ${wabaIds.length} WABA ID(s): ${wabaIds.join(', ')}`
+      );
+      return wabaIds.map((id) => ({ id, name: '' }));
+    } catch (err: any) {
+      this.logger.warn(
+        `debug_token failed: ${err.response?.data?.error?.message || err.message}`
+      );
+      return [];
+    }
+  }
+
+  /**
+   * Buscar WhatsApp Business Accounts da BM
    */
   private async getWhatsAppBusinessAccounts(
     businessId: string,
     accessToken: string
   ): Promise<MetaWhatsAppBusinessAccount[]> {
     try {
-      const api = FacebookAdsApi.init(accessToken);
-      const business = new Business(businessId);
-
-      const accounts = await business.getOwnedWhatsAppBusinessAccounts([], {
-        fields: ['id', 'name'],
-      });
-
-      return accounts.map((account: any) => ({
-        id: account.id,
-        name: account.name || 'Unnamed WhatsApp Business Account',
-      }));
-    } catch (error: any) {
-      this.logger.error('Error fetching WhatsApp Business Accounts:', error);
-      // Fallback para HTTP direto
-      try {
-        const response = await axios.get<{
-          data: MetaWhatsAppBusinessAccount[];
-        }>(
-          `${this.metaApiBaseUrl}/${businessId}/owned_whatsapp_business_accounts`,
-          {
-            params: {
-              access_token: accessToken,
-            },
-          }
-        );
-        return response.data.data || [];
-      } catch (httpError: any) {
-        throw new BadRequestException(
-          `Failed to fetch WhatsApp Business Accounts: ${error.message || httpError.message}`
-        );
-      }
+      const response = await axios.get<{ data: MetaWhatsAppBusinessAccount[] }>(
+        `${this.metaApiBaseUrl}/${businessId}/owned_whatsapp_business_accounts`,
+        { params: { access_token: accessToken, fields: 'id,name' } }
+      );
+      return response.data.data || [];
+    } catch (err: any) {
+      throw new BadRequestException(
+        `Failed to fetch WhatsApp Business Accounts: ${err.response?.data?.error?.message || err.message}`
+      );
     }
   }
 
   /**
-   * Buscar números de telefone de uma conta WhatsApp Business usando SDK
+   * Buscar números de telefone de uma conta WhatsApp Business
    */
   private async getPhoneNumbers(
     whatsappAccountId: string,
     accessToken: string
   ): Promise<MetaPhoneNumber[]> {
     try {
-      const api = FacebookAdsApi.init(accessToken);
-      const account = new WhatsAppBusinessAccount(whatsappAccountId);
-
-      const phoneNumbers = await account.getPhoneNumbers([], {
-        fields: ['id', 'display_phone_number', 'verified_name'],
-      });
-
-      return phoneNumbers.map((pn: any) => ({
-        id: pn.id,
-        display_phone_number: pn.display_phone_number || '',
-        verified_name: pn.verified_name,
-      }));
-    } catch (error: any) {
-      this.logger.error('Error fetching phone numbers:', error);
-      // Fallback para HTTP direto
-      try {
-        const response = await axios.get<{ data: MetaPhoneNumber[] }>(
-          `${this.metaApiBaseUrl}/${whatsappAccountId}/phone_numbers`,
-          {
-            params: {
-              access_token: accessToken,
-            },
-          }
-        );
-        return response.data.data || [];
-      } catch (httpError: any) {
-        throw new BadRequestException(
-          `Failed to fetch phone numbers: ${error.message || httpError.message}`
-        );
-      }
+      const response = await axios.get<{ data: MetaPhoneNumber[] }>(
+        `${this.metaApiBaseUrl}/${whatsappAccountId}/phone_numbers`,
+        { params: { access_token: accessToken, fields: 'id,display_phone_number,verified_name' } }
+      );
+      return response.data.data || [];
+    } catch (err: any) {
+      throw new BadRequestException(
+        `Failed to fetch phone numbers: ${err.response?.data?.error?.message || err.message}`
+      );
     }
   }
 
@@ -887,198 +837,45 @@ export class WhatsAppConnectionsService {
    * Ref: https://stackoverflow.com/questions/77555576
    * Ref: JSSDKXDConfig.XXdUrl no connect.facebook.net/sdk.js
    */
-  private async exchangeCodeForBusinessToken(
-    code: string,
-    redirectUriFromFrontend?: string
-  ): Promise<string> {
-    const rawRedirectUri =
-      redirectUriFromFrontend !== undefined
-        ? String(redirectUriFromFrontend).trim()
-        : (this.metaEmbeddedSignupRedirectUri?.trim() || '');
-    const redirectUri = rawRedirectUri.replace(/\/$/, '');
-
-    const tryExchange = async (
-      redirectUriToUse: string | null,
-      usePost: boolean
-    ) => {
-      const params: Record<string, string> = {
-        client_id: this.metaAppId,
-        client_secret: this.metaAppSecret,
-        code: code,
-      };
-      if (redirectUriToUse !== null) {
-        params.redirect_uri = redirectUriToUse;
-      }
-
-      this.logger.debug(
-        `Exchanging code via ${this.metaApiBaseUrl}/oauth/access_token ` +
-          `(${usePost ? 'POST' : 'GET'}, client_id=${this.metaAppId}, redirect_uri=${redirectUriToUse === null ? 'omitted' : `"${redirectUriToUse}"`})`
-      );
-
-      let response: { data: MetaTokenResponse };
-      if (usePost) {
-        response = await axios.post<MetaTokenResponse>(
-          `${this.metaApiBaseUrl}/oauth/access_token`,
-          new URLSearchParams(params).toString(),
-          {
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          }
-        );
-      } else {
-        response = await axios.get<MetaTokenResponse>(
-          `${this.metaApiBaseUrl}/oauth/access_token`,
-          { params }
-        );
-      }
-
-      if (!response.data.access_token) {
-        throw new BadRequestException(
-          'Failed to exchange code for business token'
-        );
-      }
-
-      return response.data.access_token;
+  /**
+   * Trocar código do Embedded Signup por business token.
+   * O fluxo popup do Facebook SDK (FB.login) não usa redirect_uri —
+   * omitir é a abordagem correta.
+   */
+  private async exchangeCodeForBusinessToken(code: string): Promise<string> {
+    const params = {
+      client_id: this.metaAppId,
+      client_secret: this.metaAppSecret,
+      code,
     };
 
-    // Ordem: redirect_uri do frontend PRIMEIRO (fallback_redirect_uri no FB.login)
-    // Ref: FB.login usa primeiro URL de Valid OAuth Redirect URIs ou fallback_redirect_uri
-    const primaryUris: (string | null)[] = [];
-
-    if (redirectUri) {
-      primaryUris.push(redirectUri);
-      primaryUris.push(redirectUri + '/'); // Variante com barra final
-    }
-
-    primaryUris.push(null); // omitir - funciona para alguns (Eduardo, Hitesh)
-    primaryUris.push('');
-
-    // Se META_EMBEDDED_SIGNUP_USE_REDIRECT_URI=true E ainda não temos a URL, adicionar do .env
-    if (
-      this.metaEmbeddedSignupUseRedirectUri &&
-      this.metaEmbeddedSignupRedirectUri &&
-      !redirectUri
-    ) {
-      primaryUris.push(this.metaEmbeddedSignupRedirectUri.trim().replace(/\/$/, ''));
-    }
-
-    let lastError: any;
-    for (let i = 0; i < primaryUris.length; i++) {
-      const uriToTry = primaryUris[i];
-      const label =
-        uriToTry === null
-          ? 'null (omit)'
-          : uriToTry === ''
-            ? '""'
-            : uriToTry?.includes('xd_arbiter')
-              ? `xd_arbiter`
-              : 'app redirect_uri';
-
-      try {
-        if (i > 0) {
-          this.logger.warn(
-            `Token exchange retry (attempt ${i + 1}) with redirect_uri=${label}`
-          );
-        }
-        // Tentar POST primeiro (Hitesh no fórum Meta relatou sucesso com POST)
-        try {
-          return await tryExchange(
-            uriToTry === null ? null : uriToTry!,
-            true
-          );
-        } catch (postErr: any) {
-          const postMetaErr = postErr.response?.data?.error;
-          const postIs36008 =
-            postMetaErr?.code === 36008 ||
-            postMetaErr?.error_subcode === 36008;
-          if (postIs36008) {
-            this.logger.debug(
-              `POST failed (36008), retrying with GET for ${label}`
-            );
-            return await tryExchange(
-              uriToTry === null ? null : uriToTry!,
-              false
-            );
-          }
-          throw postErr;
-        }
-      } catch (err: any) {
-        lastError = err;
-        const metaError = err.response?.data?.error;
-        const is36008 =
-          metaError?.code === 36008 || metaError?.error_subcode === 36008;
-
-        this.logger.debug(
-          `Attempt with ${label} failed${is36008 ? ' (36008 redirect_uri mismatch)' : ''}:`,
-          metaError?.message || err.message
-        );
-
-        if (i === primaryUris.length - 1) {
-          const msg = metaError?.message || lastError.message;
-          this.logger.error(
-            'All redirect_uri attempts failed. Ensure Valid OAuth Redirect URIs includes your app URL.'
-          );
-          throw new BadRequestException(`Failed to exchange code: ${msg}`);
-        }
-      }
-    }
-
-    // Fallback antigo mantido só por compatibilidade (não deve chegar aqui)
-    throw lastError || new BadRequestException('Failed to exchange code');
-  }
-
-  private async _exchangeCodeForBusinessTokenLegacy(
-    code: string,
-    redirectUri: string
-  ): Promise<string> {
-    const tryExchange = async (redirectUriToUse: string | null) => {
-      const params: Record<string, string> = {
-        client_id: this.metaAppId,
-        client_secret: this.metaAppSecret,
-        code: code,
-      };
-      if (redirectUriToUse !== null) {
-        params.redirect_uri = redirectUriToUse;
-      }
-      const response = await axios.get<MetaTokenResponse>(
-        `${this.metaApiBaseUrl}/oauth/access_token`,
-        { params }
-      );
-      if (!response.data.access_token) {
-        throw new BadRequestException('Failed to exchange code for business token');
-      }
-      return response.data.access_token;
-    };
-
+    // Tentar POST sem redirect_uri (recomendado para popup SDK)
     try {
-      return await tryExchange(redirectUri);
-    } catch (firstError: any) {
-      const metaError = firstError.response?.data?.error;
-      const is36008 =
-        metaError?.code === 36008 || metaError?.error_subcode === 36008;
-
-      if (!is36008) {
-        const errorMessage = metaError?.message || firstError.message;
-        this.logger.error('Error exchanging code:', { message: errorMessage });
-        throw new BadRequestException(`Failed to exchange code: ${errorMessage}`);
-      }
-
-      const fallbackUris: (string | null)[] = [null, ''];
-
-      for (let i = 0; i < fallbackUris.length; i++) {
-        const uriToTry = fallbackUris[i];
-        try {
-          this.logger.warn(`Retrying token exchange (36008) with fallback ${i + 1}`);
-          return await tryExchange(uriToTry === null ? null : uriToTry!);
-        } catch (retryError: any) {
-          if (i === fallbackUris.length - 1) {
-            const msg = retryError.response?.data?.error?.message || retryError.message;
-            throw new BadRequestException(`Failed to exchange code: ${msg}`);
-          }
-        }
-      }
+      const response = await axios.post<MetaTokenResponse>(
+        `${this.metaApiBaseUrl}/oauth/access_token`,
+        new URLSearchParams(params as Record<string, string>).toString(),
+        { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+      );
+      if (response.data.access_token) { return response.data.access_token; }
+    } catch (postErr: any) {
+      this.logger.debug(
+        `POST token exchange failed: ${postErr.response?.data?.error?.message || postErr.message}, retrying with GET`
+      );
     }
 
-    throw new BadRequestException('Failed to exchange code');
+    // GET fallback
+    const getResponse = await axios.get<MetaTokenResponse>(
+      `${this.metaApiBaseUrl}/oauth/access_token`,
+      { params }
+    ).catch((err: any) => {
+      const msg = err.response?.data?.error?.message || err.message;
+      throw new BadRequestException(`Failed to exchange code for token: ${msg}`);
+    });
+
+    if (!getResponse.data.access_token) {
+      throw new BadRequestException('Failed to exchange code for token');
+    }
+    return getResponse.data.access_token;
   }
 
 
@@ -1090,18 +887,18 @@ export class WhatsAppConnectionsService {
   async processEmbeddedSignup(
     code: string,
     tenantId: string,
-    redirectUriFromFrontend?: string
+    redirectUriFromFrontend?: string,
+    wabaIdFromEvent?: string,
+    phoneNumberIdFromEvent?: string
   ): Promise<{ success: boolean; connectionId: string; message: string }> {
+    this.logger.log(
+      `processEmbeddedSignup: waba_id=${wabaIdFromEvent ?? 'null'} phone_number_id=${phoneNumberIdFromEvent ?? 'null'}`
+    );
     try {
       // Passo 1: Trocar código por business token
-      const businessToken = await this.exchangeCodeForBusinessToken(
-        code,
-        redirectUriFromFrontend
-      );
+      const businessToken = await this.exchangeCodeForBusinessToken(code);
 
-      // Passo 2: Tentar obter long-lived token (o token do Embedded Signup
-      // pode já ser um System User token que não expira — nesse caso a troca falha
-      // e usamos o original)
+      // Passo 2: Tentar obter long-lived token
       let longLivedToken: string;
       let expiresIn: number;
       try {
@@ -1118,92 +915,141 @@ export class WhatsAppConnectionsService {
       }
 
       const expiresAt = new Date(Date.now() + expiresIn * 1000);
-
-      // Buscar Business Managers
-      const businesses = await this.getBusinessManagers(longLivedToken);
-
-      if (businesses.length === 0) {
-        throw new BadRequestException(
-          'No Business Managers found. Please create a Business Manager first.'
-        );
-      }
-
-      const businessId = businesses[0].id;
-
-      // Buscar WhatsApp Business Accounts
-      const whatsappAccounts = await this.getWhatsAppBusinessAccounts(
-        businessId,
-        longLivedToken
-      );
-
-      if (whatsappAccounts.length === 0) {
-        throw new BadRequestException(
-          'No WhatsApp Business Accounts found. Please complete the Embedded Signup flow.'
-        );
-      }
-
-      // Buscar números de telefone e criar/atualizar conexões
       const connections: WhatsAppConnection[] = [];
       let isFirst = true;
 
-      for (const account of whatsappAccounts) {
-        const phoneNumbers = await this.getPhoneNumbers(
-          account.id,
-          longLivedToken
+      if (wabaIdFromEvent && phoneNumberIdFromEvent) {
+        // Caminho direto: usar waba_id e phone_number_id do evento WA_EMBEDDED_SIGNUP
+        // Isso evita a necessidade de permissão business_management no token
+        this.logger.log(
+          `Using waba_id=${wabaIdFromEvent} and phone_number_id=${phoneNumberIdFromEvent} from postMessage event`
         );
 
-        for (const phoneNumber of phoneNumbers) {
-          const existing = await this.prisma.whatsAppConnection.findFirst({
-            where: {
-              tenantId,
-              phoneNumber: phoneNumber.display_phone_number,
-            },
-          });
+        const phoneNumbers = await this.getPhoneNumbers(wabaIdFromEvent, longLivedToken);
+        const phoneNumber = phoneNumbers.find((p) => p.id === phoneNumberIdFromEvent)
+          || phoneNumbers[0];
 
-          const connectionData = {
-            phoneNumberId: phoneNumber.id,
-            whatsappBusinessAccountId: account.id,
-            businessAccountId: businessId,
-            oauthAccessToken: encryptSensitiveData(
-              longLivedToken,
-              this.encryptionKey
-            ),
-            oauthExpiresAt: expiresAt,
-            oauthScopes: [
-              'business_management',
-              'whatsapp_business_management',
-              'whatsapp_business_messaging',
-            ],
-            authMethod: WhatsAppAuthMethod.OAUTH,
-            status: WhatsAppConnectionStatus.CONNECTED,
-            isActive: true,
-            lastSyncAt: new Date(),
-            lastError: null,
-          };
+        if (!phoneNumber) {
+          throw new BadRequestException(
+            'Phone number not found in WhatsApp Business Account.'
+          );
+        }
 
-          if (existing) {
-            const updated = await this.prisma.whatsAppConnection.update({
+        const existing = await this.prisma.whatsAppConnection.findFirst({
+          where: { tenantId, phoneNumber: phoneNumber.display_phone_number },
+        });
+
+        const connectionData = {
+          phoneNumberId: phoneNumber.id,
+          whatsappBusinessAccountId: wabaIdFromEvent,
+          oauthAccessToken: encryptSensitiveData(longLivedToken, this.encryptionKey),
+          oauthExpiresAt: expiresAt,
+          oauthScopes: ['whatsapp_business_management', 'whatsapp_business_messaging'],
+          authMethod: WhatsAppAuthMethod.OAUTH,
+          status: WhatsAppConnectionStatus.CONNECTED,
+          isActive: true,
+          lastSyncAt: new Date(),
+          lastError: null,
+        };
+
+        if (existing) {
+          connections.push(
+            await this.prisma.whatsAppConnection.update({
               where: { id: existing.id, tenantId },
-              data: {
-                ...connectionData,
-                isDefault: isFirst && !existing.isDefault,
-              },
-            });
-            connections.push(updated);
-          } else {
-            const created = await this.prisma.whatsAppConnection.create({
+              data: { ...connectionData, isDefault: !existing.isDefault },
+            })
+          );
+        } else {
+          connections.push(
+            await this.prisma.whatsAppConnection.create({
               data: {
                 ...connectionData,
                 tenantId,
                 name: `WhatsApp ${phoneNumber.display_phone_number}`,
                 phoneNumber: phoneNumber.display_phone_number,
-                isDefault: isFirst,
+                isDefault: true,
               },
-            });
-            connections.push(created);
+            })
+          );
+        }
+      } else {
+        // Caminho 2: descobrir WABAs via debug_token granular_scopes
+        // É a forma correta para tokens Embedded Signup sem business_management
+        let whatsappAccounts = await this.getWabasFromToken(longLivedToken);
+        let resolvedBusinessId: string | undefined = undefined;
+
+        if (whatsappAccounts.length === 0) {
+          // Caminho 3: fallback via Business Manager (requer business_management)
+          this.logger.warn(
+            '/me/whatsapp_business_accounts returned empty, falling back to Business Manager path'
+          );
+          const businesses = await this.getBusinessManagers(longLivedToken);
+
+          if (businesses.length === 0) {
+            throw new BadRequestException(
+              'No WhatsApp Business Accounts found. Please complete the Embedded Signup flow and ensure your account has a WhatsApp Business Account.'
+            );
           }
 
-          isFirst = false;
+          resolvedBusinessId = businesses[0].id;
+          whatsappAccounts = await this.getWhatsAppBusinessAccounts(resolvedBusinessId, longLivedToken);
+        }
+
+        if (whatsappAccounts.length === 0) {
+          throw new BadRequestException(
+            'No WhatsApp Business Accounts found. Please complete the Embedded Signup flow.'
+          );
+        }
+
+        for (const account of whatsappAccounts) {
+          const phoneNumbers = await this.getPhoneNumbers(account.id, longLivedToken);
+
+          for (const phoneNumber of phoneNumbers) {
+            const existing = await this.prisma.whatsAppConnection.findFirst({
+              where: { tenantId, phoneNumber: phoneNumber.display_phone_number },
+            });
+
+            const connectionData = {
+              phoneNumberId: phoneNumber.id,
+              whatsappBusinessAccountId: account.id,
+              businessAccountId: resolvedBusinessId,
+              oauthAccessToken: encryptSensitiveData(longLivedToken, this.encryptionKey),
+              oauthExpiresAt: expiresAt,
+              oauthScopes: [
+                'business_management',
+                'whatsapp_business_management',
+                'whatsapp_business_messaging',
+              ],
+              authMethod: WhatsAppAuthMethod.OAUTH,
+              status: WhatsAppConnectionStatus.CONNECTED,
+              isActive: true,
+              lastSyncAt: new Date(),
+              lastError: null,
+            };
+
+            if (existing) {
+              connections.push(
+                await this.prisma.whatsAppConnection.update({
+                  where: { id: existing.id, tenantId },
+                  data: { ...connectionData, isDefault: isFirst && !existing.isDefault },
+                })
+              );
+            } else {
+              connections.push(
+                await this.prisma.whatsAppConnection.create({
+                  data: {
+                    ...connectionData,
+                    tenantId,
+                    name: `WhatsApp ${phoneNumber.display_phone_number}`,
+                    phoneNumber: phoneNumber.display_phone_number,
+                    isDefault: isFirst,
+                  },
+                })
+              );
+            }
+
+            isFirst = false;
+          }
         }
       }
 
@@ -1213,13 +1059,14 @@ export class WhatsAppConnectionsService {
         );
       }
 
-      // Configurar webhooks (não-fatal)
-      for (const account of whatsappAccounts) {
+      // Configurar webhooks (não-fatal) — usar WABAs das conexões criadas
+      const wabaIds = [...new Set(connections.map((c) => c.whatsappBusinessAccountId).filter(Boolean))];
+      for (const wabaId of wabaIds) {
         try {
-          await this.configureWebhook(account.id, longLivedToken);
+          await this.configureWebhook(wabaId!, longLivedToken);
         } catch (error: any) {
           this.logger.warn(
-            `Failed to configure webhook for WABA ${account.id}:`,
+            `Failed to configure webhook for WABA ${wabaId}:`,
             error.message
           );
         }

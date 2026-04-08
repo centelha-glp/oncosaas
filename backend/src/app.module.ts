@@ -26,6 +26,7 @@ import { AuditLogModule } from './audit-log/audit-log.module';
 import { AuditLogInterceptor } from './audit-log/audit-log.interceptor';
 import { ScheduledActionsModule } from './scheduled-actions/scheduled-actions.module';
 import { ComplementaryExamsModule } from './complementary-exams/complementary-exams.module';
+import { ExamCatalogModule } from './exam-catalog/exam-catalog.module';
 import { QuestionnaireResponsesModule } from './questionnaire-responses/questionnaire-responses.module';
 import { MedicationsModule } from './medications/medications.module';
 import { ComorbiditiesModule } from './comorbidities/comorbidities.module';
@@ -64,6 +65,7 @@ import { ThrottleGuard } from './common/guards/throttle.guard';
     AuditLogModule,
     ScheduledActionsModule,
     ComplementaryExamsModule,
+    ExamCatalogModule,
     QuestionnaireResponsesModule,
     MedicationsModule,
     ComorbiditiesModule,

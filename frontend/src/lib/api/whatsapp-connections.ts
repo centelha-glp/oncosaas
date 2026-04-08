@@ -164,11 +164,13 @@ export const whatsappConnectionsApi = {
    */
   processEmbeddedSignup: async (
     code: string,
-    redirect_uri?: string
+    redirect_uri?: string,
+    waba_id?: string,
+    phone_number_id?: string
   ): Promise<EmbeddedSignupCodeResponse> => {
     return apiClient.post<EmbeddedSignupCodeResponse>(
       '/whatsapp-connections/embedded-signup/process',
-      { code, redirect_uri }
+      { code, redirect_uri, waba_id, phone_number_id }
     );
   },
 };

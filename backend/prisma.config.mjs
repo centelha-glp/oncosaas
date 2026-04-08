@@ -16,6 +16,10 @@ export default defineConfig({
   datasource: {
     url: process.env.DATABASE_URL ?? '',
   },
+  /** Comando usado por `prisma db seed` (o campo `prisma.seed` do package.json não é aplicado com este arquivo de config). */
+  migrations: {
+    seed: 'ts-node -r tsconfig-paths/register prisma/seed.ts',
+  },
   migrate: {
     async adapter(env) {
       const pool = new Pool({ connectionString: env.DATABASE_URL });

@@ -1,6 +1,7 @@
 import {
   Injectable,
   NotFoundException,
+  BadRequestException,
   Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
@@ -10,6 +11,13 @@ import { CreateComplementaryExamDto } from './dto/create-complementary-exam.dto'
 import { UpdateComplementaryExamDto } from './dto/update-complementary-exam.dto';
 import { CreateComplementaryExamResultDto } from './dto/create-complementary-exam-result.dto';
 import { UpdateComplementaryExamResultDto } from './dto/update-complementary-exam-result.dto';
+import { parsePerformedAtDateOnly } from '../common/utils/date-only.util';
+import { isSpecimenAllowedForType } from './specimen-allowed.util';
+import {
+  computeIsAbnormalFromRange,
+  enrichComponentsWithAbnormal,
+  type ExamResultComponentInput,
+} from './reference-range.util';
 
 @Injectable()
 export class ComplementaryExamsService {
@@ -86,6 +94,12 @@ export class ComplementaryExamsService {
   ) {
     await this.ensurePatientBelongsToTenant(patientId, tenantId);
 
+    if (!isSpecimenAllowedForType(dto.type, dto.specimen)) {
+      throw new BadRequestException(
+        'Espécime/amostra inválido para o tipo de exame selecionado.',
+      );
+    }
+
     return this.prisma.complementaryExam.create({
       data: {
         ...dto,
@@ -104,7 +118,16 @@ export class ComplementaryExamsService {
     tenantId: string,
     dto: UpdateComplementaryExamDto,
   ) {
-    await this.findOne(patientId, examId, tenantId);
+    const existing = await this.findOne(patientId, examId, tenantId);
+    const nextType = dto.type ?? existing.type;
+    if (
+      dto.specimen !== undefined &&
+      !isSpecimenAllowedForType(nextType, dto.specimen)
+    ) {
+      throw new BadRequestException(
+        'Espécime/amostra inválido para o tipo de exame selecionado.',
+      );
+    }
 
     return this.prisma.complementaryExam.update({
       where: { id: examId, tenantId },
@@ -151,23 +174,60 @@ export class ComplementaryExamsService {
     tenantId: string,
     dto: CreateComplementaryExamResultDto,
   ) {
-    await this.findOne(patientId, examId, tenantId);
+    const exam = await this.findOne(patientId, examId, tenantId);
+
+    let performedAt: Date;
+    try {
+      performedAt = parsePerformedAtDateOnly(dto.performedAt);
+    } catch (e) {
+      throw new BadRequestException(
+        (e as Error).message || 'Data de realização inválida (use YYYY-MM-DD).',
+      );
+    }
+
+    const unitFromExam =
+      exam.unit != null && String(exam.unit).trim() !== ''
+        ? exam.unit
+        : dto.unit;
+    const referenceFromExam =
+      exam.referenceRange != null &&
+      String(exam.referenceRange).trim() !== ''
+        ? exam.referenceRange
+        : dto.referenceRange;
+
+    const componentsPayload = enrichComponentsWithAbnormal(
+      dto.components as ExamResultComponentInput[] | undefined,
+    );
+
+    let isAbnormalResolved: boolean;
+    if (componentsPayload?.length) {
+      isAbnormalResolved = componentsPayload.some((c) => c.isAbnormal);
+    } else {
+      const computed = computeIsAbnormalFromRange(
+        dto.valueNumeric,
+        referenceFromExam,
+      );
+      isAbnormalResolved =
+        computed !== null ? computed : (dto.isAbnormal ?? false);
+    }
 
     const result = await this.prisma.complementaryExamResult.create({
       data: {
         examId,
         tenantId,
-        performedAt: new Date(dto.performedAt),
+        performedAt,
         collectionId: dto.collectionId,
         valueNumeric: dto.valueNumeric,
         valueText: dto.valueText,
-        unit: dto.unit,
-        referenceRange: dto.referenceRange,
-        isAbnormal: dto.isAbnormal,
+        unit: unitFromExam,
+        referenceRange: referenceFromExam,
+        isAbnormal: isAbnormalResolved,
         criticalHigh: dto.criticalHigh,
         criticalLow: dto.criticalLow,
         report: dto.report,
-        components: dto.components ? (dto.components as any) : undefined,
+        components: componentsPayload
+          ? (componentsPayload as object)
+          : undefined,
       },
     });
 
@@ -195,21 +255,84 @@ export class ComplementaryExamsService {
       );
     }
 
+    const exam = await this.findOne(patientId, examId, tenantId);
+
+    let performedAtUpdate: Date | undefined;
+    if (dto.performedAt !== undefined && dto.performedAt !== null) {
+      try {
+        performedAtUpdate = parsePerformedAtDateOnly(dto.performedAt);
+      } catch (e) {
+        throw new BadRequestException(
+          (e as Error).message || 'Data de realização inválida (use YYYY-MM-DD).',
+        );
+      }
+    }
+
+    const unitResolved =
+      exam.unit != null && String(exam.unit).trim() !== ''
+        ? exam.unit
+        : dto.unit !== undefined
+          ? dto.unit
+          : result.unit;
+    const referenceResolved =
+      exam.referenceRange != null &&
+      String(exam.referenceRange).trim() !== ''
+        ? exam.referenceRange
+        : dto.referenceRange !== undefined
+          ? dto.referenceRange
+          : result.referenceRange;
+
+    const valueNumericMerged =
+      dto.valueNumeric !== undefined ? dto.valueNumeric : result.valueNumeric;
+
+    const componentsPayload =
+      dto.components !== undefined
+        ? enrichComponentsWithAbnormal(
+            dto.components as ExamResultComponentInput[],
+          )
+        : undefined;
+
+    let isAbnormalResolved: boolean;
+    if (componentsPayload?.length) {
+      isAbnormalResolved = componentsPayload.some((c) => c.isAbnormal);
+    } else if (
+      dto.components === undefined &&
+      result.components &&
+      Array.isArray(result.components) &&
+      (result.components as unknown as ExamResultComponentInput[]).length > 0
+    ) {
+      const enriched = enrichComponentsWithAbnormal(
+        result.components as unknown as ExamResultComponentInput[],
+      );
+      isAbnormalResolved = enriched?.some((c) => c.isAbnormal) ?? false;
+    } else {
+      const computed = computeIsAbnormalFromRange(
+        valueNumericMerged ?? undefined,
+        referenceResolved,
+      );
+      isAbnormalResolved =
+        computed !== null
+          ? computed
+          : (dto.isAbnormal ?? result.isAbnormal ?? false);
+    }
+
     const updated = await this.prisma.complementaryExamResult.update({
       where: { id: resultId, tenantId },
       data: {
-        performedAt: dto.performedAt ? new Date(dto.performedAt) : undefined,
+        performedAt: performedAtUpdate,
         collectionId: dto.collectionId,
         valueNumeric: dto.valueNumeric,
         valueText: dto.valueText,
-        unit: dto.unit,
-        referenceRange: dto.referenceRange,
-        isAbnormal: dto.isAbnormal,
+        unit: unitResolved,
+        referenceRange: referenceResolved,
+        isAbnormal: isAbnormalResolved,
         criticalHigh: dto.criticalHigh,
         criticalLow: dto.criticalLow,
         report: dto.report,
         components:
-          dto.components !== undefined ? (dto.components as any) : undefined,
+          componentsPayload !== undefined
+            ? (componentsPayload as object)
+            : undefined,
       },
     });
 

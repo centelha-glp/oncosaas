@@ -31,11 +31,14 @@ import { patientsApi } from '@/lib/api/patients';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import type { ComplementaryExam, ComplementaryExamResult } from '@/lib/api/patients';
+import { toPerformedAtApiPayload } from '@/lib/utils/date-only';
 import {
-  COMPLEMENTARY_EXAMS_CATALOG,
   EXAM_TYPE_FIELD_CONFIG,
   defaultCompositeComponentRows,
+  resolveCatalogEntryForExam,
+  type CatalogExamEntry,
 } from '@/lib/data/complementary-exams-catalog';
+import { AutoInterpretationPreview } from '@/components/patients/auto-interpretation-preview';
 
 interface ComplementaryExamResultEditDialogProps {
   open: boolean;
@@ -46,20 +49,10 @@ interface ComplementaryExamResultEditDialogProps {
   onSuccess?: () => void;
 }
 
-function findCatalogEntry(exam: ComplementaryExam) {
-  return (
-    COMPLEMENTARY_EXAMS_CATALOG.find(
-      (e) =>
-        (exam.code && e.code && e.code.toLowerCase() === exam.code.toLowerCase()) ||
-        e.name.toLowerCase() === exam.name.toLowerCase()
-    ) ?? null
-  );
-}
-
 function buildEditValues(
   exam: ComplementaryExam,
   result: ComplementaryExamResult,
-  catalogEntry: ReturnType<typeof findCatalogEntry>
+  catalogEntry: CatalogExamEntry
 ): CreateComplementaryExamResultFormData {
   const isComposite = catalogEntry?.isComposite === true;
   const compositeComponents = catalogEntry?.components ?? [];
@@ -106,10 +99,16 @@ export function ComplementaryExamResultEditDialog({
 }: ComplementaryExamResultEditDialogProps): React.ReactElement {
   const queryClient = useQueryClient();
 
-  const catalogEntry = findCatalogEntry(exam);
+  const catalogEntry = resolveCatalogEntryForExam(exam);
   const isComposite = catalogEntry?.isComposite === true;
   const compositeComponents = catalogEntry?.components ?? [];
   const fieldConfig = EXAM_TYPE_FIELD_CONFIG[exam.type];
+  const lockUnitFromExam = !!(exam.unit?.trim());
+  const lockRefFromExam = !!(exam.referenceRange?.trim());
+  const isImaging = exam.type === 'IMAGING';
+  const isAnatomo = exam.type === 'ANATOMOPATHOLOGICAL';
+  const isLabLike =
+    exam.type === 'LABORATORY' || exam.type === 'IMMUNOHISTOCHEMICAL';
 
   const form = useForm<CreateComplementaryExamResultFormData>({
     resolver: zodResolver(createComplementaryExamResultSchema),
@@ -124,8 +123,7 @@ export function ComplementaryExamResultEditDialog({
   const updateMutation = useMutation({
     mutationFn: (data: CreateComplementaryExamResultFormData) => {
       const payload: Parameters<typeof patientsApi.updateComplementaryExamResult>[3] = {
-        performedAt: new Date(data.performedAt).toISOString(),
-        isAbnormal: data.isAbnormal,
+        performedAt: toPerformedAtApiPayload(data.performedAt),
         report: data.report || undefined,
       };
 
@@ -136,13 +134,15 @@ export function ComplementaryExamResultEditDialog({
           referenceRange: c.referenceRange,
           valueNumeric: c.valueNumeric,
           valueText: c.valueText || undefined,
-          isAbnormal: c.isAbnormal,
         }));
       } else {
         payload.valueNumeric = data.valueNumeric;
         payload.valueText = data.valueText || undefined;
         payload.unit = data.unit || undefined;
         payload.referenceRange = data.referenceRange || undefined;
+        if (isAnatomo) {
+          payload.isAbnormal = data.isAbnormal;
+        }
       }
 
       return patientsApi.updateComplementaryExamResult(
@@ -205,14 +205,164 @@ export function ComplementaryExamResultEditDialog({
               )}
             />
 
-            {isComposite && fields.length > 0 ? (
+            {isComposite && fields.length > 0 && (
               <ComplementaryExamCompositeResultTable
                 control={form.control}
                 fields={fields}
                 compositeComponents={compositeComponents}
                 namePrefix="components"
               />
-            ) : (
+            )}
+
+            {!isComposite && isImaging && (
+              <>
+                <FormField
+                  control={form.control}
+                  name="report"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Laudo / conclusão radiológica</FormLabel>
+                      <FormControl>
+                        <textarea
+                          className="flex min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                          placeholder="Descreva achados e conclusão principal"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="valueText"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{fieldConfig.textLabel} (opcional)</FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder={fieldConfig.textPlaceholder}
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </>
+            )}
+
+            {!isComposite && isAnatomo && (
+              <>
+                <FormField
+                  control={form.control}
+                  name="valueText"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{fieldConfig.textLabel}</FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder={fieldConfig.textPlaceholder}
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="report"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Laudo anatomopatológico completo</FormLabel>
+                      <FormControl>
+                        <textarea
+                          className="flex min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                          placeholder="Texto integral do laudo"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="unit"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Unidade (opcional)</FormLabel>
+                      {lockUnitFromExam ? (
+                        <div className="flex flex-wrap items-center gap-2 rounded-md border border-input bg-muted/30 px-3 py-2 text-sm">
+                          <Badge variant="secondary">{field.value || '—'}</Badge>
+                          <span className="text-xs text-muted-foreground">
+                            Definido no cadastro do exame
+                          </span>
+                        </div>
+                      ) : (
+                        <FormControl>
+                          <Input placeholder="Ex: g/dL" {...field} />
+                        </FormControl>
+                      )}
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="referenceRange"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Faixa de referência (opcional)</FormLabel>
+                      {lockRefFromExam ? (
+                        <div className="flex flex-wrap items-center gap-2 rounded-md border border-input bg-muted/30 px-3 py-2 text-sm">
+                          <span className="font-mono text-xs">
+                            {field.value || '—'}
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            Definido no cadastro do exame
+                          </span>
+                        </div>
+                      ) : (
+                        <FormControl>
+                          <Input placeholder="Ex: 4.5-5.5" {...field} />
+                        </FormControl>
+                      )}
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <details className="rounded-md border border-dashed p-3 text-sm">
+                  <summary className="cursor-pointer font-medium text-foreground">
+                    Avançado
+                  </summary>
+                  <div className="mt-3">
+                    <FormField
+                      control={form.control}
+                      name="isAbnormal"
+                      render={({ field }) => (
+                        <FormItem className="flex flex-row items-start space-x-3 space-y-0">
+                          <FormControl>
+                            <Checkbox
+                              checked={field.value}
+                              onCheckedChange={field.onChange}
+                            />
+                          </FormControl>
+                          <div className="space-y-1 leading-none">
+                            <FormLabel>
+                              Forçar: fora da referência (interpretação qualitativa)
+                            </FormLabel>
+                          </div>
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                </details>
+              </>
+            )}
+
+            {!isComposite && isLabLike && (
               <>
                 {fieldConfig.showNumeric && (
                   <FormField
@@ -220,12 +370,20 @@ export function ComplementaryExamResultEditDialog({
                     name="valueNumeric"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Valor numérico (opcional)</FormLabel>
+                        <FormLabel>
+                          {exam.type === 'IMMUNOHISTOCHEMICAL'
+                            ? 'Valor quantitativo (%) ou índice (opcional)'
+                            : 'Valor numérico (opcional)'}
+                        </FormLabel>
                         <FormControl>
                           <Input
                             type="number"
                             step="any"
-                            placeholder="Ex: 12.5"
+                            placeholder={
+                              exam.type === 'IMMUNOHISTOCHEMICAL'
+                                ? 'Ex: 80 ou 1,2'
+                                : 'Ex: 12.5'
+                            }
                             {...field}
                             value={field.value ?? ''}
                             onChange={(e) => {
@@ -259,31 +417,24 @@ export function ComplementaryExamResultEditDialog({
                   />
                 )}
 
-                {!fieldConfig.showNumeric && !fieldConfig.showText && (
-                  <FormField
-                    control={form.control}
-                    name="valueText"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Valor texto (opcional)</FormLabel>
-                        <FormControl>
-                          <Input placeholder="Ex: Positivo, Negativo" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                )}
-
                 <FormField
                   control={form.control}
                   name="unit"
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Unidade (opcional)</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Ex: g/dL" {...field} />
-                      </FormControl>
+                      {lockUnitFromExam ? (
+                        <div className="flex flex-wrap items-center gap-2 rounded-md border border-input bg-muted/30 px-3 py-2 text-sm">
+                          <Badge variant="secondary">{field.value || '—'}</Badge>
+                          <span className="text-xs text-muted-foreground">
+                            Definido no cadastro do exame
+                          </span>
+                        </div>
+                      ) : (
+                        <FormControl>
+                          <Input placeholder="Ex: g/dL" {...field} />
+                        </FormControl>
+                      )}
                       <FormMessage />
                     </FormItem>
                   )}
@@ -294,54 +445,76 @@ export function ComplementaryExamResultEditDialog({
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Faixa de referência (opcional)</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Ex: 4.5-5.5" {...field} />
-                      </FormControl>
+                      {lockRefFromExam ? (
+                        <div className="flex flex-wrap items-center gap-2 rounded-md border border-input bg-muted/30 px-3 py-2 text-sm">
+                          <span className="font-mono text-xs">
+                            {field.value || '—'}
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            Definido no cadastro do exame
+                          </span>
+                        </div>
+                      ) : (
+                        <FormControl>
+                          <Input placeholder="Ex: 4.5-5.5" {...field} />
+                        </FormControl>
+                      )}
                       <FormMessage />
                     </FormItem>
                   )}
                 />
+                <AutoInterpretationPreview
+                  control={form.control}
+                  valueName="valueNumeric"
+                  referenceName="referenceRange"
+                />
                 <FormField
                   control={form.control}
-                  name="isAbnormal"
+                  name="report"
                   render={({ field }) => (
-                    <FormItem className="flex flex-row items-start space-x-3 space-y-0">
+                    <FormItem>
+                      <FormLabel>
+                        {fieldConfig.reportIsPrimary
+                          ? 'Laudo / conclusão diagnóstica'
+                          : 'Laudo / observações (opcional)'}
+                      </FormLabel>
                       <FormControl>
-                        <Checkbox
-                          checked={field.value}
-                          onCheckedChange={field.onChange}
+                        <textarea
+                          className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                          placeholder="Texto livre do laudo"
+                          {...field}
                         />
                       </FormControl>
-                      <div className="space-y-1 leading-none">
-                        <FormLabel>Fora da referência</FormLabel>
-                      </div>
+                      <FormMessage />
                     </FormItem>
                   )}
                 />
               </>
             )}
 
-            <FormField
-              control={form.control}
-              name="report"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>
-                    {fieldConfig.reportIsPrimary
-                      ? 'Laudo / conclusão diagnóstica'
-                      : 'Laudo / observações (opcional)'}
-                  </FormLabel>
-                  <FormControl>
-                    <textarea
-                      className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                      placeholder="Texto livre do laudo"
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            {isComposite && fields.length > 0 && (
+              <FormField
+                control={form.control}
+                name="report"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>
+                      {fieldConfig.reportIsPrimary
+                        ? 'Laudo / conclusão diagnóstica'
+                        : 'Laudo / observações (opcional)'}
+                    </FormLabel>
+                    <FormControl>
+                      <textarea
+                        className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                        placeholder="Texto livre do laudo"
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
 
             <div className="flex justify-end gap-2 pt-2">
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>

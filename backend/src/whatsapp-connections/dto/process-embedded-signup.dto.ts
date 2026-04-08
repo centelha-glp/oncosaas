@@ -9,4 +9,14 @@ export class ProcessEmbeddedSignupDto {
   @IsString()
   @IsOptional()
   redirect_uri?: string;
+
+  /** WABA ID capturado do evento WA_EMBEDDED_SIGNUP postMessage (mais confiável que busca via /me/businesses) */
+  @IsString()
+  @IsOptional()
+  waba_id?: string;
+
+  /** Phone Number ID capturado do evento WA_EMBEDDED_SIGNUP postMessage */
+  @IsString()
+  @IsOptional()
+  phone_number_id?: string;
 }

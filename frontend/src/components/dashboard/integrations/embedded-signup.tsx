@@ -1,11 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Loader2 } from 'lucide-react';
+import { Loader2, AlertCircle } from 'lucide-react';
 import { whatsappConnectionsApi } from '@/lib/api/whatsapp-connections';
 
-// Tipos para o SDK do Facebook
 declare global {
   interface Window {
     FB: any;
@@ -20,98 +19,78 @@ interface EmbeddedSignupProps {
 
 export function EmbeddedSignup({ onSuccess, onError }: EmbeddedSignupProps) {
   const [isLoading, setIsLoading] = useState(false);
-  const [sdkLoaded, setSdkLoaded] = useState(false);
+  const [sdkReady, setSdkReady] = useState(false);
+  const [httpsError, setHttpsError] = useState(false);
+  // Refs para acesso síncrono no fbLoginCallback (state updates são async)
+  const wabaIdRef = useRef<string | null>(null);
+  const phoneNumberIdRef = useRef<string | null>(null);
 
-  // Carregar SDK do Facebook conforme documentação oficial
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
+    // Facebook exige HTTPS desde 2018
+    if (window.location.protocol !== 'https:') {
+      setHttpsError(true);
+      return;
+    }
+
     const appId = process.env.NEXT_PUBLIC_META_APP_ID || '';
-
     if (!appId) {
-      console.error('NEXT_PUBLIC_META_APP_ID não configurado');
-      onError?.('Configuração do Meta App ID não encontrada');
+      onError?.('NEXT_PUBLIC_META_APP_ID não configurado');
       return;
     }
 
-    // Verificar se já está carregado e inicializado
-    if (window.FB && window.FB.getAuthResponse) {
-      setSdkLoaded(true);
-      return;
-    }
+    // Marca o SDK como pronto SOMENTE após FB.init() completar
+    const markReady = () => setSdkReady(true);
 
-    // SDK initialization conforme documentação oficial
+    // fbAsyncInit é chamado pelo SDK quando o script carrega
     window.fbAsyncInit = () => {
       try {
-        if (window.FB) {
-          window.FB.init({
-            appId: appId,
-            autoLogAppEvents: true,
-            xfbml: true,
-            version: 'v25.0', // Graph API version conforme documentação Meta
-          });
-          setSdkLoaded(true);
-        }
-      } catch (error) {
-        console.error('Erro ao inicializar SDK do Facebook:', error);
+        window.FB.init({
+          appId,
+          autoLogAppEvents: true,
+          xfbml: true,
+          version: process.env.NEXT_PUBLIC_META_API_VERSION || 'v25.0',
+        });
+        markReady();
+      } catch (err) {
+        console.error('Erro ao inicializar SDK do Facebook:', err);
         onError?.('Erro ao inicializar SDK do Facebook');
       }
     };
 
-    // Verificar se o script já foi carregado
-    const existingScript = document.querySelector(
-      'script[id="facebook-jssdk"]'
-    );
+    const existingScript = document.getElementById('facebook-jssdk');
 
-    if (!existingScript) {
-      // Carregar script do SDK conforme documentação oficial
-      const script = document.createElement('script');
-      script.id = 'facebook-jssdk';
-      script.src = 'https://connect.facebook.net/en_US/sdk.js';
-      script.async = true;
-      script.defer = true;
-      script.crossOrigin = 'anonymous';
-
-      script.onload = () => {
-        // O SDK chama fbAsyncInit automaticamente quando carrega
-        if (window.fbAsyncInit) {
-          window.fbAsyncInit();
-        }
-      };
-
-      script.onerror = () => {
-        console.error('Erro ao carregar SDK do Facebook');
-        onError?.('Erro ao carregar SDK do Facebook');
-      };
-
-      document.body.appendChild(script);
-    } else {
-      // Se o script já existe, aguardar e verificar se FB está disponível
-      const checkInterval = setInterval(() => {
-        if (window.FB && window.FB.getAuthResponse) {
-          setSdkLoaded(true);
-          clearInterval(checkInterval);
-        }
-      }, 100);
-
-      setTimeout(() => {
-        clearInterval(checkInterval);
-        if (!window.FB) {
-          onError?.('SDK do Facebook não carregou após 5 segundos');
-        }
-      }, 5000);
+    if (existingScript) {
+      // Script já carregado: FB pode já estar inicializado
+      if (window.FB?.getLoginStatus) {
+        markReady();
+      }
+      // Caso contrário, fbAsyncInit vai disparar quando terminar
+      return;
     }
 
-    // Listener de mensagens para capturar eventos WA_EMBEDDED_SIGNUP
-    // Conforme doc Meta: https://www.facebook.com e https://web.facebook.com
+    const script = document.createElement('script');
+    script.id = 'facebook-jssdk';
+    script.src = 'https://connect.facebook.net/en_US/sdk.js';
+    script.async = true;
+    script.defer = true;
+    script.crossOrigin = 'anonymous';
+    script.onerror = () => {
+      console.error('Falha ao carregar SDK do Facebook');
+      onError?.('Falha ao carregar SDK do Facebook. Verifique sua conexão.');
+    };
+    document.body.appendChild(script);
+
+    // Listener de eventos WA_EMBEDDED_SIGNUP enviados via postMessage pelo iframe da Meta
     const messageListener = (event: MessageEvent) => {
       if (
         event.origin !== 'https://www.facebook.com' &&
-        event.origin !== 'https://web.facebook.com'
+        event.origin !== 'https://web.facebook.com' &&
+        event.origin !== 'https://business.facebook.com'
       ) {
         return;
       }
-
       try {
         const data = JSON.parse(event.data);
         if (data.type === 'WA_EMBEDDED_SIGNUP') {
@@ -120,87 +99,81 @@ export function EmbeddedSignup({ onSuccess, onError }: EmbeddedSignupProps) {
             data.event === 'FINISH_ONLY_WABA' ||
             data.event === 'FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING'
           ) {
-            // Fluxo completado com sucesso
-            if (data.data?.waba_id && data.data?.phone_number_id) {
-              console.log('WABA ID:', data.data.waba_id);
-              console.log('Phone Number ID:', data.data.phone_number_id);
-            }
+            // Usar ref para acesso síncrono no fbLoginCallback
+            if (data.data?.waba_id) wabaIdRef.current = data.data.waba_id;
+            if (data.data?.phone_number_id) phoneNumberIdRef.current = data.data.phone_number_id;
           } else if (data.event === 'CANCEL') {
-            const currentStep = data.data?.current_step || 'unknown';
-            onError?.(`Fluxo cancelado na etapa: ${currentStep}`);
+            onError?.(`Fluxo cancelado na etapa: ${data.data?.current_step || 'desconhecida'}`);
             setIsLoading(false);
           } else if (data.event === 'ERROR') {
-            const errorMessage = data.data?.error_message || 'Erro no fluxo';
-            onError?.(errorMessage);
+            onError?.(data.data?.error_message || 'Erro no fluxo Meta');
             setIsLoading(false);
           }
         }
       } catch {
-        // Ignorar erros de parsing (respostas não-JSON)
+        // mensagens não-JSON (ignorar)
       }
     };
 
     window.addEventListener('message', messageListener);
-
-    return () => {
-      window.removeEventListener('message', messageListener);
-    };
+    return () => window.removeEventListener('message', messageListener);
   }, [onError]);
 
   const handleEmbeddedSignup = () => {
-    if (!sdkLoaded || !window.FB) {
-      onError?.(
-        'SDK do Facebook ainda não carregado. Aguarde alguns segundos.'
-      );
+    if (httpsError) {
+      onError?.('Facebook Login requer HTTPS. Rode o frontend com: npm run dev:https');
+      return;
+    }
+
+    if (!sdkReady || !window.FB) {
+      onError?.('SDK do Facebook ainda não inicializado. Aguarde alguns segundos e tente novamente.');
       return;
     }
 
     setIsLoading(true);
 
-    const configId = String(
+    const configId = (
       process.env.NEXT_PUBLIC_META_CONFIG_ID ||
-        process.env.NEXT_PUBLIC_META_APP_CONFIG_ID ||
-        ''
+      process.env.NEXT_PUBLIC_META_APP_CONFIG_ID ||
+      ''
     ).trim();
 
     if (!configId) {
       setIsLoading(false);
       onError?.(
-        'Meta Config ID não configurado. Defina NEXT_PUBLIC_META_APP_CONFIG_ID no .env.local. ' +
-          'O ID deve vir de Facebook Login for Business → Configuration (WhatsApp Embedded Signup).'
+        'NEXT_PUBLIC_META_CONFIG_ID não configurado. ' +
+        'O ID vem de Facebook Login for Business → Configuration.'
       );
       return;
     }
 
-    // redirect_uri DEVE ser idêntico ao usado no OAuth. Com FB.login, usar fallback_redirect_uri
-    // para definir explicitamente o valor, e o mesmo na troca do código.
-    // Normalizar removendo barra final para evitar divergência com backend.
-    // Ref: https://stackoverflow.com/questions/77347825/facebook-javascript-sdk-oauth-redirect-uri-validation-issue
-    const redirectUri =
-      typeof window !== 'undefined'
-        ? `${window.location.origin}${window.location.pathname}`.replace(
-            /\/$/,
-            ''
-          )
-        : '';
+    // redirect_uri deve ser idêntico ao registrado no app Meta e ao enviado ao backend
+    const redirectUri = `${window.location.origin}${window.location.pathname}`.replace(/\/$/, '');
 
     const fbLoginCallback = (response: any) => {
       if (response.authResponse?.code) {
         (async () => {
           try {
+            // Aguarda 500ms para garantir que o evento WA_EMBEDDED_SIGNUP FINISH
+            // (enviado via postMessage pelo iframe da Meta) chegue antes de ler os refs.
+            // O FB.login callback e o postMessage são assíncronos e podem chegar fora de ordem.
+            await new Promise((resolve) => setTimeout(resolve, 500));
+
             const result = await whatsappConnectionsApi.processEmbeddedSignup(
               response.authResponse.code,
-              redirectUri
+              // Quando usa SDK popup, o Meta não usa redirect_uri — omitir evita erro 36008
+              undefined,
+              wabaIdRef.current ?? undefined,
+              phoneNumberIdRef.current ?? undefined
             );
-
             if (result.success) {
               onSuccess?.();
             } else {
               onError?.(result.message || 'Erro ao processar conexão');
             }
-          } catch (error: any) {
-            console.error('Erro ao processar Embedded Signup:', error);
-            onError?.(error.message || 'Erro ao processar conexão');
+          } catch (err: any) {
+            console.error('Erro ao processar Embedded Signup:', err);
+            onError?.(err.message || 'Erro ao processar conexão');
           } finally {
             setIsLoading(false);
           }
@@ -208,18 +181,12 @@ export function EmbeddedSignup({ onSuccess, onError }: EmbeddedSignupProps) {
       } else {
         setIsLoading(false);
         if (response.status === 'not_authorized') {
-          onError?.('Usuário não autorizou o acesso');
+          onError?.('Usuário não autorizou o acesso ao app Meta');
         } else {
-          onError?.('Usuário cancelou a autorização');
+          onError?.('Usuário cancelou ou fechou a janela de autorização');
         }
       }
     };
-
-    if (!redirectUri) {
-      setIsLoading(false);
-      onError?.('Não foi possível obter a URL da página. Verifique se está em HTTPS.');
-      return;
-    }
 
     try {
       window.FB.login(fbLoginCallback, {
@@ -246,28 +213,36 @@ export function EmbeddedSignup({ onSuccess, onError }: EmbeddedSignupProps) {
               },
               timezone: null,
             },
-            phone: {
-              displayName: null,
-              category: null,
-              description: null,
-            },
+            phone: { displayName: null, category: null, description: null },
             preVerifiedPhone: { ids: null },
             solutionID: null,
             whatsAppBusinessAccount: { ids: null },
           },
         },
       });
-    } catch (error: any) {
+    } catch (err: any) {
       setIsLoading(false);
-      console.error('Erro ao iniciar Embedded Signup:', error);
-      onError?.(error.message || 'Erro ao iniciar conexão');
+      console.error('Erro ao chamar FB.login:', err);
+      onError?.(err.message || 'Erro ao iniciar conexão com Meta');
     }
   };
+
+  if (httpsError) {
+    return (
+      <div className="flex items-center gap-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+        <AlertCircle className="h-4 w-4 shrink-0" />
+        <span>
+          Facebook Login requer HTTPS.{' '}
+          <code className="text-xs font-mono bg-amber-100 px-1 rounded">npm run dev:https</code>
+        </span>
+      </div>
+    );
+  }
 
   return (
     <Button
       onClick={handleEmbeddedSignup}
-      disabled={isLoading || !sdkLoaded}
+      disabled={isLoading || !sdkReady}
       variant="outline"
     >
       {isLoading ? (
@@ -285,7 +260,7 @@ export function EmbeddedSignup({ onSuccess, onError }: EmbeddedSignupProps) {
           >
             <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" />
           </svg>
-          Conectar com Meta (Embedded Signup)
+          {!sdkReady ? 'Carregando SDK...' : 'Conectar com Meta (Embedded Signup)'}
         </>
       )}
     </Button>

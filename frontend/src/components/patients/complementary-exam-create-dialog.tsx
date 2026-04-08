@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useForm, useWatch, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -12,6 +12,7 @@ import {
   DialogClose,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
@@ -21,11 +22,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/popover';
 import {
   Form,
   FormControl,
@@ -40,19 +36,31 @@ import {
 } from '@/lib/validations/complementary-exam';
 import { patientsApi } from '@/lib/api/patients';
 import type { ComplementaryExamType } from '@/lib/api/patients';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
-  filterCatalogByTypeAndSearch,
+  COMPLEMENTARY_EXAMS_CATALOG,
+  getCatalogByType,
   EXAM_TYPE_FIELD_CONFIG,
   SPECIMEN_OPTIONS,
   defaultCompositeComponentRows,
   type CatalogExamEntry,
 } from '@/lib/data/complementary-exams-catalog';
+import { ExamCatalogCombobox } from '@/components/shared/exam-catalog-combobox';
 import { ComplementaryExamCompositeResultTable } from '@/components/patients/complementary-exam-composite-result-table';
+import { AutoInterpretationPreview } from '@/components/patients/auto-interpretation-preview';
 import { cn } from '@/lib/utils';
-import { ChevronDown } from 'lucide-react';
+import {
+  todayLocalYyyyMmDd,
+  toPerformedAtApiPayload,
+} from '@/lib/utils/date-only';
+import { examCatalogApi } from '@/lib/api/exam-catalog';
+import { useDebounce } from '@/lib/utils/use-debounce';
 
+/** Itens retornados pela API ao abrir o diálogo / sem termo de busca (alinhar ao teto do backend). */
+const EXAM_CATALOG_BROWSE_LIMIT = 10_000;
+/** Com termo de busca, bastam menos linhas (filtro server-side). */
+const EXAM_CATALOG_SEARCH_LIMIT = 800;
 const EXAM_TYPE_OPTIONS: { value: ComplementaryExamType; label: string }[] = [
   { value: 'LABORATORY', label: 'Laboratorial' },
   { value: 'ANATOMOPATHOLOGICAL', label: 'Anatomopatológico' },
@@ -78,8 +86,6 @@ export function ComplementaryExamCreateDialog({
   onSuccess,
 }: ComplementaryExamCreateDialogProps): React.ReactElement {
   const queryClient = useQueryClient();
-  const [comboboxOpenState, setComboboxOpen] = useState(false);
-  const comboboxOpen = open && comboboxOpenState;
   const [selectedCatalogEntry, setSelectedCatalogEntry] = useState<CatalogExamEntry | null>(null);
   const selectedCatalogRef = useRef<CatalogExamEntry | null>(null);
   selectedCatalogRef.current = selectedCatalogEntry;
@@ -94,7 +100,7 @@ export function ComplementaryExamCreateDialog({
       unit: '',
       referenceRange: '',
       initialResult: {
-        performedAt: new Date().toISOString().slice(0, 10),
+        performedAt: todayLocalYyyyMmDd(),
         valueNumeric: undefined,
         valueText: '',
         isAbnormal: false,
@@ -110,14 +116,114 @@ export function ComplementaryExamCreateDialog({
   });
 
   const examType = useWatch({ control: form.control, name: 'type' });
-  const searchQuery = useWatch({ control: form.control, name: 'name' });
-  const catalogOptions = filterCatalogByTypeAndSearch(
-    examType,
-    searchQuery ?? ''
-  );
+  const examNameInput = useWatch({ control: form.control, name: 'name' });
+  const debouncedCatalogQ = useDebounce(examNameInput ?? '', 300);
+
+  const catalogSearchTrimmed = debouncedCatalogQ.trim();
+  const { data: catalogRemote, isPending, isError, isSuccess } = useQuery({
+    queryKey: ['exam-catalog', examType, catalogSearchTrimmed],
+    queryFn: () =>
+      examCatalogApi.search({
+        type: examType,
+        q: catalogSearchTrimmed || undefined,
+        limit: catalogSearchTrimmed
+          ? EXAM_CATALOG_SEARCH_LIMIT
+          : EXAM_CATALOG_BROWSE_LIMIT,
+        offset: 0,
+      }),
+    enabled: open,
+    staleTime: 60 * 1000,
+  });
+
+  const catalogLoading = isPending && catalogRemote === undefined;
+
+  useEffect(() => {
+    if (!open || !isError) return;
+    toast.error(
+      'Não foi possível carregar o catálogo no servidor. Usando lista local mínima.',
+    );
+  }, [open, isError]);
+
+  const catalogComboboxOptions = useMemo(() => {
+    const staticOpts = getCatalogByType(examType).map((entry) => ({
+      id: `static-${entry.type}-${entry.name}-${entry.code ?? ''}`,
+      label: catalogDisplayLabel(entry),
+      subtitle:
+        [entry.unit, entry.referenceRange].filter(Boolean).join(' · ') ||
+        undefined,
+      data: entry,
+    }));
+
+    const rows = catalogRemote?.items ?? [];
+
+    if (catalogLoading) {
+      return [];
+    }
+    if (isError) {
+      return staticOpts;
+    }
+    if (rows.length === 0) {
+      return staticOpts;
+    }
+
+    const apiCodes = new Set(rows.map((r) => r.code));
+    const fromApi = rows.map((row) => {
+      const staticMatch = COMPLEMENTARY_EXAMS_CATALOG.find(
+        (e) =>
+          e.code &&
+          row.code &&
+          e.code.toLowerCase() === row.code.toLowerCase()
+      );
+      const entry: CatalogExamEntry = staticMatch
+        ? {
+            ...staticMatch,
+            name: row.name,
+            unit: row.unit ?? staticMatch.unit,
+            referenceRange: row.referenceRange ?? staticMatch.referenceRange,
+            specimen: row.specimenDefault ?? staticMatch.specimen,
+          }
+        : {
+            type: row.type,
+            name: row.name,
+            code: row.code,
+            specimen: row.specimenDefault ?? undefined,
+            unit: row.unit ?? undefined,
+            referenceRange: row.referenceRange ?? undefined,
+            isComposite: false,
+          };
+      return {
+        id: `db-${row.code}`,
+        label: catalogDisplayLabel(entry),
+        subtitle:
+          [row.unit, row.referenceRange].filter(Boolean).join(' · ') ||
+          (row.rolItemCode ? `Rol: ${row.rolItemCode}` : undefined),
+        data: entry,
+      };
+    });
+
+    const staticFiltered = staticOpts.filter((o) => {
+      const c = o.data.code?.trim();
+      if (c && apiCodes.has(c)) {
+        return false;
+      }
+      return true;
+    });
+
+    return [...fromApi, ...staticFiltered];
+  }, [examType, catalogRemote, catalogLoading, isError]);
+
+  const catalogEmptyOnServer =
+    isSuccess && (catalogRemote?.items?.length ?? 0) === 0;
   const isComposite = selectedCatalogEntry?.isComposite === true;
   const specimenOptions = SPECIMEN_OPTIONS[examType] ?? [];
   const fieldConfig = EXAM_TYPE_FIELD_CONFIG[examType];
+  const lockUnitFromCatalog = !!(selectedCatalogEntry?.unit?.trim());
+  const lockRefFromCatalog = !!(
+    selectedCatalogEntry?.referenceRange?.trim()
+  );
+  const lockSpecimenFromCatalog = !!(
+    selectedCatalogEntry?.specimen?.trim()
+  );
 
   const createMutation = useMutation({
     mutationFn: async (data: CreateComplementaryExamFormData) => {
@@ -148,8 +254,8 @@ export function ComplementaryExamCreateDialog({
         if (hasPanelData) {
           const performedAt =
             (ir.performedAt ?? '').trim() !== ''
-              ? new Date(ir.performedAt!).toISOString()
-              : new Date().toISOString();
+              ? toPerformedAtApiPayload(ir.performedAt!)
+              : todayLocalYyyyMmDd();
           await patientsApi.createComplementaryExamResult(patientId, exam.id, {
             performedAt,
             report: ir.report || undefined,
@@ -159,7 +265,6 @@ export function ComplementaryExamCreateDialog({
               referenceRange: c.referenceRange,
               valueNumeric: c.valueNumeric,
               valueText: c.valueText || undefined,
-              isAbnormal: c.isAbnormal,
             })),
           });
         }
@@ -172,14 +277,16 @@ export function ComplementaryExamCreateDialog({
         if (hasInitialResult) {
           const performedAt =
             (ir.performedAt ?? '').trim() !== ''
-              ? new Date(ir.performedAt!).toISOString()
-              : new Date().toISOString();
+              ? toPerformedAtApiPayload(ir.performedAt!)
+              : todayLocalYyyyMmDd();
           await patientsApi.createComplementaryExamResult(patientId, exam.id, {
             performedAt,
             valueNumeric: ir.valueNumeric,
             valueText: ir.valueText || undefined,
-            isAbnormal: ir.isAbnormal,
             report: ir.report || undefined,
+            ...(data.type === 'ANATOMOPATHOLOGICAL' && {
+              isAbnormal: ir.isAbnormal,
+            }),
           });
         }
       }
@@ -207,7 +314,7 @@ export function ComplementaryExamCreateDialog({
       unit: '',
       referenceRange: '',
       initialResult: {
-        performedAt: new Date().toISOString().slice(0, 10),
+        performedAt: todayLocalYyyyMmDd(),
         valueNumeric: undefined,
         valueText: '',
         isAbnormal: false,
@@ -223,10 +330,7 @@ export function ComplementaryExamCreateDialog({
     } else {
       const current = form.getValues('initialResult.performedAt');
       if (!current || (typeof current === 'string' && current.trim() === '')) {
-        form.setValue(
-          'initialResult.performedAt',
-          new Date().toISOString().slice(0, 10)
-        );
+        form.setValue('initialResult.performedAt', todayLocalYyyyMmDd());
       }
     }
   }, [open, form, resetForm]);
@@ -246,7 +350,6 @@ export function ComplementaryExamCreateDialog({
     } else {
       form.setValue('initialResult.components', []);
     }
-    setComboboxOpen(false);
     inputRef.current?.blur();
   };
 
@@ -334,60 +437,29 @@ export function ComplementaryExamCreateDialog({
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Exame</FormLabel>
-                  <Popover open={comboboxOpen} onOpenChange={setComboboxOpen}>
-                    <PopoverTrigger asChild>
-                      <FormControl>
-                        <div className="relative">
-                          <Input
-                            placeholder="Pesquisar por nome ou código..."
-                            {...field}
-                            ref={inputRef}
-                            onChange={(e) => field.onChange(e.target.value)}
-                            onFocus={() => setComboboxOpen(true)}
-                            className="pr-8"
-                          />
-                          <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-                        </div>
-                      </FormControl>
-                    </PopoverTrigger>
-                    <PopoverContent
-                      className="w-[var(--radix-popover-trigger-width)] p-0"
-                      align="start"
-                      onOpenAutoFocus={(e) => e.preventDefault()}
-                    >
-                      <ul className="max-h-48 overflow-auto py-1">
-                        {catalogOptions.length === 0 ? (
-                          <li className="px-3 py-2 text-sm text-muted-foreground">
-                            Nenhum exame encontrado. Digite para buscar ou use
-                            um nome livre.
-                          </li>
-                        ) : (
-                          catalogOptions.map((entry) => (
-                            <li
-                              key={`${entry.type}-${entry.name}-${entry.code ?? ''}`}
-                            >
-                              <button
-                                type="button"
-                                className={cn(
-                                  'w-full text-left px-3 py-2 text-sm hover:bg-accent focus:bg-accent focus:outline-none'
-                                )}
-                                onClick={() => onSelectCatalogEntry(entry)}
-                              >
-                                {catalogDisplayLabel(entry)}
-                                {(entry.unit || entry.referenceRange) && (
-                                  <span className="block text-xs text-muted-foreground mt-0.5">
-                                    {[entry.unit, entry.referenceRange]
-                                      .filter(Boolean)
-                                      .join(' · ')}
-                                  </span>
-                                )}
-                              </button>
-                            </li>
-                          ))
-                        )}
-                      </ul>
-                    </PopoverContent>
-                  </Popover>
+                  <FormControl>
+                    <ExamCatalogCombobox
+                      options={catalogComboboxOptions}
+                      value={field.value}
+                      onValueChange={field.onChange}
+                      onSelectOption={(opt) =>
+                        onSelectCatalogEntry(opt.data)
+                      }
+                      inputRef={inputRef}
+                      emptyText={
+                        catalogLoading
+                          ? 'Carregando catálogo...'
+                          : 'Nenhum exame encontrado. Digite para buscar ou use um nome livre.'
+                      }
+                    />
+                  </FormControl>
+                  {catalogEmptyOnServer && (
+                    <p className="text-xs text-amber-700 dark:text-amber-500">
+                      Catálogo TUSS ainda não foi importado neste ambiente — lista
+                      mínima local. Peça a um administrador para importar o arquivo
+                      ANS ou rode o seed do banco.
+                    </p>
+                  )}
                   <FormMessage />
                 </FormItem>
               )}
@@ -399,9 +471,18 @@ export function ComplementaryExamCreateDialog({
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Unidade (opcional)</FormLabel>
-                  <FormControl>
-                    <Input placeholder="Ex: g/dL, mm" {...field} />
-                  </FormControl>
+                  {lockUnitFromCatalog ? (
+                    <div className="flex flex-wrap items-center gap-2 rounded-md border border-input bg-muted/30 px-3 py-2 text-sm">
+                      <Badge variant="secondary">{field.value || '—'}</Badge>
+                      <span className="text-xs text-muted-foreground">
+                        Definido pelo catálogo
+                      </span>
+                    </div>
+                  ) : (
+                    <FormControl>
+                      <Input placeholder="Ex: g/dL, mm" {...field} />
+                    </FormControl>
+                  )}
                   <FormMessage />
                 </FormItem>
               )}
@@ -412,9 +493,18 @@ export function ComplementaryExamCreateDialog({
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Faixa de referência (opcional)</FormLabel>
-                  <FormControl>
-                    <Input placeholder="Ex: 4.5-5.5" {...field} />
-                  </FormControl>
+                  {lockRefFromCatalog ? (
+                    <div className="flex flex-wrap items-center gap-2 rounded-md border border-input bg-muted/30 px-3 py-2 text-sm">
+                      <span className="font-mono text-xs">{field.value || '—'}</span>
+                      <span className="text-xs text-muted-foreground">
+                        Definido pelo catálogo
+                      </span>
+                    </div>
+                  ) : (
+                    <FormControl>
+                      <Input placeholder="Ex: 4.5-5.5" {...field} />
+                    </FormControl>
+                  )}
                   <FormMessage />
                 </FormItem>
               )}
@@ -428,23 +518,32 @@ export function ComplementaryExamCreateDialog({
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Amostra / espécime (opcional)</FormLabel>
-                    <Select
-                      onValueChange={field.onChange}
-                      value={field.value ?? ''}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Selecione o material" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {specimenOptions.map((s) => (
-                          <SelectItem key={s} value={s}>
-                            {s}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    {lockSpecimenFromCatalog ? (
+                      <div className="flex flex-wrap items-center gap-2 rounded-md border border-input bg-muted/30 px-3 py-2 text-sm">
+                        <Badge variant="outline">{field.value || '—'}</Badge>
+                        <span className="text-xs text-muted-foreground">
+                          Definido pelo catálogo
+                        </span>
+                      </div>
+                    ) : (
+                      <Select
+                        onValueChange={field.onChange}
+                        value={field.value ?? ''}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Selecione o material" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {specimenOptions.map((s) => (
+                            <SelectItem key={s} value={s}>
+                              {s}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
                     <FormMessage />
                   </FormItem>
                 )}
@@ -468,7 +567,7 @@ export function ComplementaryExamCreateDialog({
                     const dateValue =
                       field.value && String(field.value).trim() !== ''
                         ? String(field.value).slice(0, 10)
-                        : new Date().toISOString().slice(0, 10);
+                        : todayLocalYyyyMmDd();
                     return (
                       <FormItem>
                         <FormLabel>Data da realização</FormLabel>
@@ -528,7 +627,7 @@ export function ComplementaryExamCreateDialog({
                     const dateValue =
                       field.value && String(field.value).trim() !== ''
                         ? String(field.value).slice(0, 10)
-                        : new Date().toISOString().slice(0, 10);
+                        : todayLocalYyyyMmDd();
                     return (
                       <FormItem>
                         <FormLabel>Data da realização</FormLabel>
@@ -584,23 +683,40 @@ export function ComplementaryExamCreateDialog({
                     )}
                   />
                 </div>
-                <FormField
-                  control={form.control}
-                  name="initialResult.isAbnormal"
-                  render={({ field }) => (
-                    <FormItem className="flex flex-row items-start space-x-3 space-y-0">
-                      <FormControl>
-                        <Checkbox
-                          checked={field.value}
-                          onCheckedChange={field.onChange}
-                        />
-                      </FormControl>
-                      <div className="space-y-1 leading-none">
-                        <FormLabel>Fora da referência</FormLabel>
-                      </div>
-                    </FormItem>
-                  )}
-                />
+                {examType === 'ANATOMOPATHOLOGICAL' ? (
+                  <details className="rounded-md border border-dashed p-3 text-sm">
+                    <summary className="cursor-pointer font-medium text-foreground">
+                      Avançado
+                    </summary>
+                    <div className="mt-3">
+                      <FormField
+                        control={form.control}
+                        name="initialResult.isAbnormal"
+                        render={({ field }) => (
+                          <FormItem className="flex flex-row items-start space-x-3 space-y-0">
+                            <FormControl>
+                              <Checkbox
+                                checked={field.value}
+                                onCheckedChange={field.onChange}
+                              />
+                            </FormControl>
+                            <div className="space-y-1 leading-none">
+                              <FormLabel>
+                                Forçar: fora da referência (interpretação qualitativa)
+                              </FormLabel>
+                            </div>
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                  </details>
+                ) : (
+                  <AutoInterpretationPreview
+                    control={form.control}
+                    valueName="initialResult.valueNumeric"
+                    referenceName="referenceRange"
+                  />
+                )}
                 <FormField
                   control={form.control}
                   name="initialResult.report"

@@ -3,12 +3,12 @@ import {
   IsOptional,
   IsNumber,
   IsBoolean,
-  IsDateString,
   IsNotEmpty,
   IsUUID,
   IsArray,
   ValidateNested,
   MaxLength,
+  Matches,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -45,7 +45,10 @@ export class ExamResultComponentDto {
 }
 
 export class CreateComplementaryExamResultDto {
-  @IsDateString()
+  /** Data de realização (somente dia, sem fuso) — YYYY-MM-DD */
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, {
+    message: 'performedAt deve estar no formato YYYY-MM-DD',
+  })
   @IsNotEmpty()
   performedAt: string;
 

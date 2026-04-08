@@ -81,6 +81,13 @@ certs/*.pfx
 certs/openssl.conf
 !certs/.gitkeep
 
+# ANS — planilha TUSS×Rol (baixar de gov.br; `npm run exam-catalog:from-tuss` no backend)
+backend/data/ans/*.xlsx
+backend/data/ans/exam-catalog-import.json
+
+# Playwright / MCP artefatos locais
+.playwright-mcp/
+
 # Other
 *.pem
 *.pub

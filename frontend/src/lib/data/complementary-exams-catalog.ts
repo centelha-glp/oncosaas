@@ -1,4 +1,4 @@
-import type { ComplementaryExamType } from '@/lib/api/patients';
+import type { ComplementaryExam, ComplementaryExamType } from '@/lib/api/patients';
 
 export interface CompositeComponent {
   name: string;
@@ -265,6 +265,30 @@ export function filterCatalogByTypeAndSearch(
 
 export function getCatalogByType(type: ComplementaryExamType): CatalogExamEntry[] {
   return COMPLEMENTARY_EXAMS_CATALOG.filter((e) => e.type === type);
+}
+
+/**
+ * Resolve metadados de catálogo para um exame persistido: tenta o catálogo estático (painéis compostos);
+ * se não houver match (ex.: exame criado só a partir do catálogo TUSS no banco), devolve entrada mínima a partir do exame.
+ */
+export function resolveCatalogEntryForExam(exam: ComplementaryExam): CatalogExamEntry {
+  const fromStatic = COMPLEMENTARY_EXAMS_CATALOG.find(
+    (e) =>
+      (exam.code &&
+        e.code &&
+        e.code.toLowerCase() === exam.code.toLowerCase()) ||
+      e.name.toLowerCase() === exam.name.toLowerCase()
+  );
+  if (fromStatic) return fromStatic;
+  return {
+    type: exam.type,
+    name: exam.name,
+    code: exam.code ?? undefined,
+    specimen: exam.specimen ?? undefined,
+    unit: exam.unit ?? undefined,
+    referenceRange: exam.referenceRange ?? undefined,
+    isComposite: false,
+  };
 }
 
 /** Linhas iniciais do formulário para cada parâmetro de um painel (hemograma, EAS, etc.). */

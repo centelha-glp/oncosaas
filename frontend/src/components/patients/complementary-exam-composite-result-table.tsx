@@ -2,6 +2,7 @@
 
 import React from 'react';
 import type { Control, FieldValues } from 'react-hook-form';
+import { useWatch } from 'react-hook-form';
 import {
   FormControl,
   FormField,
@@ -9,9 +10,9 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
-import { Checkbox } from '@/components/ui/checkbox';
-import { cn } from '@/lib/utils';
+import { Badge } from '@/components/ui/badge';
 import type { CompositeComponent } from '@/lib/data/complementary-exams-catalog';
+import { computeInterpretationPreview } from '@/lib/utils/reference-range';
 
 export type CompositeComponentsFieldPrefix =
   | 'components'
@@ -35,6 +36,10 @@ export function ComplementaryExamCompositeResultTable<TFieldValues extends Field
   compositeComponents,
   namePrefix,
 }: ComplementaryExamCompositeResultTableProps<TFieldValues>): React.ReactElement {
+  const watchedRows = useWatch({ control, name: namePrefix as any }) as
+    | Array<{ valueNumeric?: number; referenceRange?: string }>
+    | undefined;
+
   return (
     <div className="border rounded-md overflow-hidden">
       <table className="w-full text-sm">
@@ -42,13 +47,20 @@ export function ComplementaryExamCompositeResultTable<TFieldValues extends Field
           <tr className="bg-muted/50 border-b">
             <th className="text-left px-3 py-2 font-medium">Parâmetro</th>
             <th className="text-left px-3 py-2 font-medium">Valor</th>
-            <th className="px-3 py-2 font-medium text-center">Alt.</th>
+            <th className="px-3 py-2 font-medium text-center">Interp.</th>
           </tr>
         </thead>
         <tbody>
           {fields.map((fieldItem, index) => {
             const comp = compositeComponents[index];
             const paramLabel = fieldItem.name ?? comp?.name ?? `Parâmetro ${index + 1}`;
+            const row = watchedRows?.[index];
+            const refForInterp =
+              row?.referenceRange ?? comp?.referenceRange ?? '';
+            const interp = computeInterpretationPreview(
+              row?.valueNumeric,
+              refForInterp,
+            );
             return (
               <tr
                 key={fieldItem.id}
@@ -97,26 +109,18 @@ export function ComplementaryExamCompositeResultTable<TFieldValues extends Field
                     )}
                   />
                 </td>
-                <td className="px-3 py-2 text-center">
-                  <FormField
-                    control={control}
-                    name={`${namePrefix}.${index}.isAbnormal` as any}
-                    render={({ field: f }) => (
-                      <FormItem className="space-y-0 flex justify-center">
-                        <FormControl>
-                          <Checkbox
-                            checked={f.value ?? false}
-                            onCheckedChange={f.onChange}
-                            aria-label={`Marcar ${paramLabel} como fora da referência`}
-                            className={cn(
-                              f.value &&
-                                'border-amber-500 data-[state=checked]:bg-amber-500'
-                            )}
-                          />
-                        </FormControl>
-                      </FormItem>
-                    )}
-                  />
+                <td className="px-3 py-2 text-center align-middle">
+                  {interp === 'unknown' ? (
+                    <span className="text-muted-foreground text-xs">—</span>
+                  ) : (
+                    <Badge
+                      variant={interp === 'outside' ? 'destructive' : 'secondary'}
+                      className="text-xs font-normal"
+                      title="Calculado ao salvar a partir do valor e da faixa"
+                    >
+                      {interp === 'outside' ? 'Alterado' : 'Normal'}
+                    </Badge>
+                  )}
                 </td>
               </tr>
             );

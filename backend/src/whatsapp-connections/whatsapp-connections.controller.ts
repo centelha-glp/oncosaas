@@ -162,7 +162,9 @@ export class WhatsAppConnectionsController {
     return this.whatsappConnectionsService.processEmbeddedSignup(
       dto.code,
       req.user.tenantId,
-      dto.redirect_uri
+      dto.redirect_uri,
+      dto.waba_id,
+      dto.phone_number_id
     );
   }
 }

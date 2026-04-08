@@ -2,6 +2,7 @@ import "dotenv/config";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from '@generated/prisma/client';
 import * as bcrypt from 'bcrypt';
+import { EXAM_CATALOG_SEED_ROWS } from './exam-catalog-seed-data';
 
 const connectionString = `${process.env.DATABASE_URL}`;
 
@@ -818,6 +819,36 @@ async function main() {
   } else {
     console.log('✅ Questionário PRO-CTCAE já existe');
   }
+
+  // ─── Catálogo global de exames (TUSS / fallback local) ─────────────────────
+  let examCatalogUpserts = 0;
+  for (const row of EXAM_CATALOG_SEED_ROWS) {
+    await prisma.examCatalogItem.upsert({
+      where: { code: row.code },
+      create: {
+        code: row.code,
+        name: row.name,
+        type: row.type,
+        rolItemCode: row.rolItemCode ?? null,
+        specimenDefault: row.specimenDefault ?? null,
+        unit: row.unit ?? null,
+        referenceRange: row.referenceRange ?? null,
+        sourceVersion: 'prisma-seed',
+      },
+      update: {
+        name: row.name,
+        type: row.type,
+        rolItemCode: row.rolItemCode ?? null,
+        specimenDefault: row.specimenDefault ?? null,
+        unit: row.unit ?? null,
+        referenceRange: row.referenceRange ?? null,
+      },
+    });
+    examCatalogUpserts++;
+  }
+  console.log(
+    `✅ Catálogo de exames (exam_catalog_items): ${examCatalogUpserts} itens (upsert)`,
+  );
 
   console.log('');
   console.log('🎉 Seed concluído com sucesso!');
