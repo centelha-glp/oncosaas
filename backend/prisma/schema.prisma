@@ -1194,6 +1194,26 @@ model ComplementaryExamResult {
   @@map("complementary_exam_results")
 }
 
+// Catálogo global de exames/procedimentos (TUSS / correlação Rol ANS) — sem tenant; leitura por todos os tenants.
+model ExamCatalogItem {
+  id              String                @id @default(uuid())
+  code            String                // Código TUSS (ou identificador único na importação)
+  name            String
+  rolItemCode     String?
+  type            ComplementaryExamType
+  specimenDefault String?
+  unit            String?
+  referenceRange  String?
+  sourceVersion   String? // Ex.: data/versão da planilha ANS importada
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+
+  @@unique([code])
+  @@index([type])
+  @@index([name])
+  @@map("exam_catalog_items")
+}
+
 // Histórico de Intervenções (rastreabilidade de ações do enfermeiro)
 model Intervention {
   id        String  @id @default(uuid())

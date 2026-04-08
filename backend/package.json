@@ -6,7 +6,7 @@
   "private": true,
   "license": "UNLICENSED",
   "prisma": {
-    "seed": "ts-node prisma/seed.ts"
+    "seed": "ts-node -r tsconfig-paths/register prisma/seed.ts"
   },
   "scripts": {
     "postinstall": "prisma generate",
@@ -29,11 +29,12 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
-    "prisma:seed": "ts-node prisma/seed.ts",
+    "prisma:seed": "ts-node -r tsconfig-paths/register prisma/seed.ts",
     "verify-dashboard": "ts-node scripts/verify-dashboard-metrics.ts",
     "export-bia": "ts-node scripts/export-bia-conversation.ts",
     "verify-questionnaire": "ts-node scripts/verify-questionnaire-flow.ts",
-    "analyze-bia": "ts-node scripts/analyze-bia-conversation.ts"
+    "analyze-bia": "ts-node scripts/analyze-bia-conversation.ts",
+    "exam-catalog:from-tuss": "python3 scripts/exam-catalog-from-tuss-xlsx.py -i data/ans/CorrelacaoTUSS.202409Rol.2021_TUSS202503_RN627L.2025.xlsx -o data/ans/exam-catalog-import.json --indent 2"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.17",
