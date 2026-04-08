@@ -73,9 +73,12 @@ export function ExamCatalogCombobox<T>({
     );
   }, [options, value]);
 
-  useEffect(() => {
+  const filterKey = `${value}:${filtered.length}`;
+  const [prevFilterKey, setPrevFilterKey] = useState(filterKey);
+  if (filterKey !== prevFilterKey) {
+    setPrevFilterKey(filterKey);
     setHighlightedIndex(0);
-  }, [value, filtered.length]);
+  }
 
   useEffect(() => {
     if (!open || !listRef.current) return;
