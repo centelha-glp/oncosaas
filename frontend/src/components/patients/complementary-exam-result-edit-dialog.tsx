@@ -30,33 +30,73 @@ import {
 import { patientsApi } from '@/lib/api/patients';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import type { ComplementaryExam } from '@/lib/api/patients';
-import {
-  todayLocalYyyyMmDd,
-  toPerformedAtApiPayload,
-} from '@/lib/utils/date-only';
+import type { ComplementaryExam, ComplementaryExamResult } from '@/lib/api/patients';
+import { toPerformedAtApiPayload } from '@/lib/utils/date-only';
 import {
   EXAM_TYPE_FIELD_CONFIG,
   defaultCompositeComponentRows,
   resolveCatalogEntryForExam,
+  type CatalogExamEntry,
 } from '@/lib/data/complementary-exams-catalog';
 import { AutoInterpretationPreview } from '@/components/patients/auto-interpretation-preview';
 
-interface ComplementaryExamResultCreateDialogProps {
+interface ComplementaryExamResultEditDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   patientId: string;
   exam: ComplementaryExam;
+  result: ComplementaryExamResult;
   onSuccess?: () => void;
 }
 
-export function ComplementaryExamResultCreateDialog({
+function buildEditValues(
+  exam: ComplementaryExam,
+  result: ComplementaryExamResult,
+  catalogEntry: CatalogExamEntry
+): CreateComplementaryExamResultFormData {
+  const isComposite = catalogEntry?.isComposite === true;
+  const compositeComponents = catalogEntry?.components ?? [];
+
+  let components: CreateComplementaryExamResultFormData['components'] = [];
+  if (isComposite) {
+    if (result.components && result.components.length > 0) {
+      components = result.components.map((c) => ({
+        name: c.name,
+        unit: c.unit,
+        referenceRange: c.referenceRange,
+        valueNumeric: c.valueNumeric,
+        valueText: c.valueText ?? '',
+        isAbnormal: c.isAbnormal ?? false,
+      }));
+    } else {
+      components = defaultCompositeComponentRows(compositeComponents);
+    }
+  }
+
+  const performedAt = result.performedAt.includes('T')
+    ? result.performedAt.slice(0, 10)
+    : result.performedAt;
+
+  return {
+    performedAt,
+    valueNumeric: result.valueNumeric ?? undefined,
+    valueText: result.valueText ?? '',
+    unit: result.unit ?? exam.unit ?? '',
+    referenceRange: result.referenceRange ?? exam.referenceRange ?? '',
+    isAbnormal: result.isAbnormal ?? false,
+    report: result.report ?? '',
+    components,
+  };
+}
+
+export function ComplementaryExamResultEditDialog({
   open,
   onOpenChange,
   patientId,
   exam,
+  result,
   onSuccess,
-}: ComplementaryExamResultCreateDialogProps): React.ReactElement {
+}: ComplementaryExamResultEditDialogProps): React.ReactElement {
   const queryClient = useQueryClient();
 
   const catalogEntry = resolveCatalogEntryForExam(exam);
@@ -70,24 +110,9 @@ export function ComplementaryExamResultCreateDialog({
   const isLabLike =
     exam.type === 'LABORATORY' || exam.type === 'IMMUNOHISTOCHEMICAL';
 
-  function buildDefaultValues(): CreateComplementaryExamResultFormData {
-    return {
-      performedAt: todayLocalYyyyMmDd(),
-      valueNumeric: undefined,
-      valueText: '',
-      unit: exam.unit ?? '',
-      referenceRange: exam.referenceRange ?? '',
-      isAbnormal: false,
-      report: '',
-      components: isComposite
-        ? defaultCompositeComponentRows(compositeComponents)
-        : [],
-    };
-  }
-
   const form = useForm<CreateComplementaryExamResultFormData>({
     resolver: zodResolver(createComplementaryExamResultSchema),
-    defaultValues: buildDefaultValues(),
+    defaultValues: buildEditValues(exam, result, catalogEntry),
   });
 
   const { fields } = useFieldArray({
@@ -95,9 +120,9 @@ export function ComplementaryExamResultCreateDialog({
     name: 'components',
   });
 
-  const createMutation = useMutation({
+  const updateMutation = useMutation({
     mutationFn: (data: CreateComplementaryExamResultFormData) => {
-      const payload: Parameters<typeof patientsApi.createComplementaryExamResult>[2] = {
+      const payload: Parameters<typeof patientsApi.updateComplementaryExamResult>[3] = {
         performedAt: toPerformedAtApiPayload(data.performedAt),
         report: data.report || undefined,
       };
@@ -120,29 +145,33 @@ export function ComplementaryExamResultCreateDialog({
         }
       }
 
-      return patientsApi.createComplementaryExamResult(patientId, exam.id, payload);
+      return patientsApi.updateComplementaryExamResult(
+        patientId,
+        exam.id,
+        result.id,
+        payload
+      );
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['patient', patientId] });
-      toast.success('Resultado adicionado.');
-      form.reset(buildDefaultValues());
+      toast.success('Resultado atualizado.');
       onOpenChange(false);
       onSuccess?.();
     },
     onError: (err: Error) => {
-      toast.error(err.message || 'Erro ao adicionar resultado.');
+      toast.error(err.message || 'Erro ao atualizar resultado.');
     },
   });
 
   useEffect(() => {
-    if (open) {
-      form.reset(buildDefaultValues());
+    if (open && result) {
+      form.reset(buildEditValues(exam, result, catalogEntry));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, exam.id, exam.unit, exam.referenceRange]);
+  }, [open, result?.id, exam.id, exam.unit, exam.referenceRange]);
 
   const onSubmit = (data: CreateComplementaryExamResultFormData) => {
-    createMutation.mutate(data);
+    updateMutation.mutate(data);
   };
 
   return (
@@ -150,9 +179,7 @@ export function ComplementaryExamResultCreateDialog({
       <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogClose onClose={() => onOpenChange(false)} />
         <DialogHeader>
-          <DialogTitle>
-            Adicionar resultado — {exam.name}
-          </DialogTitle>
+          <DialogTitle>Editar resultado — {exam.name}</DialogTitle>
           {exam.specimen && (
             <div className="mt-1">
               <Badge variant="outline" className="text-xs">
@@ -164,7 +191,6 @@ export function ComplementaryExamResultCreateDialog({
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            {/* Data da realização */}
             <FormField
               control={form.control}
               name="performedAt"
@@ -179,7 +205,6 @@ export function ComplementaryExamResultCreateDialog({
               )}
             />
 
-            {/* Exame composto: tabela de componentes */}
             {isComposite && fields.length > 0 && (
               <ComplementaryExamCompositeResultTable
                 control={form.control}
@@ -492,15 +517,11 @@ export function ComplementaryExamResultCreateDialog({
             )}
 
             <div className="flex justify-end gap-2 pt-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => onOpenChange(false)}
-              >
+              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
                 Cancelar
               </Button>
-              <Button type="submit" disabled={createMutation.isPending}>
-                {createMutation.isPending ? 'Salvando...' : 'Adicionar'}
+              <Button type="submit" disabled={updateMutation.isPending}>
+                {updateMutation.isPending ? 'Salvando...' : 'Salvar alterações'}
               </Button>
             </div>
           </form>
