@@ -1151,6 +1151,7 @@ model ComplementaryExam {
   loincCode String?             // Código LOINC padronizado (ex: "718-7" para Hgb, "751-8" para Neutrófilos)
   labCategory LabCategory?      // Categoria clínica para agrupamento e scoring de risco
   isCriticalMetric Boolean @default(false) // True para métricas de monitoramento crítico (ANC, Hgb, Plaquetas, Creat...)
+  specimen  String?             // Amostra/material: "Sangue venoso", "Urina simples", "Urina 24h", "Tecido", etc.
   unit      String?             // Ex: "g/dL", "/mm³"
   referenceRange String?        // Ex: "12.0-16.0", "1500-8000"
 
@@ -1181,6 +1182,12 @@ model ComplementaryExamResult {
   criticalHigh   Boolean? // Valor criticamente alto (acima do limite crítico superior)
   criticalLow    Boolean? // Valor criticamente baixo (abaixo do limite crítico inferior)
   report         String?  // Laudo completo (anatomo, imagem)
+  components     Json?    // Sub-valores de exames compostos (Hemograma, EAS, Gasometria): [{ name, unit, referenceRange, valueNumeric?, valueText?, isAbnormal? }]
+
+  // Soft delete (ocultar no frontend, manter rastreabilidade)
+  deletedAt         DateTime?
+  deletedByUserId   String?
+  deleteReason      String?
 
   tenant Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   exam   ComplementaryExam @relation(fields: [examId], references: [id], onDelete: Cascade)
@@ -1191,6 +1198,8 @@ model ComplementaryExamResult {
   @@index([tenantId])
   @@index([examId])
   @@index([performedAt])
+  @@index([tenantId, examId, deletedAt])
+  @@index([tenantId, deletedAt])
   @@map("complementary_exam_results")
 }
 

@@ -395,6 +395,16 @@ export type LabCategory =
   | 'PATHOLOGY_REPORT'
   | 'OTHER';
 
+/** Sub-valores de exames compostos (painéis laboratoriais) — alinhado ao JSON no backend */
+export interface ComplementaryExamResultComponent {
+  name: string;
+  valueNumeric?: number | null;
+  valueText?: string | null;
+  unit?: string | null;
+  referenceRange?: string | null;
+  isAbnormal?: boolean | null;
+}
+
 export interface ComplementaryExamResult {
   id: string;
   performedAt: string;
@@ -407,6 +417,7 @@ export interface ComplementaryExamResult {
   criticalHigh: boolean | null;
   criticalLow: boolean | null;
   report: string | null;
+  components?: ComplementaryExamResultComponent[] | null;
 }
 
 export interface ComplementaryExam {
@@ -419,6 +430,7 @@ export interface ComplementaryExam {
   loincCode: string | null;
   labCategory: LabCategory | null;
   isCriticalMetric: boolean;
+  specimen: string | null;
   unit: string | null;
   referenceRange: string | null;
   results: ComplementaryExamResult[];
@@ -668,6 +680,7 @@ export const patientsApi = {
       type: ComplementaryExamType;
       name: string;
       code?: string;
+      specimen?: string;
       unit?: string;
       referenceRange?: string;
     }
@@ -685,6 +698,7 @@ export const patientsApi = {
       type: ComplementaryExamType;
       name: string;
       code: string;
+      specimen: string;
       unit: string;
       referenceRange: string;
     }>
@@ -715,6 +729,14 @@ export const patientsApi = {
       referenceRange?: string;
       isAbnormal?: boolean;
       report?: string;
+      components?: Array<{
+        name: string;
+        valueNumeric?: number;
+        valueText?: string;
+        unit?: string;
+        referenceRange?: string;
+        isAbnormal?: boolean;
+      }>;
     }
   ): Promise<ComplementaryExamResult> {
     return apiClient.post<ComplementaryExamResult>(
@@ -735,6 +757,14 @@ export const patientsApi = {
       referenceRange: string;
       isAbnormal: boolean;
       report: string;
+      components: Array<{
+        name: string;
+        valueNumeric?: number;
+        valueText?: string;
+        unit?: string;
+        referenceRange?: string;
+        isAbnormal?: boolean;
+      }>;
     }>
   ): Promise<ComplementaryExamResult> {
     return apiClient.patch<ComplementaryExamResult>(

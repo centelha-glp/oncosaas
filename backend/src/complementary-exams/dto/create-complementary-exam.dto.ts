@@ -4,6 +4,7 @@ import {
   IsOptional,
   IsEnum,
   IsBoolean,
+  MaxLength,
 } from 'class-validator';
 import { ComplementaryExamType, LabCategory } from '@generated/prisma/client';
 
@@ -39,4 +40,10 @@ export class CreateComplementaryExamDto {
   @IsString()
   @IsOptional()
   referenceRange?: string;
+
+  /** Amostra/material (ex.: sangue venoso, urina) — alinhado ao catálogo por tipo */
+  @IsString()
+  @IsOptional()
+  @MaxLength(200)
+  specimen?: string;
 }
