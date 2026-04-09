@@ -4,7 +4,7 @@ on:
   workflow_run:
     workflows: ["CI"]
     types: [completed]
-    branches: [main]
+    branches: [main, dev, stage]
 
 concurrency:
   group: deploy-${{ github.event.workflow_run.head_branch || github.ref }}
@@ -155,6 +155,7 @@ jobs:
   deploy:
     name: Deploy to EC2 via SSM
     needs: scan
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' }}
     runs-on: ubuntu-latest
 
     steps:
