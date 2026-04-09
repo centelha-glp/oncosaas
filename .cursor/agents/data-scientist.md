@@ -1,6 +1,6 @@
 ---
 name: data-scientist
-description: 'Use para tarefas de ciência de dados e ML: análise exploratória, feature engineering, treinamento e avaliação de modelos (LightGBM/XGBoost), métricas clínicas, pipeline de dados reais, validação de scores clínicos (MASCC/CISNE), análise de bias em modelos de saúde, e exportação de dados para retreino. Acione quando a tarefa envolver ai-service/src/agent/priority_model.py, clinical_scores.py, train_model.py, ou análise de dados clínicos.'
+description: 'Laboratório de ML: EDA, feature engineering, treino e avaliação (LightGBM/XGBoost), métricas, validação de scores (MASCC/CISNE), bias, exportação para retreino. Arquivos típicos: priority_model.py, clinical_scores.py, train_model.py, testes de predição. NÃO substitui o orchestrator conversacional (ai-service) nem redesign de arquitetura multi-agente (llm-agent-architect). Integração de contrato/score com API NestJS sem foco em treino: engenheiro-ia-predicao.'
 tools: Read, Edit, Write, Bash, Grep, Glob
 model: inherit
 is_background: true

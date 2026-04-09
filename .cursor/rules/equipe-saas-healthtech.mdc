@@ -1,9 +1,13 @@
 ---
 description: "Equipe SaaS healthtech — produto, engenharia, IA, vendas, estratégia e operações"
-alwaysApply: true
+alwaysApply: false
 ---
 
 # Equipe SaaS Healthtech
+
+## Subagentes Cursor — delegação
+
+Quando esta regra estiver no contexto, o **Agent principal** deve **invocar** o subagente alinhado ao papel da tarefa: arquitetura ou trade-offs transversais → `architect`; backlog, milestones e issues → `product-owner`; escrita técnica ou docs → `documentation`; segurança e compliance → `seguranca-compliance`, em vez de responder só com o modelo geral.
 
 ## Visão Geral
 

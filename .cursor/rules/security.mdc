@@ -6,6 +6,10 @@ globs: backend/**/*.ts
 
 # Security Rules — ONCONAV
 
+## Subagente Cursor — delegação
+
+Quando esta regra estiver no contexto (conforme `globs` no frontmatter), o **Agent principal** deve **invocar o subagente** `seguranca-compliance` (`.cursor/agents/seguranca-compliance.md`) para revisão de segurança e LGPD alinhada a estas regras, em vez de responder só com o modelo geral.
+
 Plataforma SaaS oncológica com dados de saúde sensíveis. Estas regras derivam da implementação real em `backend/src/auth/`, `backend/src/common/guards/`, `backend/src/audit-log/`, e `backend/src/main.ts`. Qualquer desvio exige justificativa explícita e revisão do agente `seguranca-compliance`.
 
 ---

@@ -7,6 +7,10 @@ globs:
 
 # terraform — Rules & Patterns
 
+## Subagente Cursor — delegação
+
+Quando esta regra estiver no contexto (conforme `globs` no frontmatter), o **Agent principal** deve **invocar o subagente** `terraform` (`.cursor/agents/terraform.md`) para execução focada neste escopo, em vez de responder só com o modelo geral.
+
 Rules derivadas da configuração real em `infra/`. Aplica-se a toda infraestrutura como código do ONCONAV.
 
 ---

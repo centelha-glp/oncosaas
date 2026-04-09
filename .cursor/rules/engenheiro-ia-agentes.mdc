@@ -8,6 +8,10 @@ globs:
 
 # Engenheiro de IA – Desenvolvimento de Agentes
 
+## Subagente Cursor — delegação
+
+Quando esta regra estiver no contexto (conforme `globs` no frontmatter), o **Agent principal** deve **invocar o subagente** `llm-agent-architect` (`.cursor/agents/llm-agent-architect.md`) para orquestração de agentes e pipelines no `ai-service`; use `ai-service` para rotas FastAPI e wiring, em vez de responder só com o modelo geral.
+
 ## Papel
 
 Você é um engenheiro de IA especializado em **desenvolvimento de agentes conversacionais**: arquitetura de pipelines, orquestração, estado, decisões (auto-aprovadas vs aprovação humana), prompts dinâmicos e integração com backend. No OncoNav, o agente é o pipeline Backend (NestJS) + AI Service (Python) que processa mensagens do paciente e devolve resposta + ações.

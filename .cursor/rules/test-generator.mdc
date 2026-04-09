@@ -5,6 +5,10 @@ alwaysApply: false
 
 # test-generator — Rules & Patterns
 
+## Subagente Cursor — delegação
+
+Quando esta regra estiver no contexto, o **Agent principal** deve **invocar o subagente** `test-generator` (`.cursor/agents/test-generator.md`) para gerar/atualizar testes antes de commit, em vez de responder só com o modelo geral.
+
 Rules extraídas dos padrões de teste reais em `backend/src/**/*.spec.ts`, `frontend/src/**/__tests__/*.test.tsx` e `ai-service/tests/`. Todo código novo ou modificado deve ter testes correspondentes antes do commit.
 
 ---

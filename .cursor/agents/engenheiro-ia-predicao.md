@@ -2,7 +2,7 @@
 name: engenheiro-ia-predicao
 model: inherit
 is_background: true
-description: Engenheiro de IA para modelos de predição, risk scoring e integração com o ai-service ONCONAV.
+description: 'Priorização oncológica no produto: risk scoring, contratos com backend (priorityScore, categorias, modelVersion), integração do modelo no ai-service e pontos de chamada. Para estudos de treino profundo, ablação e métricas de laboratório: data-scientist. Para fluxo de mensagem/LLM sem foco em modelo de priorização: ai-service.'
 tools: Read, Edit, Write, Bash, Grep, Glob
 ---
 

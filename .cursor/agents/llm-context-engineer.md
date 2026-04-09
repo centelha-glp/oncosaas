@@ -1,6 +1,6 @@
 ---
 name: llm-context-engineer
-description: 'Use para engenharia de contexto LLM: otimizar prompts do orchestrator e subagentes, gerenciar janela de contexto, estruturar seções do system prompt (clínico, histórico, RAG, tools), reduzir tokens mantendo qualidade clínica, e implementar prompt caching. Acione quando precisar modificar prompts em ai-service/src/agent/prompts/, ajustar context_builder.py, otimizar o tamanho do contexto enviado ao LLM, ou melhorar a qualidade das respostas do agente oncológico.'
+description: 'Prompts, context_builder.py, janela de contexto, seções do system prompt, prompt caching, qualidade da resposta ao paciente. NÃO é arquitetura de novos steps/orchestrator (llm-agent-architect) nem corpus/FAISS (rag-engineer). Arquivos típicos: ai-service/src/agent/prompts/, context_builder.py.'
 tools: Read, Edit, Write, Bash, Grep, Glob
 model: inherit
 is_background: true

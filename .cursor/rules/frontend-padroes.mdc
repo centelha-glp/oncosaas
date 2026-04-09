@@ -1,9 +1,15 @@
 ---
-alwaysApply: true
+alwaysApply: false
 description: Padrões específicos de desenvolvimento para Frontend (Next.js 14, React, TypeScript). Regras de componentes, hooks, estado, formulários, roteamento e performance.
+globs:
+  - "frontend/**"
 ---
 
 # Padrões de Desenvolvimento - Frontend (Next.js 14)
+
+## Subagente Cursor — delegação
+
+Quando esta regra estiver no contexto (conforme `globs` no frontmatter), o **Agent principal** deve **invocar o subagente** `frontend-nextjs` (`.cursor/agents/frontend-nextjs.md`) para execução focada neste escopo, em vez de responder só com o modelo geral.
 
 ## Princípios Fundamentais
 

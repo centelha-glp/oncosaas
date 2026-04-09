@@ -6,6 +6,10 @@ globs: docs/**/*.md
 
 # documentation — Rules & Patterns
 
+## Subagente Cursor — delegação
+
+Quando esta regra estiver no contexto (conforme `globs` no frontmatter), o **Agent principal** deve **invocar o subagente** `documentation` (`.cursor/agents/documentation.md`) para execução focada neste escopo, em vez de responder só com o modelo geral.
+
 Rules derivadas da estrutura real em `docs/` e dos padrões de documentação do ONCONAV. Aplica-se à documentação técnica, guias de API, docs de pesquisa CEP/EBSERH e READMEs.
 
 ---

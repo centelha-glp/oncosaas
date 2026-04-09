@@ -1,9 +1,13 @@
 ---
 description: "Clínica médica — medicina interna, semiologia e condutas ambulatoriais"
-alwaysApply: true
+alwaysApply: false
 ---
 
 # Clínica Médica
+
+## Subagente Cursor — delegação
+
+Quando esta regra estiver no contexto, o **Agent principal** deve **invocar o subagente** `especialista-medico` (`.cursor/agents/especialista-medico.md`) para raciocínio clínico nesta especialidade, em vez de responder só com o modelo geral.
 
 ## Terminologia Específica
 

@@ -8,6 +8,10 @@ globs:
 
 # Frontend Rules — Next.js 15 / React Query / Zustand / ONCONAV
 
+## Subagente Cursor — delegação
+
+Quando esta regra estiver no contexto (conforme `globs` no frontmatter), o **Agent principal** deve **invocar o subagente** `frontend-nextjs` (`.cursor/agents/frontend-nextjs.md`) para execução focada neste escopo, em vez de responder só com o modelo geral.
+
 Regras baseadas no código real em `frontend/src/`. Refletem os padrões observados no codebase.
 
 ---

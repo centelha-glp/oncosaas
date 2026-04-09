@@ -1,9 +1,16 @@
 ---
 description: "Oncologia clínica — estadiamento, tratamentos sistêmicos e toxicidades"
-alwaysApply: true
+alwaysApply: false
+globs:
+  - "backend/src/clinical-protocols/**"
+  - "ai-service/**"
 ---
 
 # Oncologia Clínica
+
+## Subagente Cursor — delegação
+
+Quando esta regra estiver no contexto (conforme `globs` no frontmatter), o **Agent principal** deve **invocar o subagente** `especialista-medico` (`.cursor/agents/especialista-medico.md`) para raciocínio oncológico alinhado a estas convenções, em vez de responder só com o modelo geral.
 
 ## Terminologia Específica
 

@@ -6,6 +6,10 @@ globs: frontend/**/*.tsx
 
 # ux-accessibility — Rules & Patterns
 
+## Subagente Cursor — delegação
+
+Quando esta regra estiver no contexto (conforme `globs` no frontmatter), o **Agent principal** deve **invocar o subagente** `ux-accessibility` (`.cursor/agents/ux-accessibility.md`) para execução focada neste escopo, em vez de responder só com o modelo geral.
+
 Rules derivadas dos padrões reais de UX e acessibilidade em `frontend/src/`. Aplica-se a todos os componentes em `frontend/src/components/` e páginas em `frontend/src/app/`.
 
 ---

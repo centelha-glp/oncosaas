@@ -6,6 +6,10 @@ globs: backend/src/whatsapp-connections/**/*.ts
 
 # whatsapp-integration — Rules & Patterns
 
+## Subagente Cursor — delegação
+
+Quando esta regra estiver no contexto (conforme `globs` no frontmatter), o **Agent principal** deve **invocar o subagente** `whatsapp-integration` (`.cursor/agents/whatsapp-integration.md`) para execução focada neste escopo, em vez de responder só com o modelo geral.
+
 Rules extraídas do código real em `backend/src/whatsapp-connections/`, `backend/src/channel-gateway/` e `backend/src/messages/`. Qualquer alteração nesses módulos deve obedecer estas convenções.
 
 ---

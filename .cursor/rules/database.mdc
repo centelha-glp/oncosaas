@@ -6,6 +6,10 @@ globs: backend/prisma/**/*
 
 # Database Rules — Prisma / PostgreSQL / ONCONAV
 
+## Subagente Cursor — delegação
+
+Quando esta regra estiver no contexto (conforme `globs` no frontmatter), o **Agent principal** deve **invocar o subagente** `database-engineer` (`.cursor/agents/database-engineer.md`) para execução focada neste escopo, em vez de responder só com o modelo geral.
+
 Regras baseadas no schema real em `backend/prisma/schema.prisma` e padrões observados nos serviços.
 
 ---

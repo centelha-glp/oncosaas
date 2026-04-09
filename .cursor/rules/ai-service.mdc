@@ -6,6 +6,10 @@ globs: ai-service/**/*.py
 
 # ai-service — Rules & Patterns
 
+## Subagente Cursor — delegação
+
+Quando esta regra estiver no contexto (conforme `globs` no frontmatter), o **Agent principal** deve **invocar o subagente** `ai-service` (`.cursor/agents/ai-service.md`) para o pipeline conversacional e FastAPI. Para treino/EDA/métricas de modelo: `data-scientist`; priorização/contrato no produto: `engenheiro-ia-predicao`; tarefa única que cruza conversa + modelo: `ai-ml-engineer`.
+
 Rules extraídas do código real em `ai-service/src/`. Qualquer alteração neste serviço deve obedecer estas convenções.
 
 ---

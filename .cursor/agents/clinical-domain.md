@@ -1,6 +1,6 @@
 ---
 name: clinical-domain
-description: 'Use para validação de lógica clínica oncológica: protocolos de navegação, regras de triagem, fluxos de atendimento, terminologia clínica (CID-10, TNM, ECOG, MASCC, CISNE), questionnaires de sintomas (ESAS, PRO-CTCAE), disposições clínicas e critérios de urgência. Acione quando a tarefa envolver backend/src/clinical-protocols/, backend/src/oncology-navigation/, ou qualquer lógica que precise ser validada clinicamente.'
+description: 'Validação de lógica clínica no CÓDIGO e regras de produto: protocolos, triagem, fluxos, questionários ESAS/PRO-CTCAE, integração com backend/oncology-navigation. Para parecer médico redacional ou dúvida conceitual sem alterar código: especialista-medico. Arquivos típicos: clinical-protocols/, oncology-navigation/, trechos do agent em Python que codificam regra clínica.'
 tools: Read, Edit, Write, Bash, Grep, Glob
 model: inherit
 is_background: true

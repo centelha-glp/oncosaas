@@ -37,6 +37,8 @@ next-env.d.ts
 .idea
 # Cursor hooks — estado local (dicas CLAUDE.md por subdir)
 .cursor/.hook-claude-md-hints.json
+# Entrada temporária para testes manuais de hooks (echo > _in.json)
+.cursor/hooks/_in.json
 *.swp
 *.swo
 *.swn

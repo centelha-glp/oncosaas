@@ -6,6 +6,7 @@
  * | Claude (PreTool/PostTool)     | Cursor                          |
  * |------------------------------|---------------------------------|
  * | pre-tool-require-tests.sh    | beforeShellExecution (git)      |
+ * | (lembrete GitHub)            | beforeShellExecution (push/gh…) |
  * | post-tool-prisma-validate.sh | afterFileEdit (schema.prisma)   |
  * | pre-tool-tenant-check.sh     | afterFileEdit (.service/controller) |
  * | pre-tool-lgpd-check.sh       | afterFileEdit (DTO response / controller) |
@@ -21,6 +22,44 @@ const fs = require('fs');
 const path = require('path');
 
 const checks = require(path.join(__dirname, 'cursor-hook-checks.cjs'));
+
+const RULE_GITHUB_ORGANIZER = '.cursor/rules/github-organizer.mdc';
+const AGENT_GITHUB_ORGANIZER = '.cursor/agents/github-organizer.md';
+
+/** Comandos que alteram remoto/PR/histórico: pedir confirmação e lembrar github-organizer + rule */
+function isSensitiveGitOrGh(command) {
+  const c = String(command || '').trim();
+  if (!c) return false;
+
+  if (/^\s*gh\s+(version|--version|help|-h|--help)\b/i.test(c)) return false;
+  if (/^\s*gh\s+auth\s+(status|login|logout|refresh-token)\b/i.test(c))
+    return false;
+
+  if (/^\s*gh\s/i.test(c)) {
+    if (
+      /^\s*gh\s+(pr\s+list|pr\s+view|pr\s+status|issue\s+list|run\s+list|status|search)\b/i.test(
+        c,
+      )
+    ) {
+      return false;
+    }
+    return true;
+  }
+
+  if (!/\bgit\s/i.test(c)) return false;
+
+  if (/\bgit\s+commit\b/i.test(c)) return false;
+
+  if (
+    /\bgit\s+(push|pull|merge|rebase|cherry-pick|clone|submodule)\b/i.test(c)
+  ) {
+    return true;
+  }
+  if (/\bgit\s+reset\b/i.test(c)) return true;
+  if (/\bgit\s+tag\b.*\b(push|delete)\b/i.test(c)) return true;
+
+  return false;
+}
 
 function readStdinSync() {
   try {
@@ -107,6 +146,30 @@ function handleBeforeShell(input) {
   const allow = () => {
     console.log(JSON.stringify({ permission: 'allow' }));
   };
+  /** Orientação (sem bloquear): lembrar Task + rule do github-organizer. @param {{ forCommit?: boolean }} [opts] */
+  const allowWithGithubOrganizerHint = (opts = {}) => {
+    const forCommit = opts.forCommit === true;
+    const agentMsg = [
+      'Antes de commitar, dar push ou trabalhar em PR, use Task `github-organizer`',
+      `(\`${AGENT_GITHUB_ORGANIZER}\`) e a rule \`${RULE_GITHUB_ORGANIZER}\` quando aplicável.`,
+    ].join(' ');
+    const userMsg = forCommit
+      ? `Lembrete: antes de concluir este commit, alinhe com Task \`github-organizer\` e \`${RULE_GITHUB_ORGANIZER}\` (commits/PR no GitHub).`
+      : `Lembrete: antes de push ou de comandos gh que alterem PR/remoto, alinhe com Task \`github-organizer\` e \`${RULE_GITHUB_ORGANIZER}\`.`;
+    console.log(
+      JSON.stringify({
+        permission: 'allow',
+        user_message: userMsg,
+        userMessage: userMsg,
+        agent_message: agentMsg,
+        agentMessage: agentMsg,
+      }),
+    );
+    console.error(
+      '[OncoNav hook beforeShellExecution] lembrete github-organizer (allow):\n',
+      userMsg,
+    );
+  };
   const deny = (agentMessage) => {
     console.log(
       JSON.stringify({
@@ -114,14 +177,22 @@ function handleBeforeShell(input) {
         agentMessage,
       }),
     );
+    console.error(
+      '[OncoNav hook beforeShellExecution] commit bloqueado (deny). Veja agentMessage no JSON.',
+    );
   };
+
+  if (isSensitiveGitOrGh(command)) {
+    allowWithGithubOrganizerHint();
+    return;
+  }
 
   if (!/git commit/.test(command)) {
     allow();
     return;
   }
   if (/git commit --allow-empty|COMMIT_EDITMSG/.test(command)) {
-    allow();
+    allowWithGithubOrganizerHint({ forCommit: true });
     return;
   }
 
@@ -133,7 +204,7 @@ function handleBeforeShell(input) {
       maxBuffer: 10 * 1024 * 1024,
     });
   } catch {
-    allow();
+    allowWithGithubOrganizerHint({ forCommit: true });
     return;
   }
 
@@ -143,7 +214,7 @@ function handleBeforeShell(input) {
     .filter(Boolean);
 
   if (lines.length === 0) {
-    allow();
+    allowWithGithubOrganizerHint({ forCommit: true });
     return;
   }
 
@@ -162,7 +233,7 @@ function handleBeforeShell(input) {
 
   const hasProd = [...prodBackend, ...prodFrontend, ...prodAi];
   if (hasProd.length === 0) {
-    allow();
+    allowWithGithubOrganizerHint({ forCommit: true });
     return;
   }
 
@@ -174,7 +245,7 @@ function handleBeforeShell(input) {
   );
 
   if (testFiles.length > 0) {
-    allow();
+    allowWithGithubOrganizerHint({ forCommit: true });
     return;
   }
 

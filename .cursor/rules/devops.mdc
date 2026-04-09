@@ -9,6 +9,10 @@ globs:
 
 # DevOps Rules — ONCONAV
 
+## Subagente Cursor — delegação
+
+Quando esta regra estiver no contexto (conforme `globs` no frontmatter), o **Agent principal** deve **invocar o subagente** `devops` (`.cursor/agents/devops.md`) para execução focada neste escopo, em vez de responder só com o modelo geral.
+
 Regras extraídas diretamente dos arquivos de infraestrutura existentes: `docker-compose.dev.yml`, `docker-compose.prod.yml`, `compose.infra.yml`, `compose.app.yml`, Dockerfiles de cada serviço e workflows `.github/workflows/ci.yml` e `.github/workflows/deploy.yml`.
 
 ---

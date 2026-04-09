@@ -1,6 +1,6 @@
 ---
 name: ai-service
-description: 'Use para tarefas do ai-service Python: agente conversacional (orchestrator, LLM provider, symptom analyzer, questionnaire engine, protocol engine, prompts), modelos de predição (priority model, clinical rules, clinical scores MASCC/CISNE, feature engineering, treino LightGBM), e endpoints FastAPI. Acione quando a tarefa envolver arquivos em ai-service/.'
+description: 'Dono do serviço Python FastAPI e do pipeline conversacional: orchestrator, symptom analyzer, questionnaire engine, protocol engine, wiring LLM/RAG no fluxo, rotas do agente e integração com o backend NestJS. Acione para ai-service/src/agent/ (exceto foco exclusivo em corpus RAG → rag-engineer), prompts/contexto pontual → llm-context-engineer, arquitetura multi-agente → llm-agent-architect. NÃO acione para treino LightGBM, EDA, notebooks de retreino ou trabalho principal em priority_model/train_model — use data-scientist ou engenheiro-ia-predicao.'
 tools: Read, Edit, Write, Bash, Grep, Glob
 model: inherit
 is_background: true

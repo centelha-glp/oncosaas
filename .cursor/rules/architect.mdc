@@ -5,6 +5,10 @@ alwaysApply: false
 
 # architect — Rules & Patterns
 
+## Subagente Cursor — delegação
+
+Quando esta regra estiver no contexto, o **Agent principal** deve **invocar o subagente** `architect` (`.cursor/agents/architect.md`) para decisões cross-layer e revisão estrutural, em vez de responder só com o modelo geral.
+
 Rules derivadas da arquitetura real do ONCONAV: `backend/src/app.module.ts`, estrutura de módulos, padrões cross-layer e decisões de design observadas no código.
 
 ---

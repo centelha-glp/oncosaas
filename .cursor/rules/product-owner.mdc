@@ -5,6 +5,10 @@ alwaysApply: false
 
 # product-owner — Rules & Patterns
 
+## Subagente Cursor — delegação
+
+Quando esta regra estiver no contexto, o **Agent principal** deve **invocar o subagente** `product-owner` (`.cursor/agents/product-owner.md`) para backlog, milestones e issues, em vez de responder só com o modelo geral.
+
 Rules para gestão de produto do ONCONAV via GitHub: backlog, milestones, issues e priorização. Acionado via skill `/po`.
 
 ---

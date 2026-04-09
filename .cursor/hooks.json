@@ -15,6 +15,17 @@
       {
         "command": "node .cursor/hooks/cursor-hook-runner.cjs afterFileEdit"
       }
+    ],
+    "postToolUse": [
+      {
+        "command": "node .cursor/hooks/post-agent-followup.cjs postToolUse",
+        "matcher": "Write|StrReplace|search_replace|Edit|ApplyPatch"
+      }
+    ],
+    "subagentStop": [
+      {
+        "command": "node .cursor/hooks/post-agent-followup.cjs subagentStop"
+      }
     ]
   }
 }

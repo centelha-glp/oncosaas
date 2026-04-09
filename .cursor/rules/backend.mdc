@@ -6,6 +6,10 @@ globs: backend/**/*.ts
 
 # Backend Rules — NestJS / Prisma / ONCONAV
 
+## Subagente Cursor — delegação
+
+Quando esta regra estiver no contexto (conforme `globs` no frontmatter), o **Agent principal** deve **invocar o subagente** `backend-nestjs` (`.cursor/agents/backend-nestjs.md`) para execução focada neste escopo, em vez de responder só com o modelo geral.
+
 Rules derived from the real codebase in `backend/src/`. Every rule reflects an observed pattern.
 
 ---

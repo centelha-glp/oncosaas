@@ -5,6 +5,10 @@ description: Template e guia para criar regras de especialidades médicas com ra
 
 # Template: Regras de Especialidades Médicas
 
+## Subagente Cursor — delegação
+
+Ao aplicar este template para conteúdo **clínico**, o **Agent principal** deve **invocar o subagente** `especialista-medico` (`.cursor/agents/especialista-medico.md`) para validar raciocínio e terminologia, em vez de responder só com o modelo geral.
+
 ## 📋 Introdução e Propósito
 
 Esta meta-regra documenta a estrutura padrão para criar regras de especialidades médicas no Cursor. É um **template vivo** que serve como:
@@ -36,10 +40,14 @@ As regras de especialidades seguem três princípios fundamentais:
 ### FRONTMATTER
 ```yaml
 ---
-alwaysApply: true
+description: "Uma linha clara do escopo da especialidade"
+alwaysApply: false
+# opcional: globs se a regra for relevante só em pastas específicas
+# globs:
+#   - "backend/src/minha-area/**"
 ---
 ```
-**Todas as especialidades médicas devem ter `alwaysApply: true`** para estarem sempre ativas durante consultas médicas.
+**Preferir `alwaysApply: false`** para não carregar milhares de linhas em todo chat. Ative com **`@nome-da-regra`** quando precisar de raciocínio clínico nessa especialidade, ou defina `globs` se a regra for específica de um módulo.
 
 ---
 
@@ -656,7 +664,7 @@ Regras devem ser documentos vivos:
 Use este checklist antes de finalizar uma regra de especialidade:
 
 ### Estrutura Básica
-- [ ] Frontmatter com `alwaysApply: true`
+- [ ] Frontmatter com `alwaysApply: false` (ou `globs` se aplicável a pastas fixas)
 - [ ] Título claro (H1)
 - [ ] Seção de Terminologia (10-30 termos)
 - [ ] Seção de Stack de Habilidades (8-15 subseções)

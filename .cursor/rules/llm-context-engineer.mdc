@@ -6,6 +6,10 @@ globs: ai-service/src/agent/**/*.py
 
 # llm-context-engineer — Rules & Patterns
 
+## Subagente Cursor — delegação
+
+Quando esta regra estiver no contexto (conforme `globs` no frontmatter), o **Agent principal** deve **invocar o subagente** `llm-context-engineer` (`.cursor/agents/llm-context-engineer.md`) para prompts e `context_builder`, em vez de responder só com o modelo geral.
+
 Rules extraídas do código real em `ai-service/src/agent/prompts/` e `ai-service/src/agent/context_builder.py`. Qualquer alteração em prompts ou construção de contexto deve obedecer estas convenções.
 
 ---

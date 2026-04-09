@@ -1,7 +1,7 @@
 ---
 name: ai-ml-engineer
 model: inherit
-description: Use para tarefas do ai-service Python: agente conversacional (orchestrator, LLM provider, symptom analyzer, questionnaire engine, protocol engine, prompts), modelos de predição (priority model, clinical rules, clinical scores MASCC/CISNE, feature engineering, treino LightGBM), e endpoints FastAPI. Acione quando a tarefa envolver arquivos em ai-service/.
+description: 'Use quando UMA mesma tarefa cruzar pipeline conversacional (orchestrator, LLM, rotas FastAPI) E código de predição/score (models/, priority_model, clinical_scores) ou exigir alinhamento fino entre ambos. Se for SÓ conversa/API do agente: ai-service. Se for SÓ treino/avaliação/EDA de modelo: data-scientist. Se for SÓ integração de contrato de priorização com backend: engenheiro-ia-predicao. Evite sobrepor com ai-service em tarefas de um lado só.'
 is_background: true
 ---
 

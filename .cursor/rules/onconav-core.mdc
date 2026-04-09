@@ -1,0 +1,67 @@
+---
+description: "Núcleo ONCONAV — camadas, multi-tenant e ponteiros para regras por stack"
+alwaysApply: true
+---
+
+# ONCONAV — regra núcleo (compacta)
+
+Esta regra permanece **sempre ativa** com poucas linhas. Detalhes de implementação ficam em regras com **globs** (`backend-padroes`, `frontend-padroes`, etc.) ou sob demanda (`@`).
+
+## Limites de responsabilidade
+
+- **Frontend**: apresentação e interação; chama apenas o backend (cliente API com JWT). Sem lógica de negócio nem acesso direto ao banco ou a APIs externas privadas.
+- **Backend**: lógica de negócio, Prisma, guards, isolamento por tenant, orquestração com o AI Service.
+- **AI Service**: LLM/ML/agente e rotas FastAPI; sem duplicar regras de negócio que pertencem ao domínio NestJS.
+- **Dados**: persistência somente no backend via Prisma (migrations em `backend/prisma`).
+
+## Multi-tenant (obrigatório)
+
+Filtrar dados de domínio por `tenantId` confiável (ex.: `req.user.tenantId`). Não usar `tenantId` enviado pelo cliente como única fonte de verdade em operações sensíveis.
+
+## Subagentes Cursor — delegação
+
+O **Agent principal** deve **invocar** o subagente em `.cursor/agents/<nome>.md` cujo escopo case com a tarefa. Cada regra `.mdc` alinhada a um domínio inclui a ordem explícita; use esta tabela como atalho:
+
+| Área / pastas típicas | Subagente |
+|------------------------|-------------|
+| `backend/**`, Prisma | `backend-nestjs` |
+| `frontend/**` | `frontend-nextjs` |
+| `ai-service/**` (API, orchestrator, agente conversacional) | `ai-service` |
+| Treino/EDA/modelo (priority, LightGBM, métricas) | `data-scientist` |
+| Priorização no produto (contrato API/backend + score) | `engenheiro-ia-predicao` |
+| Mesma tarefa cruza conversa + modelo/score | `ai-ml-engineer` |
+| RAG, corpus, embeddings | `rag-engineer` |
+| Arquitetura multi-agente vs prompts/contexto | `llm-agent-architect` vs `llm-context-engineer` |
+| Arquitetura cross-layer | `architect` |
+| AWS / Terraform | `aws`, `terraform` |
+| DevOps, CI/CD, Docker | `devops` |
+| Prisma/schema/performance DB | `database-engineer` |
+| FHIR / interoperabilidade | `fhir-integration` |
+| Domínio clínico oncológico | `clinical-domain` |
+| Segurança, LGPD, guards | `seguranca-compliance` |
+| UX / a11y | `ux-accessibility` |
+| WhatsApp / canais | `whatsapp-integration` |
+| Documentação técnica | `documentation` |
+| Performance (app/API) | `performance` |
+| PRs, commits | `github-organizer` |
+| Testes | `test-generator` |
+| Backlog / milestones | `product-owner` |
+| Parecer oncológico / clínico (texto) | `especialista-medico` |
+| Edital Centelha ES | `centelha-es-fase2` |
+
+## Onde aprofundar
+
+| Tema | Arquivo |
+|------|---------|
+| NestJS, módulos, DTOs, Prisma | `backend-padroes.mdc` |
+| Next.js, React, RHF, React Query | `frontend-padroes.mdc` |
+| Integração entre serviços, checklist ampliado | `desenvolvimento-modular.mdc` |
+| FastAPI, agente, Python | `ai-service.mdc` |
+| LGPD, hardening, audit trail | `security.mdc` |
+| Jest/Vitest/pytest antes do commit | `test-generator.mdc` |
+| PRs e commits | `github-organizer.mdc` |
+
+## API (contrato geral)
+
+- Prefixo versionado: `/api/v1/` onde aplicável.
+- Respostas de erro não expõem stack interna; detalhes só em logs no servidor.

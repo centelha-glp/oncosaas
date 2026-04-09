@@ -1,9 +1,13 @@
 ---
 description: "Medicina de família e comunidade — APS, crônicos, rastreamentos e longitudinalidade"
-alwaysApply: true
+alwaysApply: false
 ---
 
 # Medicina de Família e Comunidade
+
+## Subagente Cursor — delegação
+
+Quando esta regra estiver no contexto, o **Agent principal** deve **invocar o subagente** `especialista-medico` (`.cursor/agents/especialista-medico.md`) para raciocínio clínico nesta especialidade, em vez de responder só com o modelo geral.
 
 ## Terminologia Específica
 

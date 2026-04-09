@@ -10,6 +10,10 @@ description: Simplifica e refina código recém-modificado para clareza e manute
 
 # code-simplifier — Rules & Patterns
 
+## Subagentes Cursor — delegação
+
+Não há subagente homônimo. Quando o `code-simplifier` estiver no contexto, o **Agent principal** deve **acoplar** a simplificação ao subagente da stack já relevante (`backend-nestjs`, `frontend-nextjs`, `ai-service`, etc.) conforme os arquivos tocados, para manter padrões de módulo e convenções do projeto.
+
 Rules para simplificação de código no ONCONAV. O `code-simplifier` atua **exclusivamente sobre código recém-modificado** — nunca refatora além do escopo da mudança que motivou o acionamento.
 
 ---

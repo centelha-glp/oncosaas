@@ -1,9 +1,13 @@
 ---
 description: "Medicina intensiva — UTI, ventilação mecânica, sepse e suporte avançado"
-alwaysApply: true
+alwaysApply: false
 ---
 
 # Medicina Intensiva
+
+## Subagente Cursor — delegação
+
+Quando esta regra estiver no contexto, o **Agent principal** deve **invocar o subagente** `especialista-medico` (`.cursor/agents/especialista-medico.md`) para raciocínio clínico nesta especialidade, em vez de responder só com o modelo geral.
 
 ## Terminologia Específica
 

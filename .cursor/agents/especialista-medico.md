@@ -2,7 +2,7 @@
 name: especialista-medico
 model: inherit
 is_background: true
-description: Especialista médico/oncológico para protocolos clínicos, terminologia e domínio ONCONAV.
+description: 'Parecer clínico, terminologia, coerência de conteúdo médico e revisão de textos/protocolos. Para implementar ou validar regras e fluxos no código (TypeScript/Python do produto): clinical-domain.'
 tools: Read, Edit, Write, Bash, Grep, Glob
 ---
 

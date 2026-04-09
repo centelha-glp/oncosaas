@@ -1,9 +1,16 @@
 ---
 description: "Navegação oncológica — jornada do paciente, barreiras, etapas e coordenação"
-alwaysApply: true
+alwaysApply: false
+globs:
+  - "backend/src/oncology-navigation/**"
+  - "frontend/src/**/oncology-navigation/**"
 ---
 
 # Navegação Oncológica
+
+## Subagente Cursor — delegação
+
+Quando esta regra estiver no contexto (conforme `globs` no frontmatter), o **Agent principal** deve **invocar o subagente** `clinical-domain` (`.cursor/agents/clinical-domain.md`) para lógica de navegação oncológica e protocolos; complementar com `especialista-medico` para parecer clínico pontual se necessário, em vez de responder só com o modelo geral.
 
 ## Terminologia Específica
 

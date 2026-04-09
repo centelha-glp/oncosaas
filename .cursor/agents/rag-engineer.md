@@ -1,6 +1,6 @@
 ---
 name: rag-engineer
-description: 'Use para tarefas de RAG oncológico: adicionar e curar documentos no corpus, otimizar retrieval (threshold, top-k, filtro por cancer_type), melhorar qualidade de embeddings, gerenciar cache FAISS, implementar estratégias de hybrid search ou re-ranking, e debugar falhas de retrieval. Acione quando precisar modificar ai-service/src/agent/rag/knowledge_base.py, ai-service/src/agent/rag/oncology_corpus.json, ou resolver problemas de qualidade de contexto RAG nas respostas do agente.'
+description: 'Corpus oncológico, knowledge_base.py, embeddings, FAISS, retrieval (threshold, top-k, cancer_type), re-ranking, debug de passagens ruins. Redação de prompts que consomem o contexto RAG: llm-context-engineer. Orquestração de quando chamar RAG no pipeline: ai-service / llm-agent-architect.'
 tools: Read, Edit, Write, Bash, Grep, Glob
 model: inherit
 is_background: true

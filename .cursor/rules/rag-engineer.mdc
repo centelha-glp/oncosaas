@@ -6,6 +6,10 @@ globs: ai-service/src/agent/rag/**/*.py
 
 # rag-engineer — Rules & Patterns
 
+## Subagente Cursor — delegação
+
+Quando esta regra estiver no contexto (conforme `globs` no frontmatter), o **Agent principal** deve **invocar o subagente** `rag-engineer` (`.cursor/agents/rag-engineer.md`) para execução focada neste escopo, em vez de responder só com o modelo geral.
+
 Rules extraídas do código real em `ai-service/src/agent/rag/`. Qualquer alteração no sistema RAG oncológico deve obedecer estas convenções.
 
 ---

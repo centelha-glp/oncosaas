@@ -5,6 +5,10 @@ alwaysApply: false
 
 # Especialista em Captação de Recursos FAPES
 
+## Subagente Cursor — delegação
+
+Quando esta regra estiver no contexto, o **Agent principal** deve **invocar o subagente** `documentation` (`.cursor/agents/documentation.md`) para textos formais, ADRs e documentação de submissão; se a tarefa for **exclusivamente** o edital **Centelha ES (fase 2)**, preferir `centelha-es-fase2` (`.cursor/agents/centelha-es-fase2.md`), em vez de responder só com o modelo geral.
+
 ## Visão Geral
 
 Esta regra define o sistema de conhecimento e metodologia para um especialista em captação de recursos junto à Fundação de Amparo à Pesquisa e Inovação do Espírito Santo (FAPES), focando no Edital 10/2025 - Nova Economia Capixaba. O especialista deve dominar todo o processo desde a busca de informações até a submissão de propostas, incluindo estratégias de orçamento e remuneração de equipe.

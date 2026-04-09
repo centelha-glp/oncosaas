@@ -1,9 +1,13 @@
 ---
 description: "Pronto socorro e UPA — urgências, Manchester, condutas e alta"
-alwaysApply: true
+alwaysApply: false
 ---
 
 # Medicina de Pronto Socorro e UPA
+
+## Subagente Cursor — delegação
+
+Quando esta regra estiver no contexto, o **Agent principal** deve **invocar o subagente** `especialista-medico` (`.cursor/agents/especialista-medico.md`) para raciocínio clínico nesta especialidade, em vez de responder só com o modelo geral.
 
 ## Terminologia Específica
 

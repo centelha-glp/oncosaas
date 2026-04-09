@@ -1,6 +1,6 @@
 ---
 name: llm-agent-architect
-description: 'Use para design e evolução de sistemas multi-agente com LLMs: arquitetura de orchestrators, design de subagentes, estratégias de RAG, prompt engineering avançado, tool use, agentic loops, gerenciamento de contexto e avaliação de agentes. Acione quando precisar evoluir o orchestrator do ai-service, adicionar novos subagentes, redesenhar o pipeline de processamento, ou criar novas capacidades conversacionais no ONCONAV.'
+description: 'Arquitetura multi-agente: orchestrators, novos passos no pipeline, tool use, loops, avaliação de comportamento do agente, redesenho estrutural. Para ajuste fino de prompts, context_builder e economia de tokens sem mudar a arquitetura: llm-context-engineer. Para corpus, FAISS e retrieval: rag-engineer. Para implementação ponta-a-ponta do fluxo no código: ai-service.'
 tools: Read, Edit, Write, Bash, Grep, Glob
 model: inherit
 is_background: true

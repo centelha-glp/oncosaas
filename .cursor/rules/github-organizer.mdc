@@ -5,6 +5,10 @@ alwaysApply: false
 
 # github-organizer — Rules & Patterns
 
+## Subagente Cursor — delegação
+
+Quando esta regra estiver no contexto, o **Agent principal** deve **invocar o subagente** `github-organizer` (`.cursor/agents/github-organizer.md`) para commits e PRs (fluxo autorizado do projeto), em vez de responder só com o modelo geral.
+
 Rules derivadas dos padrões reais de commits e PRs no repositório ONCONAV. O `github-organizer` é o único agente autorizado a criar commits e abrir PRs — nunca commitar diretamente.
 
 ---

@@ -9,6 +9,10 @@ globs:
 
 # clinical-domain — Regras do Domínio Clínico Oncológico
 
+## Subagente Cursor — delegação
+
+Quando esta regra estiver no contexto (conforme `globs` no frontmatter), o **Agent principal** deve **invocar o subagente** `clinical-domain` (`.cursor/agents/clinical-domain.md`) para execução focada neste escopo, em vez de responder só com o modelo geral.
+
 ## Escopo deste arquivo
 
 Este documento define as regras obrigatórias para qualquer contribuição que toque lógica clínica oncológica no ONCONAV. Aplica-se a arquivos em `ai-service/src/agent/`, `backend/src/clinical-protocols/`, `backend/src/oncology-navigation/`, `backend/src/questionnaire-responses/`, `backend/src/medications/`, `backend/src/performance-status/` e quaisquer modelos Prisma que armazenem dados clínicos.

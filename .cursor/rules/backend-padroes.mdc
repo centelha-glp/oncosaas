@@ -1,9 +1,15 @@
 ---
-alwaysApply: true
+alwaysApply: false
 description: Padrões específicos de desenvolvimento para Backend (NestJS, TypeScript, Prisma). Regras de módulos, controllers, services, DTOs, validação, segurança e integração com banco de dados.
+globs:
+  - "backend/**"
 ---
 
 # Padrões de Desenvolvimento - Backend (NestJS)
+
+## Subagente Cursor — delegação
+
+Quando esta regra estiver no contexto (conforme `globs` no frontmatter), o **Agent principal** deve **invocar o subagente** `backend-nestjs` (`.cursor/agents/backend-nestjs.md`) para execução focada neste escopo, em vez de responder só com o modelo geral.
 
 ## Princípios Fundamentais
 

@@ -9,6 +9,10 @@ globs:
 
 # aws — Rules & Patterns
 
+## Subagente Cursor — delegação
+
+Quando esta regra estiver no contexto (conforme `globs` no frontmatter), o **Agent principal** deve **invocar o subagente** `aws` (`.cursor/agents/aws.md`) para execução focada neste escopo, em vez de responder só com o modelo geral.
+
 Rules derivadas da infraestrutura real em `infra/` e `.github/workflows/deploy.yml`. Aplica-se a toda operação em serviços AWS do ONCONAV.
 
 ---

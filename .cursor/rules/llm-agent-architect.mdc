@@ -6,6 +6,10 @@ globs: ai-service/src/agent/**/*.py
 
 # llm-agent-architect — Rules & Patterns
 
+## Subagente Cursor — delegação
+
+Quando esta regra estiver no contexto (conforme `globs` no frontmatter), o **Agent principal** deve **invocar o subagente** `llm-agent-architect` (`.cursor/agents/llm-agent-architect.md`) para arquitetura multi-agente e orchestrator, em vez de responder só com o modelo geral.
+
 Rules extraídas do código real em `ai-service/src/agent/`. Qualquer alteração na arquitetura do sistema multi-agente deve obedecer estas convenções.
 
 ---
