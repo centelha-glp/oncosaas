@@ -343,6 +343,8 @@ model NavigationStep {
   journey    PatientJourney?  @relation(fields: [journeyId], references: [id], onDelete: Cascade)
   diagnosis  CancerDiagnosis? @relation(fields: [diagnosisId], references: [id], onDelete: Cascade)
 
+  files NavigationStepFile[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -357,6 +359,31 @@ model NavigationStep {
   @@index([patientId, stepKey])
   @@index([patientId, dependsOnStepKey])
   @@map("navigation_steps")
+}
+
+/// Metadados de arquivos vinculados a etapas de navegação (ex.: bucket S3).
+/// Tabela criada em 20260325090000; `uploadedBy` é o id do usuário (sem FK no banco).
+model NavigationStepFile {
+  id               String    @id @default(uuid())
+  tenantId         String
+  navigationStepId String
+  bucket           String
+  objectKey        String
+  etag             String?
+  size             Int
+  contentType      String
+  originalName     String
+  uploadedBy       String
+  deletedAt        DateTime?
+  createdAt        DateTime  @default(now())
+
+  tenant         Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  navigationStep NavigationStep @relation(fields: [navigationStepId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([navigationStepId])
+  @@index([tenantId, objectKey])
+  @@map("navigation_step_files")
 }
 
 enum NavigationStepStatus {
@@ -1369,6 +1396,7 @@ model Tenant {
   questionnaireResponses QuestionnaireResponse[]
   auditLogs              AuditLog[]
   navigationSteps        NavigationStep[]
+  navigationStepFiles    NavigationStepFile[]
   whatsappConnections    WhatsAppConnection[]
   internalNotes          InternalNote[]
   interventions          Intervention[]
