@@ -1,8 +1,17 @@
-import { Injectable, NotFoundException, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  Logger,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateMedicationDto } from './dto/create-medication.dto';
 import { UpdateMedicationDto } from './dto/update-medication.dto';
 import { MedicationCategory } from '@generated/prisma/client';
+import {
+  getMedicationCatalogEntry,
+  isValidMedicationCatalogKey,
+} from '../clinical-catalogs/medication-catalog';
 
 /** Maps a MedicationCategory to its clinical risk boolean flags. */
 function resolveClinicalFlags(category: MedicationCategory) {
@@ -43,14 +52,44 @@ export class MedicationsService {
     tenantId: string,
     dto: CreateMedicationDto,
   ) {
-    const category = dto.category ?? MedicationCategory.OTHER;
+    let name = dto.name?.trim() ?? '';
+    let catalogKey: string | null = dto.catalogKey?.trim() || null;
+    let category: MedicationCategory;
+
+    if (catalogKey) {
+      if (!isValidMedicationCatalogKey(catalogKey)) {
+        throw new BadRequestException(
+          `Chave de medicamento inválida: ${catalogKey}`,
+        );
+      }
+      const resolved = getMedicationCatalogEntry(catalogKey)!;
+      if (catalogKey === 'OTHER') {
+        if (!name) {
+          throw new BadRequestException(
+            'Para medicamento "Outro", informe o nome no campo livre.',
+          );
+        }
+      } else {
+        name = resolved.label;
+      }
+      category = resolved.category;
+    } else {
+      if (!name) {
+        throw new BadRequestException(
+          'Informe o nome do medicamento ou selecione no catálogo.',
+        );
+      }
+      category = dto.category ?? MedicationCategory.OTHER;
+    }
+
     const flags = resolveClinicalFlags(category);
 
     return this.prisma.medication.create({
       data: {
         patientId,
         tenantId,
-        name: dto.name,
+        name,
+        catalogKey,
         dosage: dto.dosage,
         frequency: dto.frequency,
         indication: dto.indication,
@@ -70,7 +109,23 @@ export class MedicationsService {
 
     const updateData: any = { ...dto };
 
-    if (dto.category) {
+    if (dto.catalogKey?.trim()) {
+      const ck = dto.catalogKey.trim();
+      if (!isValidMedicationCatalogKey(ck)) {
+        throw new BadRequestException(`Chave de medicamento inválida: ${ck}`);
+      }
+      const resolved = getMedicationCatalogEntry(ck)!;
+      updateData.catalogKey = ck;
+      if (ck !== 'OTHER') {
+        updateData.name = resolved.label;
+      } else if (!dto.name?.trim()) {
+        throw new BadRequestException(
+          'Para medicamento "Outro", informe o nome no campo livre.',
+        );
+      }
+      updateData.category = resolved.category;
+      Object.assign(updateData, resolveClinicalFlags(resolved.category));
+    } else if (dto.category) {
       Object.assign(updateData, resolveClinicalFlags(dto.category));
     }
     if (dto.startDate) {updateData.startDate = new Date(dto.startDate);}

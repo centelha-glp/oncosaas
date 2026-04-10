@@ -5,6 +5,7 @@ import {
   Inject,
   forwardRef,
   Logger,
+  Optional,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePatientDto, Gender, CancerType } from './dto/create-patient.dto';
@@ -24,6 +25,9 @@ import {
 } from '../common/utils/phone.util';
 import * as csv from 'csv-parser';
 import { Readable } from 'stream';
+import { ComorbiditiesService } from '../comorbidities/comorbidities.service';
+import { MedicationsService } from '../medications/medications.service';
+import { normalizeAllergyEntriesForStorage } from './patient-clinical-json.util';
 
 type PatientWithDiagnoses = Prisma.PatientGetPayload<{
   include: {
@@ -39,7 +43,9 @@ export class PatientsService {
     private readonly prisma: PrismaService,
     @Inject(forwardRef(() => OncologyNavigationService))
     private readonly navigationService?: OncologyNavigationService,
-    private readonly priorityRecalculationService?: PriorityRecalculationService
+    private readonly priorityRecalculationService?: PriorityRecalculationService,
+    @Optional() private readonly comorbiditiesService?: ComorbiditiesService,
+    @Optional() private readonly medicationsService?: MedicationsService
   ) {}
 
   /**
@@ -295,18 +301,17 @@ export class PatientsService {
       }
     }
 
-    // Validar tipos de câncer habilitados para o tenant
-    if (createPatientDto.cancerType) {
-      await this.validateCancerType(createPatientDto.cancerType, tenantId);
-    }
-    for (const diag of createPatientDto.cancerDiagnoses ?? []) {
-      if (diag.cancerType) {
-        await this.validateCancerType(String(diag.cancerType), tenantId);
-      }
-    }
+    // Extrair listas aninhadas do DTO
+    const {
+      cancerDiagnoses,
+      comorbidities: comorbidityCreates,
+      currentMedications: medicationCreates,
+      allergyEntries: rawAllergyEntries,
+      ...patientData
+    } = createPatientDto;
 
-    // Extrair cancerDiagnoses do DTO para processar separadamente
-    const { cancerDiagnoses, ...patientData } = createPatientDto;
+    const allergyEntriesJson =
+      normalizeAllergyEntriesForStorage(rawAllergyEntries);
 
     // Processar cancerDiagnoses se fornecidos
     const processedDiagnoses = cancerDiagnoses?.map((diagnosis) => {
@@ -346,7 +351,20 @@ export class PatientsService {
         smokingHistory: patientData.smokingHistory,
         alcoholHistory: patientData.alcoholHistory,
         occupationalExposure: patientData.occupationalExposure,
+        smokingProfile: patientData.smokingProfile as
+          | Prisma.InputJsonValue
+          | undefined,
+        alcoholProfile: patientData.alcoholProfile as
+          | Prisma.InputJsonValue
+          | undefined,
+        occupationalExposureEntries: patientData.occupationalExposureEntries as
+          | Prisma.InputJsonValue
+          | undefined,
+        allergyEntries: allergyEntriesJson,
         familyHistory: patientData.familyHistory as any,
+        priorSurgeries: patientData.priorSurgeries as any,
+        priorHospitalizations: patientData.priorHospitalizations as any,
+        allergies: patientData.allergies,
         ehrPatientId: patientData.ehrId,
         tenantId, // SEMPRE incluir tenantId
         phoneHash, // Hash para busca eficiente
@@ -389,6 +407,30 @@ export class PatientsService {
           'Erro ao inicializar etapas de navegação:',
           error instanceof Error ? error.stack : String(error)
         );
+      }
+    }
+
+    if (comorbidityCreates?.length) {
+      if (!this.comorbiditiesService) {
+        this.logger.warn(
+          'comorbidities no create ignoradas: ComorbiditiesService indisponível'
+        );
+      } else {
+        for (const row of comorbidityCreates) {
+          await this.comorbiditiesService.create(patient.id, tenantId, row);
+        }
+      }
+    }
+
+    if (medicationCreates?.length) {
+      if (!this.medicationsService) {
+        this.logger.warn(
+          'medicamentos no create ignorados: MedicationsService indisponível'
+        );
+      } else {
+        for (const row of medicationCreates) {
+          await this.medicationsService.create(patient.id, tenantId, row);
+        }
       }
     }
 
@@ -465,6 +507,31 @@ export class PatientsService {
     }
     if (updatePatientDto.familyHistory !== undefined) {
       updateData.familyHistory = updatePatientDto.familyHistory as any;
+    }
+    if (updatePatientDto.priorSurgeries !== undefined) {
+      updateData.priorSurgeries = updatePatientDto.priorSurgeries as any;
+    }
+    if (updatePatientDto.priorHospitalizations !== undefined) {
+      updateData.priorHospitalizations =
+        updatePatientDto.priorHospitalizations as any;
+    }
+    if (updatePatientDto.allergies !== undefined) {
+      updateData.allergies = updatePatientDto.allergies;
+    }
+    if (updatePatientDto.smokingProfile !== undefined) {
+      updateData.smokingProfile = updatePatientDto.smokingProfile as any;
+    }
+    if (updatePatientDto.alcoholProfile !== undefined) {
+      updateData.alcoholProfile = updatePatientDto.alcoholProfile as any;
+    }
+    if (updatePatientDto.occupationalExposureEntries !== undefined) {
+      updateData.occupationalExposureEntries =
+        updatePatientDto.occupationalExposureEntries as any;
+    }
+    if (updatePatientDto.allergyEntries !== undefined) {
+      updateData.allergyEntries = normalizeAllergyEntriesForStorage(
+        updatePatientDto.allergyEntries
+      ) as any;
     }
     if (updatePatientDto.ehrId !== undefined) {
       updateData.ehrPatientId = updatePatientDto.ehrId;

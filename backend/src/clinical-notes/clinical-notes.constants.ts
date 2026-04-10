@@ -11,6 +11,8 @@ export const CLINICAL_NOTE_SECTION_KEYS = [
   'examesComplementares',
   'analise',
   'conduta',
+  'tratamentos',
+  'navegacao',
   'planos',
 ] as const;
 

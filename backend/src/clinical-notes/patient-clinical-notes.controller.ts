@@ -18,12 +18,16 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { CurrentUser as CurrentUserType } from '../auth/decorators/current-user.decorator';
 import { UserRole } from '@generated/prisma/client';
 import { ClinicalNotesService } from './clinical-notes.service';
+import { ClinicalNoteSectionSuggestionService } from './clinical-note-section-suggestion.service';
 import { CreateClinicalNoteDto } from './dto/clinical-note-sections.dto';
 
 @Controller('patients/:patientId/clinical-notes')
 @UseGuards(JwtAuthGuard, TenantGuard, RolesGuard)
 export class PatientClinicalNotesController {
-  constructor(private readonly clinicalNotesService: ClinicalNotesService) {}
+  constructor(
+    private readonly clinicalNotesService: ClinicalNotesService,
+    private readonly sectionSuggestionService: ClinicalNoteSectionSuggestionService
+  ) {}
 
   private actor(user: CurrentUserType) {
     return {
@@ -55,6 +59,25 @@ export class PatientClinicalNotesController {
       dto,
       user.tenantId,
       this.actor(user)
+    );
+  }
+
+  @Get('section-suggestions')
+  @Roles(
+    UserRole.NURSE,
+    UserRole.NURSE_CHIEF,
+    UserRole.DOCTOR,
+    UserRole.ONCOLOGIST,
+    UserRole.COORDINATOR,
+    UserRole.ADMIN
+  )
+  getSectionSuggestions(
+    @Param('patientId', ParseUUIDPipe) patientId: string,
+    @CurrentUser() user: CurrentUserType
+  ) {
+    return this.sectionSuggestionService.getSectionSuggestions(
+      patientId,
+      user.tenantId
     );
   }
 
