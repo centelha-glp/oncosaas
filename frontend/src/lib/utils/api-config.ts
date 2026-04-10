@@ -25,6 +25,22 @@ function detectProtocol(): 'https' | 'http' {
 }
 
 /**
+ * Páginas HTTPS não podem chamar API HTTP nem usar WebSocket `ws:` (mixed content).
+ * Quando a env aponta para `http://` ou `ws://` e a página está em HTTPS, alinha para TLS.
+ */
+function alignUrlWithPageSecurity(url: string): string {
+  if (typeof window === 'undefined') return url;
+  if (window.location.protocol !== 'https:') return url;
+  if (url.startsWith('http://')) {
+    return `https://${url.slice('http://'.length)}`;
+  }
+  if (url.startsWith('ws://')) {
+    return `wss://${url.slice('ws://'.length)}`;
+  }
+  return url;
+}
+
+/**
  * Obtém a URL base da API
  * Prioridade:
  * 1. Variável de ambiente NEXT_PUBLIC_API_URL (se definida e completa)
@@ -38,7 +54,7 @@ export function getApiUrl(): string {
     envUrl &&
     (envUrl.startsWith('http://') || envUrl.startsWith('https://'))
   ) {
-    return envUrl;
+    return alignUrlWithPageSecurity(envUrl);
   }
 
   // Caso contrário, detectar protocolo e construir URL
@@ -58,7 +74,7 @@ export function getWebSocketUrl(): string {
 
   // Se a variável de ambiente já tem protocolo completo, usar ela
   if (envUrl && (envUrl.startsWith('ws://') || envUrl.startsWith('wss://'))) {
-    return envUrl;
+    return alignUrlWithPageSecurity(envUrl);
   }
 
   // Caso contrário, detectar protocolo e construir URL
