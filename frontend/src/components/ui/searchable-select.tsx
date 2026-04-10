@@ -84,24 +84,16 @@ export function SearchableSelect({
     return '';
   }, [value, selectedOption]);
 
+  /** Ao abrir: busca limpa para listar todas as opções (evita filtro pelo rótulo já selecionado). */
   useEffect(() => {
     if (open) {
-      const synced = getInputValueFromProp();
-      // Batch state updates - React 18+ batches these automatically
       queueMicrotask(() => {
-        setInputValue(synced);
+        setInputValue('');
         setHighlightedIndex(0);
       });
       setTimeout(() => inputRef.current?.focus(), 0);
     }
-  }, [open, getInputValueFromProp]);
-
-  useEffect(() => {
-    const synced = getInputValueFromProp();
-    queueMicrotask(() => {
-      setInputValue(synced);
-    });
-  }, [value, getInputValueFromProp]);
+  }, [open]);
 
   const handleSelect = useCallback(
     (option: SearchableSelectOption) => {

@@ -27,6 +27,7 @@ import {
   patientsApi,
   CreatePatientDto,
   type ComorbiditySeverity,
+  type ComorbidityType,
 } from '@/lib/api/patients';
 import { getTreatmentOptionsForCancerType } from '@/lib/utils/patient-cancer-type';
 import { useEnabledCancerTypes } from '@/hooks/useEnabledCancerTypes';
@@ -37,6 +38,8 @@ import { JOURNEY_STAGE_LABELS } from '@/lib/utils/journey-stage';
 import { ComorbiditiesForm } from './comorbidities-form';
 import { CurrentMedicationsForm } from './current-medications-form';
 import { FamilyHistoryForm } from './family-history-form';
+import { PriorClinicalHistoryForm } from './prior-clinical-history-form';
+import { StructuredClinicalRisksForm } from './structured-clinical-risks-form';
 
 interface PatientCreateDialogProps {
   open: boolean;
@@ -45,7 +48,7 @@ interface PatientCreateDialogProps {
 
 const STEPS = [
   { id: 1, title: 'Dados Básicos' },
-  { id: 2, title: 'Dados Oncológicos' },
+  { id: 2, title: 'Dados Clínicos' },
   { id: 3, title: 'Integração EHR (Opcional)' },
 ];
 
@@ -73,6 +76,11 @@ export function PatientCreateDialog({
       performanceStatus: undefined,
       currentTreatment: '',
       phone: '',
+      priorSurgeries: [],
+      priorHospitalizations: [],
+      allergies: '',
+      occupationalExposureEntries: [],
+      allergyEntries: [],
     },
   });
 
@@ -83,7 +91,20 @@ export function PatientCreateDialog({
   const comorbidities = useWatch({ control, name: 'comorbidities' });
   const currentMedications = useWatch({ control, name: 'currentMedications' });
   const familyHistory = useWatch({ control, name: 'familyHistory' });
+  const priorSurgeries = useWatch({ control, name: 'priorSurgeries' });
+  const priorHospitalizations = useWatch({
+    control,
+    name: 'priorHospitalizations',
+  });
   const currentTreatment = useWatch({ control, name: 'currentTreatment' });
+  const smokingProfile = useWatch({ control, name: 'smokingProfile' });
+  const alcoholProfile = useWatch({ control, name: 'alcoholProfile' });
+  const occupationalExposureEntries = useWatch({
+    control,
+    name: 'occupationalExposureEntries',
+  });
+  const allergyEntries = useWatch({ control, name: 'allergyEntries' });
+  const allergies = useWatch({ control, name: 'allergies' });
 
   const needsDiagnosisFields =
     currentStage === 'TREATMENT' ||
@@ -134,6 +155,44 @@ export function PatientCreateDialog({
       ageAtDiagnosis: h.ageAtDiagnosis,
     }));
 
+    const sp = data.smokingProfile;
+    const smokingProfilePayload =
+      sp &&
+      (sp.status ||
+        sp.packYears != null ||
+        sp.yearsQuit != null ||
+        (sp.notes?.trim()?.length ?? 0) > 0)
+        ? sp
+        : undefined;
+
+    const ap = data.alcoholProfile;
+    const alcoholProfilePayload =
+      ap &&
+      (ap.status ||
+        ap.drinksPerWeek != null ||
+        (ap.notes?.trim()?.length ?? 0) > 0)
+        ? ap
+        : undefined;
+
+    const occPayload = filterNonEmpty(
+      data.occupationalExposureEntries,
+      (o) => (o.agent?.trim()?.length ?? 0) > 0
+    )?.map((o) => ({
+      agent: o.agent!.trim(),
+      yearsApprox: o.yearsApprox,
+      notes: o.notes?.trim() || undefined,
+    }));
+
+    const allergyPayload = filterNonEmpty(
+      data.allergyEntries,
+      (a) => (a.substanceKey?.trim()?.length ?? 0) > 0
+    )?.map((a) => ({
+      substanceKey: a.substanceKey!.trim(),
+      customLabel:
+        a.substanceKey === 'OTHER' ? a.customLabel?.trim() : undefined,
+      reactionNotes: a.reactionNotes?.trim() || undefined,
+    }));
+
     // Mapear dados do formulário para o formato esperado pelo backend
     const patientData: CreatePatientDto = {
       name: data.name,
@@ -146,32 +205,78 @@ export function PatientCreateDialog({
       stage: data.stage || undefined,
       diagnosisDate: data.diagnosisDate || undefined,
       currentStage: data.currentStage || 'SCREENING',
-      smokingHistory: data.smokingHistory || undefined,
-      alcoholHistory: data.alcoholHistory || undefined,
-      occupationalExposure: data.occupationalExposure || undefined,
+      smokingProfile: smokingProfilePayload,
+      alcoholProfile: alcoholProfilePayload,
+      occupationalExposureEntries: occPayload,
+      allergyEntries: allergyPayload,
+      allergies: data.allergies?.trim() || undefined,
       familyHistory: filteredFamilyHistory,
       comorbidities: filterNonEmpty(
         data.comorbidities,
-        (c) => (c.name?.trim().length ?? 0) > 0
+        (c) =>
+          (c.name?.trim().length ?? 0) > 0 &&
+          Boolean(c.type) &&
+          Boolean(c.severity)
       )?.map((c) => ({
-        name: c.name!,
-        severity: c.severity as ComorbiditySeverity | undefined,
-        controlled: c.controlled,
+        name: c.name!.trim(),
+        type: c.type as ComorbidityType,
+        severity: c.severity as ComorbiditySeverity,
+        controlled: c.controlled ?? false,
       })),
       currentMedications: filterNonEmpty(
         data.currentMedications,
-        (m) => (m.name?.trim().length ?? 0) > 0
-      )?.map((m) => ({
-        name: m.name!,
-        dosage: m.dosage,
-        frequency: m.frequency,
-      })),
+        (m) =>
+          Boolean(m.catalogKey?.trim()) || (m.name?.trim()?.length ?? 0) > 0
+      )?.map((m) => {
+        const ck = m.catalogKey?.trim();
+        if (ck && ck !== 'OTHER') {
+          return {
+            catalogKey: ck,
+            dosage: m.dosage,
+            frequency: m.frequency,
+            indication: m.indication,
+          };
+        }
+        if (ck === 'OTHER') {
+          return {
+            catalogKey: 'OTHER',
+            name: m.name!.trim(),
+            dosage: m.dosage,
+            frequency: m.frequency,
+            indication: m.indication,
+          };
+        }
+        return {
+          name: m.name!.trim(),
+          dosage: m.dosage,
+          frequency: m.frequency,
+          indication: m.indication,
+        };
+      }),
       performanceStatus:
         data.performanceStatus !== undefined && data.performanceStatus !== null
           ? data.performanceStatus
           : undefined,
       currentTreatment: data.currentTreatment?.trim() || undefined,
       ehrId: data.ehrPatientId || undefined,
+      priorSurgeries: filterNonEmpty(
+        data.priorSurgeries,
+        (s) => (s.procedureName?.trim().length ?? 0) > 0
+      )?.map((s) => ({
+        procedureName: s.procedureName!.trim(),
+        year: s.year,
+        institution: s.institution?.trim() || undefined,
+        notes: s.notes?.trim() || undefined,
+      })),
+      priorHospitalizations: filterNonEmpty(
+        data.priorHospitalizations,
+        (h) => (h.summary?.trim().length ?? 0) > 0
+      )?.map((h) => ({
+        summary: h.summary!.trim(),
+        year: h.year,
+        durationDays: h.durationDays,
+        notes: h.notes?.trim() || undefined,
+      })),
     };
     createPatientMutation.mutate(patientData);
   };
@@ -318,6 +423,7 @@ export function PatientCreateDialog({
                   </p>
                 )}
               </div>
+
             </div>
           )}
 
@@ -508,35 +614,41 @@ export function PatientCreateDialog({
                 </h4>
 
                 <div className="space-y-4">
-                  <div>
-                    <label className="text-sm font-medium">
-                      Histórico de Tabagismo
-                    </label>
-                    <Input
-                      {...register('smokingHistory')}
-                      placeholder="Ex: nunca fumou, ex-fumante (10 anos-maço)"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-sm font-medium">
-                      Histórico de Álcool
-                    </label>
-                    <Input
-                      {...register('alcoholHistory')}
-                      placeholder="Ex: nunca, ocasional, moderado (20g/dia)"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-sm font-medium">
-                      Exposição Ocupacional
-                    </label>
-                    <Input
-                      {...register('occupationalExposure')}
-                      placeholder="Ex: amianto, benzeno, radiação"
-                    />
-                  </div>
+                  <StructuredClinicalRisksForm
+                    smokingProfile={smokingProfile}
+                    alcoholProfile={alcoholProfile}
+                    occupationalExposureEntries={
+                      occupationalExposureEntries ?? []
+                    }
+                    allergyEntries={allergyEntries ?? []}
+                    allergyNotes={allergies ?? ''}
+                    onSmokingProfileChange={(v) =>
+                      setValue('smokingProfile', v, { shouldValidate: true })
+                    }
+                    onAlcoholProfileChange={(v) =>
+                      setValue('alcoholProfile', v, { shouldValidate: true })
+                    }
+                    onOccupationalEntriesChange={(v) =>
+                      setValue('occupationalExposureEntries', v, {
+                        shouldValidate: true,
+                      })
+                    }
+                    onAllergyEntriesChange={(v) =>
+                      setValue('allergyEntries', v, { shouldValidate: true })
+                    }
+                    onAllergyNotesChange={(v) =>
+                      setValue('allergies', v, { shouldValidate: true })
+                    }
+                  />
+                  {(errors as Record<string, { message?: string }>)
+                    .allergyEntries && (
+                    <p className="text-sm text-destructive">
+                      {
+                        (errors as Record<string, { message?: string }>)
+                          .allergyEntries?.message
+                      }
+                    </p>
+                  )}
 
                   <div>
                     <ComorbiditiesForm
@@ -567,6 +679,17 @@ export function PatientCreateDialog({
                       }
                     />
                   </div>
+
+                  <PriorClinicalHistoryForm
+                    priorSurgeries={priorSurgeries as any}
+                    priorHospitalizations={priorHospitalizations as any}
+                    onChangeSurgeries={(items) =>
+                      setValue('priorSurgeries', items as any)
+                    }
+                    onChangeHospitalizations={(items) =>
+                      setValue('priorHospitalizations', items as any)
+                    }
+                  />
                 </div>
               </div>
             </div>

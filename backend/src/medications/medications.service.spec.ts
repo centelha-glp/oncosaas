@@ -49,6 +49,33 @@ describe('MedicationsService', () => {
     );
   });
 
+  it('should resolve name and category from catalogKey on create', async () => {
+    mockPrisma.medication.create.mockResolvedValue({ id: 'med-2' });
+
+    await service.create('patient-1', 'tenant-1', {
+      catalogKey: 'WARFARIN',
+    } as any);
+
+    expect(mockPrisma.medication.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          name: 'Varfarina',
+          catalogKey: 'WARFARIN',
+          category: MedicationCategory.ANTICOAGULANT,
+          isAnticoagulant: true,
+        }),
+      }),
+    );
+  });
+
+  it('should reject invalid catalogKey', async () => {
+    await expect(
+      service.create('patient-1', 'tenant-1', {
+        catalogKey: 'INVALID_KEY_XYZ',
+      } as any),
+    ).rejects.toThrow(/inválida/);
+  });
+
   it('should reject cross-tenant update access', async () => {
     mockPrisma.medication.findFirst.mockResolvedValue(null);
 

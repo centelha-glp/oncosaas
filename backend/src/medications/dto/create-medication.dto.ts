@@ -5,13 +5,21 @@ import {
   IsEnum,
   IsBoolean,
   IsDateString,
+  ValidateIf,
 } from 'class-validator';
 import { MedicationCategory } from '@generated/prisma/client';
 
 export class CreateMedicationDto {
+  /** Obrigatório se não houver catalogKey (nome livre ou "Outro"). */
+  @ValidateIf((o: CreateMedicationDto) => !o.catalogKey?.trim())
   @IsString()
   @IsNotEmpty()
-  name: string;
+  name?: string;
+
+  /** Se presente, o servidor resolve nome e categoria pelo catálogo (ignora categoria enviada). */
+  @IsOptional()
+  @IsString()
+  catalogKey?: string;
 
   @IsString()
   @IsOptional()

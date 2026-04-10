@@ -15,6 +15,8 @@ export const CLINICAL_NOTE_SECTION_KEYS = [
   'examesComplementares',
   'analise',
   'conduta',
+  'tratamentos',
+  'navegacao',
   'planos',
 ] as const;
 
@@ -46,6 +48,25 @@ export function cloneClinicalNoteSections(
   for (const k of CLINICAL_NOTE_SECTION_KEYS) {
     const v = sections[k];
     if (typeof v === 'string') base[k] = v;
+  }
+  return base;
+}
+
+/**
+ * Preenche apenas chaves vazias do rascunho com texto sugerido a partir do cadastro
+ * (idade em SP, HPP, comorbidades, exames, tratamentos, navegação).
+ */
+export function mergeClinicalSectionsWithCadastroSuggestions(
+  previous: Record<ClinicalNoteSectionKey, string>,
+  suggestions: Record<ClinicalNoteSectionKey, string>
+): Record<ClinicalNoteSectionKey, string> {
+  const base = cloneClinicalNoteSections(previous);
+  for (const k of CLINICAL_NOTE_SECTION_KEYS) {
+    const prev = (base[k] ?? '').trim();
+    const sug = (suggestions[k] ?? '').trim();
+    if (!prev && sug) {
+      base[k] = suggestions[k] ?? '';
+    }
   }
   return base;
 }
@@ -158,6 +179,15 @@ export const clinicalNotesApi = {
     return apiClient.get<PaginatedClinicalNotes>(
       `/patients/${patientId}/clinical-notes`,
       { params }
+    );
+  },
+
+  /** Texto sugerido por seção a partir do cadastro e dados clínicos estruturados */
+  getSectionSuggestions(
+    patientId: string
+  ): Promise<Record<ClinicalNoteSectionKey, string>> {
+    return apiClient.get<Record<ClinicalNoteSectionKey, string>>(
+      `/patients/${patientId}/clinical-notes/section-suggestions`
     );
   },
 

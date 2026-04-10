@@ -83,10 +83,27 @@ model Patient {
   performanceStatus Int? // ECOG (0-4) ou Karnofsky (0-100)
 
   // Comorbidades e Fatores de Risco
-  smokingHistory       String? // nunca fumou, ex-fumante, fumante atual (anos-maço)
-  alcoholHistory       String? // nunca, ocasional, moderado, pesado (g/dia)
-  occupationalExposure String? // Exposições ocupacionais conhecidas
+  smokingHistory       String? // legado (texto livre)
+  alcoholHistory       String? // legado
+  occupationalExposure String? // legado (texto livre)
+  /// Tabagismo estruturado (status, anos-maço, notas)
+  smokingProfile Json?
+  /// Etilismo estruturado
+  alcoholProfile Json?
+  /// Exposições ocupacionais (lista de agentes + notas)
+  occupationalExposureEntries Json?
+  /// Alergias por catálogo (substanceKey + notas; NKDA etc.)
+  allergyEntries Json?
+
   familyHistory        Json? // Array de objetos: { relationship: string, cancerType: string, ageAtDiagnosis: number }
+
+  /// Cirurgias prévias (JSON) — HPP / sugestão de prontuário
+  priorSurgeries Json?
+  /// Internações prévias (JSON) — HPP / sugestão de prontuário
+  priorHospitalizations Json?
+
+  /// Alergias — texto livre legado / observações gerais
+  allergies String? @db.Text
 
   // Disposição clínica calculada pelo algoritmo de risco
   clinicalDisposition       ClinicalDisposition? // Disposição clínica atual (output do algoritmo)
@@ -1530,6 +1547,9 @@ model Medication {
   patientId String
 
   name       String              // Nome do medicamento (genérico ou comercial)
+  /// Chave do catálogo clínico (quando prescrito por seleção canônica)
+  catalogKey String?
+
   dosage     String?             // Dose (ex: "50 mg", "10 UI")
   frequency  String?             // Frequência (ex: "1x/dia", "12/12h", "Contínuo")
   indication String?             // Indicação clínica ou CID (ex: "HAS", "DM2", "Dor oncológica")

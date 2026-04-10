@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   cloneClinicalNoteSections,
+  mergeClinicalSectionsWithCadastroSuggestions,
   serializeClinicalNoteSections,
 } from '../clinical-notes';
 
@@ -17,5 +18,18 @@ describe('cloneClinicalNoteSections', () => {
     const c = cloneClinicalNoteSections({ hda: 'texto' });
     expect(c.hda).toBe('texto');
     expect(c.planos).toBe('');
+  });
+});
+
+describe('mergeClinicalSectionsWithCadastroSuggestions', () => {
+  it('preenche apenas chaves vazias', () => {
+    const prev = cloneClinicalNoteSections({ hda: 'já preenchido' });
+    const sug = cloneClinicalNoteSections({
+      identificacao: 'sugestão id',
+      hda: 'não deve sobrescrever',
+    });
+    const m = mergeClinicalSectionsWithCadastroSuggestions(prev, sug);
+    expect(m.hda).toBe('já preenchido');
+    expect(m.identificacao).toBe('sugestão id');
   });
 });

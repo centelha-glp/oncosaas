@@ -164,6 +164,7 @@ export interface Medication {
   id: string;
   patientId: string;
   tenantId: string;
+  catalogKey?: string | null;
   name: string;
   dosage: string | null;
   frequency: string | null;
@@ -186,7 +187,8 @@ export interface Medication {
 }
 
 export interface CreateMedicationDto {
-  name: string;
+  name?: string;
+  catalogKey?: string;
   dosage?: string;
   frequency?: string;
   indication?: string;
@@ -255,6 +257,22 @@ export interface FamilyHistory {
   ageAtDiagnosis?: number;
 }
 
+/** Cirurgias prévias no cadastro (JSON no backend) */
+export interface PriorSurgeryItem {
+  procedureName: string;
+  year?: number;
+  institution?: string;
+  notes?: string;
+}
+
+/** Internações prévias no cadastro (JSON no backend) */
+export interface PriorHospitalizationItem {
+  summary: string;
+  year?: number;
+  durationDays?: number;
+  notes?: string;
+}
+
 // CurrentMedication mantido apenas para compatibilidade com seed data legado
 export interface CurrentMedication {
   name: string;
@@ -276,11 +294,19 @@ export interface Patient {
   stage: string | null;
   diagnosisDate: string | null;
   performanceStatus: number | null;
-  // Fatores de risco
+  // Fatores de risco (legado em texto + JSON estruturado)
   smokingHistory: string | null;
   alcoholHistory: string | null;
   occupationalExposure: string | null;
+  smokingProfile?: Record<string, unknown> | null;
+  alcoholProfile?: Record<string, unknown> | null;
+  occupationalExposureEntries?: unknown[] | null;
+  allergyEntries?: unknown[] | null;
   familyHistory: FamilyHistory[] | null;
+  priorSurgeries?: PriorSurgeryItem[] | null;
+  priorHospitalizations?: PriorHospitalizationItem[] | null;
+  /** Alergias (texto livre) — cadastro */
+  allergies?: string | null;
   // Disposição clínica (output do algoritmo de risco)
   clinicalDisposition: ClinicalDisposition | null;
   clinicalDispositionAt: string | null;
@@ -331,9 +357,25 @@ export interface CreatePatientDto {
   smokingHistory?: string;
   alcoholHistory?: string;
   occupationalExposure?: string;
+  smokingProfile?: Record<string, unknown>;
+  alcoholProfile?: Record<string, unknown>;
+  occupationalExposureEntries?: Array<Record<string, unknown>>;
+  allergyEntries?: Array<{
+    substanceKey: string;
+    customLabel?: string;
+    reactionNotes?: string;
+  }>;
   familyHistory?: { relationship: string; cancerType: string; ageAtDiagnosis?: number }[];
-  comorbidities?: { name: string; type?: ComorbidityType; severity?: ComorbiditySeverity; controlled?: boolean }[];
-  currentMedications?: { name: string; dosage?: string; frequency?: string; indication?: string; category?: MedicationCategory }[];
+  priorSurgeries?: PriorSurgeryItem[];
+  priorHospitalizations?: PriorHospitalizationItem[];
+  allergies?: string;
+  comorbidities?: {
+    name: string;
+    type?: ComorbidityType;
+    severity?: ComorbiditySeverity;
+    controlled?: boolean;
+  }[];
+  currentMedications?: CreateMedicationDto[];
   ehrId?: string;
 }
 

@@ -7,10 +7,17 @@ import { SearchableSelect } from '@/components/ui/searchable-select';
 import { Badge } from '@/components/ui/badge';
 import { Plus, Trash2, AlertTriangle } from 'lucide-react';
 import {
-  type CreateComorbidityDto,
   type ComorbidityType,
   type ComorbiditySeverity,
 } from '@/lib/api/patients';
+
+/** Linha em edição — tipo/gravidade opcionais até o usuário escolher. */
+export type ComorbidityFormRow = {
+  name?: string;
+  type?: ComorbidityType;
+  severity?: ComorbiditySeverity;
+  controlled?: boolean;
+};
 
 const TYPE_OPTIONS: {
   value: ComorbidityType;
@@ -100,8 +107,8 @@ const HIGH_RISK_TYPES: ComorbidityType[] = [
 ];
 
 interface ComorbiditiesFormProps {
-  value?: CreateComorbidityDto[];
-  onChange: (comorbidities: CreateComorbidityDto[]) => void;
+  value?: ComorbidityFormRow[];
+  onChange: (comorbidities: ComorbidityFormRow[]) => void;
 }
 
 export function ComorbiditiesForm({
@@ -115,8 +122,6 @@ export function ComorbiditiesForm({
       ...comorbidities,
       {
         name: '',
-        type: 'OTHER' as ComorbidityType,
-        severity: 'MODERATE' as ComorbiditySeverity,
         controlled: false,
       },
     ];
@@ -125,7 +130,7 @@ export function ComorbiditiesForm({
 
   const update = (
     index: number,
-    field: keyof CreateComorbidityDto,
+    field: keyof ComorbidityFormRow,
     val: unknown
   ) => {
     const updated = [...comorbidities];
@@ -160,9 +165,9 @@ export function ComorbiditiesForm({
       ) : (
         <div className="space-y-3">
           {comorbidities.map((c, index) => {
-            const isHighRisk = HIGH_RISK_TYPES.includes(
-              c.type as ComorbidityType
-            );
+            const isHighRisk =
+              c.type != null &&
+              HIGH_RISK_TYPES.includes(c.type as ComorbidityType);
             const typeInfo = TYPE_OPTIONS.find((o) => o.value === c.type);
 
             return (
@@ -181,9 +186,9 @@ export function ComorbiditiesForm({
                           value: o.value,
                           label: o.label,
                         }))}
-                        value={c.type ?? 'OTHER'}
+                        value={c.type ?? ''}
                         onChange={(v) => update(index, 'type', v)}
-                        placeholder="Buscar tipo de comorbidade..."
+                        placeholder="Selecione o tipo de comorbidade…"
                         aria-label="Tipo de comorbidade"
                       />
                     </div>
@@ -223,9 +228,9 @@ export function ComorbiditiesForm({
                           value: o.value,
                           label: o.label,
                         }))}
-                        value={c.severity ?? 'MODERATE'}
+                        value={c.severity ?? ''}
                         onChange={(v) => update(index, 'severity', v)}
-                        placeholder="Buscar gravidade..."
+                        placeholder="Selecione a gravidade…"
                         aria-label="Gravidade da comorbidade"
                       />
                     </div>

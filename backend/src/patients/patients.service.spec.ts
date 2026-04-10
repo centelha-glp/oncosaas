@@ -4,6 +4,8 @@ import { PatientsService } from './patients.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { OncologyNavigationService } from '../oncology-navigation/oncology-navigation.service';
 import { PriorityRecalculationService } from '../oncology-navigation/priority-recalculation.service';
+import { ComorbiditiesService } from '../comorbidities/comorbidities.service';
+import { MedicationsService } from '../medications/medications.service';
 
 const mockPrisma = {
   patient: {
@@ -28,6 +30,14 @@ const mockNavigationService = {
 
 const mockPriorityRecalculation = {
   recalculate: jest.fn(),
+};
+
+const mockComorbiditiesService = {
+  create: jest.fn(),
+};
+
+const mockMedicationsService = {
+  create: jest.fn(),
 };
 
 const TENANT = 'tenant-abc';
@@ -68,6 +78,8 @@ describe('PatientsService', () => {
         { provide: PrismaService, useValue: mockPrisma },
         { provide: OncologyNavigationService, useValue: mockNavigationService },
         { provide: PriorityRecalculationService, useValue: mockPriorityRecalculation },
+        { provide: ComorbiditiesService, useValue: mockComorbiditiesService },
+        { provide: MedicationsService, useValue: mockMedicationsService },
       ],
     }).compile();
 

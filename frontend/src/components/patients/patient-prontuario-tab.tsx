@@ -8,8 +8,10 @@ import {
   cloneClinicalNoteSections,
   clinicalNotePrimaryPersonName,
   clinicalNoteTypeLabel,
+  clinicalNotesApi,
   emptyClinicalSections,
   loadSectionsFromPreviousEvolution,
+  mergeClinicalSectionsWithCadastroSuggestions,
   serializeClinicalNoteSections,
   type ClinicalNoteSectionKey,
   type ClinicalNoteType,
@@ -59,6 +61,8 @@ const SECTION_LABELS: Record<ClinicalNoteSectionKey, string> = {
   examesComplementares: 'Exames complementares',
   analise: 'Análise',
   conduta: 'Conduta',
+  tratamentos: 'Tratamentos',
+  navegacao: 'Navegação oncológica',
   planos: 'Planos',
 };
 
@@ -236,7 +240,19 @@ export function PatientProntuarioTab({
         noteType,
         list?.data ?? []
       );
-      const res = await create.mutateAsync({ noteType, sections });
+      let merged = sections;
+      try {
+        const suggestions = await clinicalNotesApi.getSectionSuggestions(
+          patient.id
+        );
+        merged = mergeClinicalSectionsWithCadastroSuggestions(
+          sections,
+          suggestions
+        );
+      } catch {
+        /* cadastro opcional; evolução segue só com texto da evolução anterior */
+      }
+      const res = await create.mutateAsync({ noteType, sections: merged });
       setSelectedId(res.id);
     } catch (err) {
       const msg =

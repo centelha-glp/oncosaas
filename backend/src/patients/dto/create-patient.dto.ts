@@ -12,10 +12,16 @@ import {
   IsNumber,
   Min,
   Max,
+  MaxLength,
+  IsObject,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { CreateCancerDiagnosisDto } from './create-cancer-diagnosis.dto';
 import { FamilyHistoryDto } from './family-history.dto';
+import { PriorSurgeryDto } from './prior-surgery.dto';
+import { PriorHospitalizationDto } from './prior-hospitalization.dto';
+import { CreateComorbidityDto } from '../../comorbidities/dto/create-comorbidity.dto';
+import { CreateMedicationDto } from '../../medications/dto/create-medication.dto';
 
 export enum Gender {
   MALE = 'male',
@@ -124,6 +130,51 @@ export class CreatePatientDto {
   @Type(() => FamilyHistoryDto)
   familyHistory?: FamilyHistoryDto[];
 
-  // Nota: comorbidades e medicamentos são gerenciados via endpoints dedicados
-  // POST /patients/:id/comorbidities e POST /patients/:id/medications
+  @IsArray()
+  @IsOptional()
+  @ValidateNested({ each: true })
+  @Type(() => PriorSurgeryDto)
+  priorSurgeries?: PriorSurgeryDto[];
+
+  @IsArray()
+  @IsOptional()
+  @ValidateNested({ each: true })
+  @Type(() => PriorHospitalizationDto)
+  priorHospitalizations?: PriorHospitalizationDto[];
+
+  @IsString()
+  @IsOptional()
+  @MaxLength(16000)
+  allergies?: string;
+
+  /** Tabagismo estruturado (JSON). Mantém-se smokingHistory para legado. */
+  @IsOptional()
+  @IsObject()
+  smokingProfile?: Record<string, unknown>;
+
+  @IsOptional()
+  @IsObject()
+  alcoholProfile?: Record<string, unknown>;
+
+  @IsOptional()
+  @IsArray()
+  occupationalExposureEntries?: Record<string, unknown>[];
+
+  /** Alergias por catálogo (substanceKey); validado no serviço. */
+  @IsOptional()
+  @IsArray()
+  allergyEntries?: Record<string, unknown>[];
+
+  /** Também aceitos no cadastro inicial; mesma regra dos endpoints dedicados. */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CreateComorbidityDto)
+  comorbidities?: CreateComorbidityDto[];
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CreateMedicationDto)
+  currentMedications?: CreateMedicationDto[];
 }

@@ -7,70 +7,32 @@ import { SearchableSelect } from '@/components/ui/searchable-select';
 import { Badge } from '@/components/ui/badge';
 import { Plus, Trash2, AlertTriangle } from 'lucide-react';
 import {
-  type CreateMedicationDto,
-  type MedicationCategory,
-} from '@/lib/api/patients';
+  MEDICATION_CATALOG,
+  MEDICATION_SELECT_OPTIONS,
+  getMedicationCatalogEntry,
+} from '@/lib/clinical-catalogs/medication-catalog';
+import type { MedicationCategory } from '@/lib/api/patients';
 
-const CATEGORY_OPTIONS: {
-  value: MedicationCategory;
-  label: string;
-  riskBadge?: string;
-}[] = [
-  { value: 'ANTICOAGULANT', label: 'Anticoagulante', riskBadge: 'Sangramento' },
-  { value: 'ANTIPLATELET', label: 'Antiplaquetário', riskBadge: 'Sangramento' },
-  {
-    value: 'CORTICOSTEROID',
-    label: 'Corticosteroide',
-    riskBadge: 'Mascara febre',
-  },
-  {
-    value: 'IMMUNOSUPPRESSANT',
-    label: 'Imunossupressor',
-    riskBadge: 'Infecção',
-  },
-  {
-    value: 'NSAID',
-    label: 'AINE (anti-inflamatório)',
-    riskBadge: 'Sangramento GI',
-  },
-  {
-    value: 'OPIOID_ANALGESIC',
-    label: 'Opioide analgésico',
-    riskBadge: 'Sedação',
-  },
-  {
-    value: 'NON_OPIOID_ANALGESIC',
-    label: 'Analgésico não-opioide',
-    riskBadge: undefined,
-  },
-  { value: 'ANTIEMETIC', label: 'Antiemético', riskBadge: undefined },
-  { value: 'ANTIBIOTIC', label: 'Antibiótico', riskBadge: undefined },
-  { value: 'ANTIFUNGAL', label: 'Antifúngico', riskBadge: undefined },
-  { value: 'ANTIVIRAL', label: 'Antiviral', riskBadge: undefined },
-  {
-    value: 'ANTIHYPERTENSIVE',
-    label: 'Anti-hipertensivo',
-    riskBadge: undefined,
-  },
-  { value: 'ANTIDIABETIC', label: 'Antidiabético', riskBadge: undefined },
-  {
-    value: 'BISPHOSPHONATE',
-    label: 'Bisfosfonato / RANK-L',
-    riskBadge: undefined,
-  },
-  {
-    value: 'GROWTH_FACTOR',
-    label: 'Fator de crescimento (G-CSF)',
-    riskBadge: undefined,
-  },
-  {
-    value: 'PROTON_PUMP_INHIBITOR',
-    label: 'Inibidor de bomba (IBP)',
-    riskBadge: undefined,
-  },
-  { value: 'LAXATIVE', label: 'Laxante', riskBadge: undefined },
-  { value: 'OTHER', label: 'Outro', riskBadge: undefined },
-];
+const CATEGORY_LABELS: Partial<Record<MedicationCategory, string>> = {
+  ANTICOAGULANT: 'Anticoagulante',
+  ANTIPLATELET: 'Antiplaquetário',
+  CORTICOSTEROID: 'Corticosteroide',
+  IMMUNOSUPPRESSANT: 'Imunossupressor',
+  NSAID: 'AINE',
+  OPIOID_ANALGESIC: 'Opioide',
+  NON_OPIOID_ANALGESIC: 'Analgésico não opioide',
+  ANTIEMETIC: 'Antiemético',
+  ANTIBIOTIC: 'Antibiótico',
+  ANTIFUNGAL: 'Antifúngico',
+  ANTIVIRAL: 'Antiviral',
+  ANTIHYPERTENSIVE: 'Anti-hipertensivo',
+  ANTIDIABETIC: 'Antidiabético',
+  BISPHOSPHONATE: 'Bisfosfonato',
+  GROWTH_FACTOR: 'Fator de crescimento',
+  PROTON_PUMP_INHIBITOR: 'IBP',
+  LAXATIVE: 'Laxante',
+  OTHER: 'Outro',
+};
 
 const RISK_CATEGORIES: MedicationCategory[] = [
   'ANTICOAGULANT',
@@ -81,9 +43,17 @@ const RISK_CATEGORIES: MedicationCategory[] = [
   'OPIOID_ANALGESIC',
 ];
 
+export type CurrentMedicationFormRow = {
+  catalogKey?: string;
+  name?: string;
+  dosage?: string;
+  frequency?: string;
+  indication?: string;
+};
+
 interface CurrentMedicationsFormProps {
-  value?: CreateMedicationDto[];
-  onChange: (medications: CreateMedicationDto[]) => void;
+  value?: CurrentMedicationFormRow[];
+  onChange: (medications: CurrentMedicationFormRow[]) => void;
 }
 
 export function CurrentMedicationsForm({
@@ -95,17 +65,27 @@ export function CurrentMedicationsForm({
   const addMedication = () => {
     onChange([
       ...medications,
-      { name: '', category: 'OTHER' as MedicationCategory },
+      { catalogKey: '', name: '', dosage: '', frequency: '', indication: '' },
     ]);
   };
 
   const update = (
     index: number,
-    field: keyof CreateMedicationDto,
+    field: keyof CurrentMedicationFormRow,
     val: string
   ) => {
     const updated = [...medications];
-    updated[index] = { ...updated[index], [field]: val };
+    const row = { ...updated[index], [field]: val };
+    if (field === 'catalogKey') {
+      const entry = getMedicationCatalogEntry(val);
+      if (val && val !== 'OTHER' && entry) {
+        row.name = entry.label;
+      }
+      if (val === 'OTHER') {
+        row.name = '';
+      }
+    }
+    updated[index] = row;
     onChange(updated);
   };
 
@@ -136,12 +116,12 @@ export function CurrentMedicationsForm({
       ) : (
         <div className="space-y-3">
           {medications.map((med, index) => {
-            const isRisky = RISK_CATEGORIES.includes(
-              med.category as MedicationCategory
-            );
-            const categoryInfo = CATEGORY_OPTIONS.find(
-              (c) => c.value === med.category
-            );
+            const resolved = med.catalogKey
+              ? getMedicationCatalogEntry(med.catalogKey)
+              : null;
+            const category = resolved?.category;
+            const isRisky =
+              category != null && RISK_CATEGORIES.includes(category);
 
             return (
               <div
@@ -153,37 +133,68 @@ export function CurrentMedicationsForm({
                 <div className="flex-1 space-y-2">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                     <div>
-                      <Label className="text-xs">Medicamento *</Label>
-                      <Input
-                        placeholder="Ex: Losartana, Metformina, Varfarina"
-                        value={med.name}
-                        onChange={(e) => update(index, 'name', e.target.value)}
+                      <Label className="text-xs">Medicamento (catálogo) *</Label>
+                      <SearchableSelect
+                        options={MEDICATION_SELECT_OPTIONS}
+                        value={med.catalogKey ?? ''}
+                        onChange={(v) => update(index, 'catalogKey', v)}
+                        placeholder="Buscar medicamento…"
+                        aria-label="Medicamento do catálogo"
                       />
                     </div>
                     <div>
-                      <Label className="text-xs">Categoria clínica *</Label>
-                      <SearchableSelect
-                        options={CATEGORY_OPTIONS.map((o) => ({
-                          value: o.value,
-                          label: o.label,
-                        }))}
-                        value={med.category ?? 'OTHER'}
-                        onChange={(v) => update(index, 'category', v)}
-                        placeholder="Buscar categoria..."
-                        aria-label="Categoria clínica do medicamento"
-                      />
+                      <Label className="text-xs">Categoria clínica</Label>
+                      <div className="flex items-center min-h-10">
+                        {category ? (
+                          <Badge variant="secondary">
+                            {CATEGORY_LABELS[category] ?? category}
+                          </Badge>
+                        ) : med.catalogKey ? (
+                          <span className="text-xs text-muted-foreground">
+                            —
+                          </span>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">
+                            Escolha no catálogo ou nome livre abaixo
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
 
-                  {isRisky && categoryInfo?.riskBadge && (
+                  {(!med.catalogKey || med.catalogKey === 'OTHER') && (
+                    <div>
+                      <Label className="text-xs">
+                        Nome do medicamento
+                        {med.catalogKey === 'OTHER' ? ' *' : ' (se não usar catálogo)'}
+                      </Label>
+                      <Input
+                        placeholder="Ex: nome comercial ou princípio ativo"
+                        value={med.name ?? ''}
+                        onChange={(e) => update(index, 'name', e.target.value)}
+                      />
+                    </div>
+                  )}
+
+                  {med.catalogKey &&
+                    med.catalogKey !== 'OTHER' &&
+                    resolved && (
+                      <p className="text-xs text-muted-foreground">
+                        Nome registrado:{' '}
+                        <strong>{MEDICATION_CATALOG[med.catalogKey]?.label}</strong>{' '}
+                        (definido pelo catálogo no salvamento)
+                      </p>
+                    )}
+
+                  {isRisky && (
                     <div className="flex items-center gap-1 text-amber-700 text-xs">
                       <AlertTriangle className="h-3 w-3" />
-                      <span>Risco clínico: {categoryInfo.riskBadge}</span>
+                      <span>Risco clínico relevante para o algoritmo</span>
                       <Badge
                         variant="outline"
                         className="text-xs ml-1 border-amber-400 text-amber-700"
                       >
-                        Sinalizado para algoritmo de risco
+                        Categoria de risco
                       </Badge>
                     </div>
                   )}

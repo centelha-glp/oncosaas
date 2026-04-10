@@ -3,7 +3,11 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { usePatientDetail } from '@/hooks/use-patient-detail';
 import { usePatientUpdate } from '@/hooks/use-patient-update';
-import { patientsApi } from '@/lib/api/patients';
+import {
+  patientsApi,
+  type ComorbiditySeverity,
+  type ComorbidityType,
+} from '@/lib/api/patients';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import {
@@ -12,6 +16,7 @@ import {
 } from '@/lib/validations/patient';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import {
   Select,
   SelectContent,
@@ -40,6 +45,8 @@ import { useEffect } from 'react';
 import { ComorbiditiesForm } from './comorbidities-form';
 import { CurrentMedicationsForm } from './current-medications-form';
 import { FamilyHistoryForm } from './family-history-form';
+import { PriorClinicalHistoryForm } from './prior-clinical-history-form';
+import { StructuredClinicalRisksForm } from './structured-clinical-risks-form';
 import {
   T_STAGE_VALUES,
   N_STAGE_VALUES,
@@ -48,6 +55,45 @@ import {
 } from '@/lib/validations/cancer-diagnosis';
 import { getCancerTypeKey } from '@/lib/utils/patient-cancer-type';
 import { useEnabledCancerTypes } from '@/hooks/useEnabledCancerTypes';
+import type {
+  PriorHospitalizationItem,
+  PriorSurgeryItem,
+} from '@/lib/api/patients';
+
+function normalizePriorSurgeries(raw: unknown): PriorSurgeryItem[] {
+  if (!raw || !Array.isArray(raw)) return [];
+  return raw
+    .filter((x) => x && typeof x === 'object')
+    .map((x) => {
+      const o = x as Record<string, unknown>;
+      return {
+        procedureName:
+          typeof o.procedureName === 'string' ? o.procedureName : '',
+        year: typeof o.year === 'number' ? o.year : undefined,
+        institution:
+          typeof o.institution === 'string' ? o.institution : undefined,
+        notes: typeof o.notes === 'string' ? o.notes : undefined,
+      };
+    });
+}
+
+function normalizePriorHospitalizations(
+  raw: unknown
+): PriorHospitalizationItem[] {
+  if (!raw || !Array.isArray(raw)) return [];
+  return raw
+    .filter((x) => x && typeof x === 'object')
+    .map((x) => {
+      const o = x as Record<string, unknown>;
+      return {
+        summary: typeof o.summary === 'string' ? o.summary : '',
+        year: typeof o.year === 'number' ? o.year : undefined,
+        durationDays:
+          typeof o.durationDays === 'number' ? o.durationDays : undefined,
+        notes: typeof o.notes === 'string' ? o.notes : undefined,
+      };
+    });
+}
 
 /**
  * Calcula o campo stage a partir dos campos TNM estruturados
@@ -120,9 +166,14 @@ export function PatientEditPage({ patientId }: PatientEditPageProps) {
       smokingHistory: '',
       alcoholHistory: '',
       occupationalExposure: '',
+      allergies: '',
       comorbidities: [],
       currentMedications: [],
       familyHistory: [],
+      priorSurgeries: [],
+      priorHospitalizations: [],
+      occupationalExposureEntries: [],
+      allergyEntries: [],
     },
   });
 
@@ -228,6 +279,52 @@ export function PatientEditPage({ patientId }: PatientEditPageProps) {
         ? (currentStageRaw as CreatePatientFormData['currentStage'])
         : ('SCREENING' as CreatePatientFormData['currentStage']);
 
+      const pExt = patient as typeof patient & {
+        smokingProfile?: CreatePatientFormData['smokingProfile'];
+        alcoholProfile?: CreatePatientFormData['alcoholProfile'];
+        occupationalExposureEntries?: CreatePatientFormData['occupationalExposureEntries'];
+        allergyEntries?: CreatePatientFormData['allergyEntries'];
+      };
+
+      let smokingProfile = pExt.smokingProfile;
+      if (!smokingProfile && patient.smokingHistory?.trim()) {
+        smokingProfile = { notes: `Texto legado: ${patient.smokingHistory}` };
+      }
+
+      let alcoholProfile = pExt.alcoholProfile;
+      if (!alcoholProfile && patient.alcoholHistory?.trim()) {
+        alcoholProfile = { notes: `Texto legado: ${patient.alcoholHistory}` };
+      }
+
+      let occupationalExposureEntries = Array.isArray(
+        pExt.occupationalExposureEntries
+      )
+        ? pExt.occupationalExposureEntries
+        : [];
+      if (
+        occupationalExposureEntries.length === 0 &&
+        patient.occupationalExposure?.trim()
+      ) {
+        occupationalExposureEntries = [
+          { agent: patient.occupationalExposure ?? '', notes: 'Texto legado' },
+        ];
+      }
+
+      const allergyEntriesRaw = Array.isArray(pExt.allergyEntries)
+        ? pExt.allergyEntries
+        : [];
+      const allergyEntries = allergyEntriesRaw.map(
+        (e: {
+          substanceKey?: string;
+          customLabel?: string;
+          reactionNotes?: string;
+        }) => ({
+          substanceKey: e.substanceKey ?? '',
+          customLabel: e.customLabel,
+          reactionNotes: e.reactionNotes,
+        })
+      );
+
       const formData: Partial<CreatePatientFormData> = {
         name: patient.name || '',
         cpf: patient.cpf || '',
@@ -251,15 +348,32 @@ export function PatientEditPage({ patientId }: PatientEditPageProps) {
         smokingHistory: patient.smokingHistory || '',
         alcoholHistory: patient.alcoholHistory || '',
         occupationalExposure: patient.occupationalExposure || '',
+        smokingProfile,
+        alcoholProfile,
+        occupationalExposureEntries,
+        allergyEntries,
+        allergies: patient.allergies || '',
         comorbidities: Array.isArray(patient.comorbidities)
           ? patient.comorbidities
           : [],
-        currentMedications: Array.isArray(patient.currentMedications)
-          ? patient.currentMedications
+        currentMedications: Array.isArray(patient.medications)
+          ? patient.medications.map((m) => ({
+              catalogKey: m.catalogKey ?? '',
+              name: m.name,
+              dosage: m.dosage ?? '',
+              frequency: m.frequency ?? '',
+              indication: m.indication ?? '',
+            }))
           : [],
         familyHistory: Array.isArray(patient.familyHistory)
           ? patient.familyHistory
           : [],
+        priorSurgeries: normalizePriorSurgeries(
+          (patient as { priorSurgeries?: unknown }).priorSurgeries
+        ),
+        priorHospitalizations: normalizePriorHospitalizations(
+          (patient as { priorHospitalizations?: unknown }).priorHospitalizations
+        ),
         ehrPatientId: patient.ehrPatientId || undefined,
       };
 
@@ -389,6 +503,45 @@ export function PatientEditPage({ patientId }: PatientEditPageProps) {
       updateData.alcoholHistory = data.alcoholHistory || undefined;
     if (data.occupationalExposure !== undefined)
       updateData.occupationalExposure = data.occupationalExposure || undefined;
+    if (data.smokingProfile !== undefined) {
+      const sp = data.smokingProfile;
+      updateData.smokingProfile =
+        sp &&
+        (sp.status ||
+          sp.packYears != null ||
+          sp.yearsQuit != null ||
+          (sp.notes?.trim()?.length ?? 0) > 0)
+          ? sp
+          : undefined;
+    }
+    if (data.alcoholProfile !== undefined) {
+      const ap = data.alcoholProfile;
+      updateData.alcoholProfile =
+        ap &&
+        (ap.status ||
+          ap.drinksPerWeek != null ||
+          (ap.notes?.trim()?.length ?? 0) > 0)
+          ? ap
+          : undefined;
+    }
+    if (data.occupationalExposureEntries !== undefined) {
+      updateData.occupationalExposureEntries =
+        data.occupationalExposureEntries?.filter(
+          (o) => (o.agent?.trim()?.length ?? 0) > 0
+        ) ?? [];
+    }
+    if (data.allergyEntries !== undefined) {
+      updateData.allergyEntries = data.allergyEntries
+        ?.filter((a) => (a.substanceKey?.trim()?.length ?? 0) > 0)
+        .map((a) => ({
+          substanceKey: a.substanceKey!.trim(),
+          customLabel:
+            a.substanceKey === 'OTHER' ? a.customLabel?.trim() : undefined,
+          reactionNotes: a.reactionNotes?.trim() || undefined,
+        }));
+    }
+    if (data.allergies !== undefined)
+      updateData.allergies = data.allergies?.trim() || undefined;
     if (data.ehrPatientId !== undefined)
       updateData.ehrId = data.ehrPatientId || undefined;
 
@@ -405,12 +558,14 @@ export function PatientEditPage({ patientId }: PatientEditPageProps) {
               c.name.trim().length > 0 &&
               c.severity &&
               typeof c.severity === 'string' &&
-              typeof c.controlled === 'boolean'
+              c.type &&
+              typeof c.type === 'string'
           )
           .map((c: any) => ({
             name: c.name.trim(),
-            severity: c.severity,
-            controlled: c.controlled,
+            type: c.type as ComorbidityType,
+            severity: c.severity as ComorbiditySeverity,
+            controlled: c.controlled ?? false,
           }));
         updateData.comorbidities = validComorbidities;
       } else {
@@ -427,16 +582,34 @@ export function PatientEditPage({ patientId }: PatientEditPageProps) {
             (m: any) =>
               m &&
               typeof m === 'object' &&
-              m.name &&
-              typeof m.name === 'string' &&
-              m.name.trim().length > 0
+              (m.catalogKey?.trim() || m.name?.trim())
           )
-          .map((m: any) => ({
-            name: m.name.trim(),
-            dosage: m.dosage?.trim() || undefined,
-            frequency: m.frequency?.trim() || undefined,
-            indication: m.indication?.trim() || undefined,
-          }));
+          .map((m: any) => {
+            const ck = m.catalogKey?.trim();
+            if (ck && ck !== 'OTHER') {
+              return {
+                catalogKey: ck,
+                dosage: m.dosage?.trim() || undefined,
+                frequency: m.frequency?.trim() || undefined,
+                indication: m.indication?.trim() || undefined,
+              };
+            }
+            if (ck === 'OTHER') {
+              return {
+                catalogKey: 'OTHER',
+                name: m.name.trim(),
+                dosage: m.dosage?.trim() || undefined,
+                frequency: m.frequency?.trim() || undefined,
+                indication: m.indication?.trim() || undefined,
+              };
+            }
+            return {
+              name: m.name.trim(),
+              dosage: m.dosage?.trim() || undefined,
+              frequency: m.frequency?.trim() || undefined,
+              indication: m.indication?.trim() || undefined,
+            };
+          });
         updateData.currentMedications = validMedications;
       } else {
         updateData.currentMedications = [];
@@ -470,6 +643,63 @@ export function PatientEditPage({ patientId }: PatientEditPageProps) {
       } else {
         // Array vazio explícito
         updateData.familyHistory = [];
+      }
+    }
+
+    if (data.priorSurgeries !== undefined) {
+      if (data.priorSurgeries.length > 0) {
+        const valid = data.priorSurgeries
+          .filter(
+            (s) =>
+              s &&
+              typeof s === 'object' &&
+              typeof (s as { procedureName?: string }).procedureName ===
+                'string' &&
+              (s as { procedureName: string }).procedureName.trim().length > 0
+          )
+          .map((s) => ({
+            procedureName: (s as { procedureName: string }).procedureName.trim(),
+            year:
+              (s as { year?: number }).year !== undefined &&
+              (s as { year?: number }).year !== null
+                ? Number((s as { year?: number }).year)
+                : undefined,
+            institution: (s as { institution?: string }).institution?.trim() || undefined,
+            notes: (s as { notes?: string }).notes?.trim() || undefined,
+          }));
+        updateData.priorSurgeries = valid;
+      } else {
+        updateData.priorSurgeries = [];
+      }
+    }
+
+    if (data.priorHospitalizations !== undefined) {
+      if (data.priorHospitalizations.length > 0) {
+        const validH = data.priorHospitalizations
+          .filter(
+            (h) =>
+              h &&
+              typeof h === 'object' &&
+              typeof (h as { summary?: string }).summary === 'string' &&
+              (h as { summary: string }).summary.trim().length > 0
+          )
+          .map((h) => ({
+            summary: (h as { summary: string }).summary.trim(),
+            year:
+              (h as { year?: number }).year !== undefined &&
+              (h as { year?: number }).year !== null
+                ? Number((h as { year?: number }).year)
+                : undefined,
+            durationDays:
+              (h as { durationDays?: number }).durationDays !== undefined &&
+              (h as { durationDays?: number }).durationDays !== null
+                ? Number((h as { durationDays?: number }).durationDays)
+                : undefined,
+            notes: (h as { notes?: string }).notes?.trim() || undefined,
+          }));
+        updateData.priorHospitalizations = validH;
+      } else {
+        updateData.priorHospitalizations = [];
       }
     }
 
@@ -706,6 +936,7 @@ export function PatientEditPage({ patientId }: PatientEditPageProps) {
                 )}
               </div>
             </div>
+
           </CardContent>
         </Card>
 
@@ -1021,50 +1252,32 @@ export function PatientEditPage({ patientId }: PatientEditPageProps) {
             <CardTitle>Comorbidades e Fatores de Risco</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div>
-              <label className="text-sm font-medium mb-2 block">
-                Histórico de Tabagismo
-              </label>
-              <Input
-                {...register('smokingHistory')}
-                placeholder="Ex: nunca fumou, ex-fumante (10 anos-maço), fumante atual (20 anos-maço)"
-              />
-              {errors.smokingHistory && (
-                <p className="text-sm text-destructive mt-1">
-                  {errors.smokingHistory.message}
-                </p>
-              )}
-            </div>
-
-            <div>
-              <label className="text-sm font-medium mb-2 block">
-                Histórico de Álcool
-              </label>
-              <Input
-                {...register('alcoholHistory')}
-                placeholder="Ex: nunca, ocasional, moderado (20g/dia), pesado (60g/dia)"
-              />
-              {errors.alcoholHistory && (
-                <p className="text-sm text-destructive mt-1">
-                  {errors.alcoholHistory.message}
-                </p>
-              )}
-            </div>
-
-            <div>
-              <label className="text-sm font-medium mb-2 block">
-                Exposição Ocupacional
-              </label>
-              <Input
-                {...register('occupationalExposure')}
-                placeholder="Ex: amianto, benzeno, radiação"
-              />
-              {errors.occupationalExposure && (
-                <p className="text-sm text-destructive mt-1">
-                  {errors.occupationalExposure.message}
-                </p>
-              )}
-            </div>
+            <StructuredClinicalRisksForm
+              smokingProfile={watch('smokingProfile')}
+              alcoholProfile={watch('alcoholProfile')}
+              occupationalExposureEntries={
+                watch('occupationalExposureEntries') ?? []
+              }
+              allergyEntries={watch('allergyEntries') ?? []}
+              allergyNotes={watch('allergies') ?? ''}
+              onSmokingProfileChange={(v) =>
+                setValue('smokingProfile', v, { shouldValidate: true })
+              }
+              onAlcoholProfileChange={(v) =>
+                setValue('alcoholProfile', v, { shouldValidate: true })
+              }
+              onOccupationalEntriesChange={(v) =>
+                setValue('occupationalExposureEntries', v, {
+                  shouldValidate: true,
+                })
+              }
+              onAllergyEntriesChange={(v) =>
+                setValue('allergyEntries', v, { shouldValidate: true })
+              }
+              onAllergyNotesChange={(v) =>
+                setValue('allergies', v, { shouldValidate: true })
+              }
+            />
 
             <div>
               <ComorbiditiesForm
@@ -1107,6 +1320,17 @@ export function PatientEditPage({ patientId }: PatientEditPageProps) {
                 </p>
               )}
             </div>
+
+            <PriorClinicalHistoryForm
+              priorSurgeries={watch('priorSurgeries') as any}
+              priorHospitalizations={watch('priorHospitalizations') as any}
+              onChangeSurgeries={(items) =>
+                setValue('priorSurgeries', items as any)
+              }
+              onChangeHospitalizations={(items) =>
+                setValue('priorHospitalizations', items as any)
+              }
+            />
           </CardContent>
         </Card>
 
