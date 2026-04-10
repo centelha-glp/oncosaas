@@ -19,6 +19,8 @@ type MockPrisma = {
     findMany: jest.Mock;
     findFirst: jest.Mock;
     create: jest.Mock;
+    update: jest.Mock;
+    aggregate: jest.Mock;
   };
   alert: {
     findFirst: jest.Mock;
@@ -55,6 +57,8 @@ describe('OncologyNavigationService', () => {
         findMany: jest.fn(),
         findFirst: jest.fn(),
         create: jest.fn(),
+        update: jest.fn(),
+        aggregate: jest.fn(),
       },
       alert: {
         findFirst: jest.fn(),
@@ -428,13 +432,18 @@ describe('OncologyNavigationService', () => {
     it('should return { created: 0, skipped: N } when all steps already exist', async () => {
       mockPrisma.patient.findFirst.mockResolvedValue(basePatient);
 
-      // Bladder cancer TREATMENT has exactly 4 steps
-      mockPrisma.navigationStep.findMany.mockResolvedValue([
-        { stepKey: 'intravesical_bcg' },
-        { stepKey: 'radical_cystectomy' },
-        { stepKey: 'neobladder_or_urostomy' },
-        { stepKey: 'chemotherapy' },
-      ]);
+      const allTreatmentKeys = [
+        'intravesical_bcg',
+        'radical_cystectomy',
+        'neobladder_or_urostomy',
+        'chemotherapy',
+        'transurethral_resection_therapeutic',
+        'specialist_consultation',
+        'navigation_consultation',
+      ];
+      mockPrisma.navigationStep.findMany.mockResolvedValue(
+        allTreatmentKeys.map((stepKey) => ({ stepKey }))
+      );
 
       const result = await service.createMissingStepsForStage(
         PATIENT_ID,
@@ -443,7 +452,7 @@ describe('OncologyNavigationService', () => {
       );
 
       expect(result.created).toBe(0);
-      expect(result.skipped).toBe(4);
+      expect(result.skipped).toBe(allTreatmentKeys.length);
       expect(mockPrisma.navigationStep.create).not.toHaveBeenCalled();
     });
 
@@ -780,6 +789,67 @@ describe('OncologyNavigationService', () => {
         'breast',
         JourneyStage.SCREENING
       );
+    });
+  });
+
+  describe('updateStep — journeyStage (mover etapa)', () => {
+    it('should update stage, clear dependencies and assign next stepOrder', async () => {
+      const existing = {
+        id: 'step-move-1',
+        tenantId: TENANT,
+        patientId: PATIENT_ID,
+        journeyStage: JourneyStage.DIAGNOSIS,
+        isCompleted: false,
+        dependsOnStepKey: 'cystoscopy',
+        relativeDaysMin: 1,
+        relativeDaysMax: 7,
+        expectedDate: null,
+        dueDate: null,
+        status: NavigationStepStatus.PENDING,
+        actualDate: null,
+        completedAt: null,
+      };
+      mockPrisma.navigationStep.findFirst.mockResolvedValue(existing);
+      mockPrisma.navigationStep.aggregate.mockResolvedValue({
+        _max: { stepOrder: 5 },
+      });
+      mockPrisma.navigationStep.update.mockResolvedValue({
+        ...existing,
+        journeyStage: JourneyStage.TREATMENT,
+        stepOrder: 6,
+        dependsOnStepKey: null,
+        relativeDaysMin: null,
+        relativeDaysMax: null,
+        expectedDate: null,
+        dueDate: null,
+      });
+
+      await service.updateStep(
+        'step-move-1',
+        { journeyStage: JourneyStage.TREATMENT },
+        TENANT
+      );
+
+      expect(mockPrisma.navigationStep.aggregate).toHaveBeenCalledWith({
+        where: {
+          patientId: PATIENT_ID,
+          tenantId: TENANT,
+          journeyStage: JourneyStage.TREATMENT,
+        },
+        _max: { stepOrder: true },
+      });
+      expect(mockPrisma.navigationStep.update).toHaveBeenCalledWith({
+        where: { id: 'step-move-1', tenantId: TENANT },
+        data: expect.objectContaining({
+          journeyStage: JourneyStage.TREATMENT,
+          stepOrder: 6,
+          dependsOnStepKey: null,
+          relativeDaysMin: null,
+          relativeDaysMax: null,
+          expectedDate: null,
+          dueDate: null,
+        }),
+      });
     });
   });
 });

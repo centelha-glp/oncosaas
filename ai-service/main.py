@@ -2,7 +2,7 @@ import json
 import logging
 from pathlib import Path
 from fastapi import FastAPI
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
@@ -52,14 +52,21 @@ except Exception as e:
 
 
 class Settings(BaseSettings):
+    """Carrega `.env` local; campos espelham `ai-service/.env.example`."""
+
+    model_config = SettingsConfigDict(env_file=str(LOCAL_ENV_PATH), env_file_encoding="utf-8")
+
     openai_api_key: str = ""
     anthropic_api_key: str = ""
     google_cloud_project_id: str = ""
     backend_url: str = "http://localhost:3002"
+    backend_service_token: str = ""
     cors_origins: str = "http://localhost:3000,http://localhost:3002"
-
-    class Config:
-        env_file = str(LOCAL_ENV_PATH)
+    rag_embedding_model: str = (
+        "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    )
+    rag_top_k: int = 4
+    rag_score_threshold: float = 0.30
 
 
 settings = Settings()

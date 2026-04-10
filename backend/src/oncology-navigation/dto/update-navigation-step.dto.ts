@@ -7,7 +7,7 @@ import {
   IsObject,
   IsArray,
 } from 'class-validator';
-import { NavigationStepStatus } from '@generated/prisma/client';
+import { JourneyStage, NavigationStepStatus } from '@generated/prisma/client';
 
 export class UpdateNavigationStepDto {
   @IsEnum(NavigationStepStatus)
@@ -57,4 +57,9 @@ export class UpdateNavigationStepDto {
   @IsString()
   @IsOptional()
   notes?: string;
+
+  /** Alterar fase da jornada (ex.: arrastar etapa para outra coluna). Limpa dependências e prazos relativos. */
+  @IsEnum(JourneyStage)
+  @IsOptional()
+  journeyStage?: JourneyStage;
 }

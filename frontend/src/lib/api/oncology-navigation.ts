@@ -76,6 +76,12 @@ export interface UpdateNavigationStepDto {
   findings?: string[]; // Lista de achados/alterações
   metadata?: Record<string, unknown>;
   notes?: string;
+  journeyStage?:
+    | 'SCREENING'
+    | 'DIAGNOSIS'
+    | 'TREATMENT'
+    | 'FOLLOW_UP'
+    | 'PALLIATIVE';
 }
 
 export const oncologyNavigationApi = {

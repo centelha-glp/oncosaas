@@ -41,6 +41,13 @@ export interface UpdateNavigationStepData {
   findings?: string[];
   metadata?: unknown;
   notes?: string;
+  /** Mover etapa para outra fase (limpa dependências e prazos relativos no backend). */
+  journeyStage?:
+    | 'SCREENING'
+    | 'DIAGNOSIS'
+    | 'TREATMENT'
+    | 'FOLLOW_UP'
+    | 'PALLIATIVE';
 }
 
 /** Dados para criar uma nova etapa de navegação */

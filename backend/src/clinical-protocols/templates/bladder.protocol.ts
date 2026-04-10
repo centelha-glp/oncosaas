@@ -78,6 +78,12 @@ export const BLADDER_PROTOCOL = {
           name: 'Imunoterapia',
           conditional: 'if indicated (PD-L1+)',
         },
+        {
+          key: 'transurethral_resection_therapeutic',
+          name: 'RTU de Bexiga (terapêutica / re-ressecção)',
+          daysToComplete: 42,
+          conditional: 'NMIBC — recidiva/resgate (distinta da RTU diagnóstica)',
+        },
       ],
     },
     FOLLOW_UP: {

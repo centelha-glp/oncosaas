@@ -49,6 +49,22 @@ import {
   JOURNEY_STAGES,
   type JourneyStage,
 } from '@/lib/utils/journey-stage';
+import {
+  DndContext,
+  DragEndEvent,
+  DragOverlay,
+  DragStartEvent,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
+import {
+  buildNavDropId,
+  DraggableNavigationStep,
+  NavigationStepDragPreview,
+  parseNavDropId,
+  StageDroppableColumn,
+} from '@/components/patients/navigation-step-dnd';
 
 interface FileMetadata {
   filename: string;
@@ -404,6 +420,7 @@ function PatientNavigationCard({
   >([]);
   const [loadingTemplates, setLoadingTemplates] = useState(false);
   const [createStage, setCreateStage] = useState<string | null>(null);
+  const [activeDragStepId, setActiveDragStepId] = useState<string | null>(null);
 
   const createFromTemplateMutation = useMutation({
     mutationFn: ({ journeyStage, stepKey }: { journeyStage: string; stepKey: string }) =>
@@ -432,6 +449,51 @@ function PatientNavigationCard({
       toast.error(`Erro ao criar etapas: ${error.message}`);
     },
   });
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
+  );
+
+  const moveStepMutation = useMutation({
+    mutationFn: ({
+      stepId,
+      journeyStage,
+    }: {
+      stepId: string;
+      journeyStage: JourneyStage;
+    }) => navigationApi.updateStep(stepId, { journeyStage }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['navigation-steps', patient.id] });
+      queryClient.invalidateQueries({ queryKey: ['patients'] });
+      toast.success('Etapa movida para outra fase');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Erro ao mover etapa');
+    },
+  });
+
+  const handlePatientNavDragStart = (event: DragStartEvent): void => {
+    setActiveDragStepId(String(event.active.id));
+  };
+
+  const handlePatientNavDragEnd = (event: DragEndEvent): void => {
+    setActiveDragStepId(null);
+    const { active, over } = event;
+    if (!over) return;
+    const parsed = parseNavDropId(String(over.id));
+    if (!parsed) return;
+    const stepId = String(active.id);
+    const step = navigationSteps?.find((s) => s.id === stepId);
+    if (!step) return;
+    if (step.cancerType.toLowerCase() !== cancerType.toLowerCase()) return;
+    if (parsed.typeKey.toLowerCase() !== cancerType.toLowerCase()) return;
+    if (step.journeyStage === parsed.stage) return;
+    moveStepMutation.mutate({ stepId, journeyStage: parsed.stage });
+  };
+
+  const handlePatientNavDragCancel = (): void => {
+    setActiveDragStepId(null);
+  };
 
   const handleSelectPhase = async (stage: JourneyStage): Promise<void> => {
     setWizardPhase(stage);
@@ -507,6 +569,11 @@ function PatientNavigationCard({
 
   const currentStage = patient.currentStage || 'SCREENING';
   const isPalliativeCare = patient.status === 'PALLIATIVE_CARE';
+
+  const activeDragStep = useMemo(() => {
+    if (!activeDragStepId || !navigationSteps) return undefined;
+    return navigationSteps.find((s) => s.id === activeDragStepId);
+  }, [activeDragStepId, navigationSteps]);
 
   return (
     <div
@@ -679,52 +746,93 @@ function PatientNavigationCard({
               Nenhuma etapa de navegação definida para este paciente.
             </div>
           ) : (
-            Object.entries(stepsByStage).map(([stage, steps]) => {
-              if (steps.length === 0) return null;
+            <DndContext
+              sensors={sensors}
+              onDragStart={handlePatientNavDragStart}
+              onDragEnd={handlePatientNavDragEnd}
+              onDragCancel={handlePatientNavDragCancel}
+            >
+              <div className="space-y-4">
+                {JOURNEY_STAGES.map((stage) => {
+                  const steps = stepsByStage[stage] ?? [];
+                  const stageCompleted = steps.filter(
+                    (s) => s.status === 'COMPLETED'
+                  ).length;
+                  const stageOverdue = steps.filter(
+                    (s) => s.status === 'OVERDUE'
+                  ).length;
+                  const isCurrentStage = stage === currentStage;
+                  const stageLabel = JOURNEY_STAGE_LABELS[stage] || stage;
 
-              const stageCompleted = steps.filter(
-                (s) => s.status === 'COMPLETED'
-              ).length;
-              const stageOverdue = steps.filter(
-                (s) => s.status === 'OVERDUE'
-              ).length;
-              const isCurrentStage = stage === currentStage;
-
-              return (
-                <div
-                  key={stage}
-                  className={`border rounded-lg overflow-hidden ${
-                    isCurrentStage ? 'ring-2 ring-blue-500' : ''
-                  }`}
-                >
-                  <div className="bg-gray-50 px-4 py-2 border-b">
-                    <div className="flex items-center justify-between">
-                      <span className="font-semibold">
-                        {JOURNEY_STAGE_LABELS[stage as JourneyStage] || stage}
-                      </span>
-                      <span className="text-sm text-gray-600">
-                        {stageCompleted}/{steps.length} concluídas
-                        {stageOverdue > 0 && (
-                          <span className="text-red-600 ml-2">
-                            • {stageOverdue} atrasada
-                            {stageOverdue > 1 ? 's' : ''}
+                  return (
+                    <StageDroppableColumn
+                      key={stage}
+                      id={buildNavDropId(cancerType, stage)}
+                      className={
+                        steps.length === 0
+                          ? `rounded-lg border ${
+                              isCurrentStage ? 'ring-2 ring-blue-500' : ''
+                            }`
+                          : `overflow-hidden rounded-lg border ${
+                              isCurrentStage ? 'ring-2 ring-blue-500' : ''
+                            }`
+                      }
+                    >
+                      {steps.length === 0 ? (
+                        <div className="flex items-center justify-between gap-2 bg-gray-50 px-3 py-2">
+                          <span className="text-sm font-semibold">{stageLabel}</span>
+                          <span className="text-xs text-muted-foreground">
+                            Fase vazia — solte uma etapa aqui
                           </span>
-                        )}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="p-4 space-y-2">
-                    {steps.map((step) => (
-                      <StepCard
-                        key={`${step.id}-${step.updatedAt}`}
-                        step={step}
-                        apiUrl={apiUrl}
-                      />
-                    ))}
-                  </div>
-                </div>
-              );
-            })
+                        </div>
+                      ) : (
+                        <>
+                          <div className="border-b bg-gray-50 px-4 py-2">
+                            <div className="flex items-center justify-between">
+                              <span className="font-semibold">{stageLabel}</span>
+                              <span className="text-sm text-gray-600">
+                                {`${stageCompleted}/${steps.length} concluídas`}
+                                {stageOverdue > 0 && (
+                                  <span className="ml-2 text-red-600">
+                                    • {stageOverdue} atrasada
+                                    {stageOverdue > 1 ? 's' : ''}
+                                  </span>
+                                )}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="space-y-2 p-4">
+                            {steps.map((step) => (
+                              <DraggableNavigationStep
+                                key={step.id}
+                                stepId={step.id}
+                                useDragOverlay
+                              >
+                                {(dragHandle) => (
+                                  <StepCard
+                                    step={step}
+                                    apiUrl={apiUrl}
+                                    dragHandle={dragHandle}
+                                  />
+                                )}
+                              </DraggableNavigationStep>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </StageDroppableColumn>
+                  );
+                })}
+              </div>
+              <DragOverlay dropAnimation={{ duration: 180, easing: 'ease-out' }} className="z-[1000]">
+                {activeDragStep ? (
+                  <NavigationStepDragPreview
+                    stepName={activeDragStep.stepName}
+                    stepDescription={activeDragStep.stepDescription}
+                  />
+                ) : null}
+              </DragOverlay>
+            </DndContext>
           )}
           <CreateNavigationStepDialog
             open={createStage !== null}
@@ -749,9 +857,10 @@ function PatientNavigationCard({
 interface StepCardProps {
   step: NavigationStep;
   apiUrl: string;
+  dragHandle?: React.ReactNode;
 }
 
-function StepCard({ step, apiUrl }: StepCardProps) {
+function StepCard({ step, apiUrl, dragHandle }: StepCardProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [notes, setNotes] = useState(step.notes || '');
   const [isCompleted, setIsCompleted] = useState(step.isCompleted);
@@ -871,6 +980,9 @@ function StepCard({ step, apiUrl }: StepCardProps) {
         STATUS_COLORS[step.status] || STATUS_COLORS.PENDING
       }`}
     >
+      {dragHandle && (
+        <div className="flex-shrink-0 mt-0.5">{dragHandle}</div>
+      )}
       <div className="flex-shrink-0 mt-0.5">
         {STATUS_ICONS[step.status] || STATUS_ICONS.PENDING}
       </div>
@@ -892,6 +1004,7 @@ function StepCard({ step, apiUrl }: StepCardProps) {
           <div className="flex items-center gap-1">
             {/* Botão de atalho para marcar como concluída */}
             <button
+              type="button"
               onClick={handleQuickComplete}
               disabled={updateStep.isPending}
               className={`p-1.5 rounded transition-colors ${

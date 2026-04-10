@@ -94,7 +94,7 @@ docker compose -f compose.infra.yml up -d
 ```bash
 cd frontend && npm install
 cd ../backend && npm install
-cd ../ai-service && python3 -m pip install -r requirements.txt
+cd ../ai-service && python -m pip install -r requirements.txt
 cd ..
 ```
 
@@ -108,7 +108,7 @@ cd backend && npm run start:dev
 cd frontend && npm run dev
 
 # terminal 3
-cd ai-service && python3 -m uvicorn main:app --reload --host 0.0.0.0 --port 8001
+cd ai-service && python -m uvicorn main:app --reload --host 0.0.0.0 --port 8001
 ```
 
 ## Banco de dados (Prisma)
@@ -134,11 +134,11 @@ Após o seed inicial:
 
 ## URLs locais
 
-- Frontend: <http://localhost:3000>
-- Backend API: <http://localhost:3002/api/v1>
-- Backend health: <http://localhost:3002/api/v1/health>
-- AI service health: <http://localhost:8001/health>
-- RabbitMQ UI: <http://localhost:15672>
+- Frontend: [http://localhost:3000](http://localhost:3000)
+- Backend API: [http://localhost:3002/api/v1](http://localhost:3002/api/v1)
+- Backend health: [http://localhost:3002/api/v1/health](http://localhost:3002/api/v1/health)
+- AI service health: [http://localhost:8001/health](http://localhost:8001/health)
+- RabbitMQ UI: [http://localhost:15672](http://localhost:15672)
 
 ## HTTPS local (Embedded Signup / Meta)
 

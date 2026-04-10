@@ -242,6 +242,25 @@ export class OncologyNavigationService {
       updateData.status = NavigationStepStatus.OVERDUE;
     }
 
+    if (updateDto.journeyStage !== undefined) {
+      if (updateDto.journeyStage === existingStep.journeyStage) {
+        delete (updateData as { journeyStage?: JourneyStage }).journeyStage;
+      } else {
+        const nextOrder = await this.getNextStepOrderForStage(
+          existingStep.patientId,
+          tenantId,
+          updateDto.journeyStage
+        );
+        updateData.journeyStage = updateDto.journeyStage;
+        updateData.stepOrder = nextOrder;
+        updateData.dependsOnStepKey = null;
+        updateData.relativeDaysMin = null;
+        updateData.relativeDaysMax = null;
+        updateData.expectedDate = null;
+        updateData.dueDate = null;
+      }
+    }
+
     const updatedStep = await this.prisma.navigationStep.update({
       where: { id: stepId, tenantId },
       data: updateData,
@@ -1121,6 +1140,73 @@ export class OncologyNavigationService {
   }
 
   /**
+   * Etapas transversais a todas as fases da jornada (consultas de coordenação / especialista).
+   * Injetadas após os protocolos por tipo de câncer.
+   */
+  private mergeUniversalStepConfigs(configs: StepConfig[]): StepConfig[] {
+    const present = new Set(configs.map((c) => `${c.journeyStage}:${c.stepKey}`));
+    const stagesInConfigs = [...new Set(configs.map((c) => c.journeyStage))];
+    const universalDefs: Omit<StepConfig, 'journeyStage' | 'stepOrder'>[] = [
+      {
+        stepKey: 'specialist_consultation',
+        stepName: 'Consulta especializada',
+        stepDescription:
+          'Consulta com especialista da linha de cuidado (não substitui a navegação oncológica).',
+        isRequired: false,
+        dependsOnStepKey: null,
+        relativeDaysMin: null,
+        relativeDaysMax: null,
+      },
+      {
+        stepKey: 'navigation_consultation',
+        stepName: 'Consulta de navegação oncológica',
+        stepDescription:
+          'Atendimento com o navegador oncológico para coordenação de acesso, barreiras e continuidade do cuidado.',
+        isRequired: false,
+        dependsOnStepKey: null,
+        relativeDaysMin: null,
+        relativeDaysMax: null,
+      },
+    ];
+
+    const merged = [...configs];
+    for (const stage of stagesInConfigs) {
+      const maxOrder = Math.max(
+        0,
+        ...configs
+          .filter((c) => c.journeyStage === stage)
+          .map((c) => c.stepOrder)
+      );
+      let nextOrder = maxOrder + 1;
+      for (const def of universalDefs) {
+        const key = `${stage}:${def.stepKey}`;
+        if (!present.has(key)) {
+          merged.push({
+            ...def,
+            journeyStage: stage,
+            stepOrder: nextOrder++,
+          });
+          present.add(key);
+        }
+      }
+    }
+    return merged;
+  }
+
+  /** Próximo stepOrder ao mover etapa para uma fase (append ao fim da coluna). */
+  private async getNextStepOrderForStage(
+    patientId: string,
+    tenantId: string,
+    journeyStage: JourneyStage
+  ): Promise<number> {
+    const agg = await this.prisma.navigationStep.aggregate({
+      where: { patientId, tenantId, journeyStage },
+      _max: { stepOrder: true },
+    });
+    return (agg._max.stepOrder ?? 0) + 1;
+  }
+
+  /**
    * Retorna as configurações de etapas para um tipo de câncer.
    * Cada etapa define dependência relativa (stepKey da predecessora + dias).
    * Datas são calculadas em runtime quando a dependência é concluída.
@@ -1130,33 +1216,42 @@ export class OncologyNavigationService {
     patientStatus?: PatientStatus,
     currentStage?: JourneyStage,
   ): StepConfig[] {
+    let base: StepConfig[];
     // New JourneyStage PALLIATIVE must provision palliative templates
     // even when patient.status is not yet synchronized to PALLIATIVE_CARE.
     if (
       currentStage === JourneyStage.PALLIATIVE ||
       patientStatus === PatientStatus.PALLIATIVE_CARE
     ) {
-      return this.getPalliativeStepConfigs();
+      base = this.getPalliativeStepConfigs();
+    } else {
+      switch (cancerType.toLowerCase()) {
+        case 'colorectal':
+          base = this.getColorectalStepConfigs();
+          break;
+        case 'breast':
+          base = this.getBreastStepConfigs();
+          break;
+        case 'lung':
+          base = this.getLungStepConfigs();
+          break;
+        case 'prostate':
+          base = this.getProstateStepConfigs();
+          break;
+        case 'kidney':
+          base = this.getKidneyStepConfigs();
+          break;
+        case 'bladder':
+          base = this.getBladderStepConfigs();
+          break;
+        case 'testicular':
+          base = this.getTesticularStepConfigs();
+          break;
+        default:
+          base = this.getGenericStepConfigs();
+      }
     }
-
-    switch (cancerType.toLowerCase()) {
-      case 'colorectal':
-        return this.getColorectalStepConfigs();
-      case 'breast':
-        return this.getBreastStepConfigs();
-      case 'lung':
-        return this.getLungStepConfigs();
-      case 'prostate':
-        return this.getProstateStepConfigs();
-      case 'kidney':
-        return this.getKidneyStepConfigs();
-      case 'bladder':
-        return this.getBladderStepConfigs();
-      case 'testicular':
-        return this.getTesticularStepConfigs();
-      default:
-        return this.getGenericStepConfigs();
-    }
+    return this.mergeUniversalStepConfigs(base);
   }
 
 
@@ -1523,6 +1618,18 @@ export class OncologyNavigationService {
         stepOrder: 11,
       },
       {
+        journeyStage: JourneyStage.TREATMENT,
+        stepKey: 'transurethral_resection_therapeutic',
+        stepName: 'RTU de Bexiga (terapêutica / re-ressecção)',
+        stepDescription:
+          'Ressecção transuretral com finalidade terapêutica (ex.: doença residual, recidiva intravesical, resgate após BCG). Distinta da RTU diagnóstica inicial.',
+        isRequired: false,
+        dependsOnStepKey: 'pathology_report',
+        relativeDaysMin: 14,
+        relativeDaysMax: 42,
+        stepOrder: 12,
+      },
+      {
         journeyStage: JourneyStage.FOLLOW_UP,
         stepKey: 'cystoscopy_3months',
         stepName: 'Cistoscopia 3 Meses',
@@ -1531,7 +1638,7 @@ export class OncologyNavigationService {
         dependsOnStepKey: 'intravesical_bcg',
         relativeDaysMin: 90,
         relativeDaysMax: 90,
-        stepOrder: 12,
+        stepOrder: 13,
       },
       {
         journeyStage: JourneyStage.FOLLOW_UP,
@@ -1542,7 +1649,7 @@ export class OncologyNavigationService {
         dependsOnStepKey: 'intravesical_bcg',
         relativeDaysMin: 180,
         relativeDaysMax: 180,
-        stepOrder: 13,
+        stepOrder: 14,
       },
       {
         journeyStage: JourneyStage.FOLLOW_UP,
@@ -1553,7 +1660,7 @@ export class OncologyNavigationService {
         dependsOnStepKey: 'intravesical_bcg',
         relativeDaysMin: 365,
         relativeDaysMax: 365,
-        stepOrder: 14,
+        stepOrder: 15,
       },
     ];
   }
