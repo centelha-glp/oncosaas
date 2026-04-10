@@ -53,7 +53,7 @@ export class MedicationsService {
     dto: CreateMedicationDto,
   ) {
     let name = dto.name?.trim() ?? '';
-    let catalogKey: string | null = dto.catalogKey?.trim() || null;
+    const catalogKey: string | null = dto.catalogKey?.trim() || null;
     let category: MedicationCategory;
 
     if (catalogKey) {

@@ -32,7 +32,9 @@ export const ALLERGY_SUBSTANCE_KEYS = Object.keys(ALLERGY_SUBSTANCE_CATALOG);
 export function getAllergyCatalogEntry(
   key: string | null | undefined
 ): AllergyCatalogEntry | null {
-  if (!key || typeof key !== 'string') return null;
+  if (!key || typeof key !== 'string') {
+    return null;
+  }
   return ALLERGY_SUBSTANCE_CATALOG[key] ?? null;
 }
 

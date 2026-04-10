@@ -40,7 +40,9 @@ export const MEDICATION_CATALOG: Record<string, MedicationCatalogEntry> = {
 export function getMedicationCatalogEntry(
   key: string | null | undefined
 ): MedicationCatalogEntry | null {
-  if (!key || typeof key !== 'string') return null;
+  if (!key || typeof key !== 'string') {
+    return null;
+  }
   return MEDICATION_CATALOG[key] ?? null;
 }
 

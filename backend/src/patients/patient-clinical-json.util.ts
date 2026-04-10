@@ -18,13 +18,13 @@ export interface StoredAllergyEntry {
 export function normalizeAllergyEntriesForStorage(
   raw: unknown
 ): Prisma.InputJsonValue | undefined {
-  if (raw === undefined || raw === null) return undefined;
+  if (raw === undefined || raw === null) {return undefined;}
   if (!Array.isArray(raw)) {
     throw new BadRequestException('allergyEntries deve ser um array');
   }
   const out: StoredAllergyEntry[] = [];
   for (const row of raw) {
-    if (!row || typeof row !== 'object' || Array.isArray(row)) continue;
+    if (!row || typeof row !== 'object' || Array.isArray(row)) {continue;}
     const r = row as Record<string, unknown>;
     const key =
       typeof r.substanceKey === 'string' ? r.substanceKey.trim() : '';

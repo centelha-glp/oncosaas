@@ -50,27 +50,29 @@ export function ageYearsInTimeZone(birthDate: Date, ref: Date, timeZone: string)
   const [yB, mB, dB] = b;
   const [yR, mR, dR] = r;
   let age = yR - yB;
-  if (mR < mB || (mR === mB && dR < dB)) age -= 1;
+  if (mR < mB || (mR === mB && dR < dB)) {age -= 1;}
   return Math.max(0, age);
 }
 
 function genderLabelPt(gender: string | null | undefined): string {
-  if (!gender) return 'Não informado';
+  if (!gender) {return 'Não informado';}
   const g = gender.toLowerCase();
-  if (g === 'male' || g === 'm') return 'Masculino';
-  if (g === 'female' || g === 'f') return 'Feminino';
-  if (g === 'other') return 'Outro';
+  if (g === 'male' || g === 'm') {return 'Masculino';}
+  if (g === 'female' || g === 'f') {return 'Feminino';}
+  if (g === 'other') {return 'Outro';}
   return gender;
 }
 
 function parseJsonArray(raw: Prisma.JsonValue | null | undefined): unknown[] {
-  if (raw == null) return [];
-  if (Array.isArray(raw)) return raw;
+  if (raw === null || raw === undefined) {
+    return [];
+  }
+  if (Array.isArray(raw)) {return raw;}
   return [];
 }
 
 function formatDatePt(d: Date | null | undefined): string {
-  if (!d) return '—';
+  if (!d) {return '—';}
   try {
     return d.toLocaleDateString('pt-BR', { timeZone: TZ_SP });
   } catch {
@@ -209,7 +211,7 @@ export class ClinicalNoteSectionSuggestionService {
         if (item && typeof item === 'object' && !Array.isArray(item)) {
           const r = item as Record<string, unknown>;
           const agent = typeof r.agent === 'string' ? r.agent.trim() : '';
-          if (!agent) continue;
+          if (!agent) {continue;}
           const yrs =
             typeof r.yearsApprox === 'number'
               ? ` (${r.yearsApprox} anos aprox.)`
@@ -245,7 +247,7 @@ export class ClinicalNoteSectionSuggestionService {
       if (s && typeof s === 'object' && !Array.isArray(s)) {
         const r = s as Record<string, unknown>;
         const proc = typeof r.procedureName === 'string' ? r.procedureName : '';
-        if (!proc.trim()) continue;
+        if (!proc.trim()) {continue;}
         const y = typeof r.year === 'number' ? `${r.year}` : 'ano s/inf.';
         const inst =
           typeof r.institution === 'string' && r.institution.trim()
@@ -260,7 +262,7 @@ export class ClinicalNoteSectionSuggestionService {
       if (h && typeof h === 'object' && !Array.isArray(h)) {
         const r = h as Record<string, unknown>;
         const sum = typeof r.summary === 'string' ? r.summary : '';
-        if (!sum.trim()) continue;
+        if (!sum.trim()) {continue;}
         const y = typeof r.year === 'number' ? `${r.year}` : '';
         const dur =
           typeof r.durationDays === 'number' ? `${r.durationDays} dia(s)` : '';
@@ -282,9 +284,9 @@ export class ClinicalNoteSectionSuggestionService {
 
     const medLines = patient.medications.map((m) => {
       const bits = [m.name];
-      if (m.dosage?.trim()) bits.push(m.dosage.trim());
-      if (m.frequency?.trim()) bits.push(m.frequency.trim());
-      if (m.indication?.trim()) bits.push(`— ${m.indication.trim()}`);
+      if (m.dosage?.trim()) {bits.push(m.dosage.trim());}
+      if (m.frequency?.trim()) {bits.push(m.frequency.trim());}
+      if (m.indication?.trim()) {bits.push(`— ${m.indication.trim()}`);}
       return `• ${bits.join(' — ')}`;
     });
     out.medicacoesEmUso = medLines.join('\n');
@@ -294,7 +296,7 @@ export class ClinicalNoteSectionSuggestionService {
       if (e && typeof e === 'object' && !Array.isArray(e)) {
         const r = e as Record<string, unknown>;
         const sk = typeof r.substanceKey === 'string' ? r.substanceKey : '';
-        if (!sk) continue;
+        if (!sk) {continue;}
         const ent: StoredAllergyEntry = {
           substanceKey: sk,
           customLabel:
@@ -317,9 +319,9 @@ export class ClinicalNoteSectionSuggestionService {
     const examChunks: string[] = [];
     for (const ex of patient.complementaryExams) {
       const last = ex.results[0];
-      if (!last) continue;
+      if (!last) {continue;}
       const val =
-        last.valueNumeric != null
+        last.valueNumeric !== null && last.valueNumeric !== undefined
           ? String(last.valueNumeric)
           : (last.valueText?.trim() ?? '');
       const unit = last.unit?.trim() ? ` ${last.unit.trim()}` : '';
