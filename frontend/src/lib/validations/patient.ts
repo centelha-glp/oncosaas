@@ -5,6 +5,7 @@ import {
   M_STAGE_VALUES,
   GRADE_VALUES,
 } from './cancer-diagnosis';
+import { requiresCurrentTreatmentField, requiresOncologyCoreFields } from '@/lib/utils/journey-stage';
 
 /** Linha de comorbidade: pode estar em branco até o usuário preencher tipo/gravidade/nome. */
 export const comorbiditySchema = z.object({
@@ -35,23 +36,33 @@ export const priorHospitalizationItemSchema = z.object({
   notes: z.string().optional(),
 });
 
+const smokingProfileObjectSchema = z.object({
+  status: z.enum(['never', 'former', 'current', 'unknown']).optional(),
+  packYears: z.number().optional(),
+  yearsQuit: z.number().optional(),
+  notes: z.string().optional(),
+});
+
 const smokingProfileSchema = z
-  .object({
-    status: z.enum(['never', 'former', 'current', 'unknown']).optional(),
-    packYears: z.number().optional(),
-    yearsQuit: z.number().optional(),
-    notes: z.string().optional(),
-  })
+  .preprocess(
+    (v) => (v === null ? undefined : v),
+    smokingProfileObjectSchema
+  )
   .optional();
 
+const alcoholProfileObjectSchema = z.object({
+  status: z
+    .enum(['never', 'occasional', 'moderate', 'heavy', 'unknown'])
+    .optional(),
+  drinksPerWeek: z.number().optional(),
+  notes: z.string().optional(),
+});
+
 const alcoholProfileSchema = z
-  .object({
-    status: z
-      .enum(['never', 'occasional', 'moderate', 'heavy', 'unknown'])
-      .optional(),
-    drinksPerWeek: z.number().optional(),
-    notes: z.string().optional(),
-  })
+  .preprocess(
+    (v) => (v === null ? undefined : v),
+    alcoholProfileObjectSchema
+  )
   .optional();
 
 const occupationalExposureEntrySchema = z.object({
@@ -75,108 +86,123 @@ export const currentMedicationSchema = z.object({
   indication: z.string().optional(),
 });
 
-export const createPatientSchema = z
-  .object({
-    // Etapa 1 - Dados Básicos
-    name: z.string().min(2, 'Nome deve ter pelo menos 2 caracteres'),
-    cpf: z.string().optional(),
-    birthDate: z.string().min(1, 'Data de nascimento é obrigatória'),
-    gender: z.enum(['male', 'female', 'other']).optional(),
-    phone: z
-      .string()
-      .min(10, 'Telefone é obrigatório e deve ter pelo menos 10 dígitos'),
-    email: z.string().email('Email inválido').optional().or(z.literal('')),
+/** Campos comuns (cadastro e edição); `phone` é definido em cada schema final. */
+const patientFormSharedFields = {
+  // Etapa 1 - Dados Básicos
+  name: z.string().min(2, 'Nome deve ter pelo menos 2 caracteres'),
+  cpf: z.string().optional(),
+  birthDate: z.string().min(1, 'Data de nascimento é obrigatória'),
+  gender: z.enum(['male', 'female', 'other']).optional(),
+  email: z.preprocess(
+    (v) => (v === null || v === undefined ? '' : v),
+    z.union([z.literal(''), z.string().email('Email inválido')])
+  ),
 
-    // Etapa 2 - Dados Oncológicos Essenciais
-    cancerType: z
-      .enum([
-        'breast',
-        'lung',
-        'colorectal',
-        'prostate',
-        'kidney',
-        'bladder',
-        'testicular',
-        'other',
-      ])
-      .optional(),
-    stage: z.string().optional(),
-    // Campos TNM estruturados
-    tStage: z.enum(T_STAGE_VALUES).optional(),
-    nStage: z.enum(N_STAGE_VALUES).optional(),
-    mStage: z.enum(M_STAGE_VALUES).optional(),
-    grade: z.enum(GRADE_VALUES).optional(),
-    diagnosisDate: z.string().optional(),
-    performanceStatus: z.preprocess(
-      (val) =>
-        typeof val === 'number' && Number.isNaN(val) ? undefined : val,
-      z
-        .number()
-        .min(0)
-        .max(4, 'ECOG deve ser entre 0 e 4')
-        .optional()
-    ),
-    currentStage: z
-      .enum(['SCREENING', 'DIAGNOSIS', 'TREATMENT', 'FOLLOW_UP', 'PALLIATIVE'])
-      .default('SCREENING'),
+  // Etapa 2 - Dados Oncológicos Essenciais
+  cancerType: z
+    .enum([
+      'breast',
+      'lung',
+      'colorectal',
+      'prostate',
+      'kidney',
+      'bladder',
+      'testicular',
+      'other',
+    ])
+    .optional(),
+  stage: z.string().optional(),
+  // Campos TNM estruturados
+  tStage: z.enum(T_STAGE_VALUES).optional(),
+  nStage: z.enum(N_STAGE_VALUES).optional(),
+  mStage: z.enum(M_STAGE_VALUES).optional(),
+  grade: z.enum(GRADE_VALUES).optional(),
+  diagnosisDate: z.string().optional(),
+  performanceStatus: z.preprocess(
+    (val) =>
+      typeof val === 'number' && Number.isNaN(val) ? undefined : val,
+    z
+      .number()
+      .min(0)
+      .max(4, 'ECOG deve ser entre 0 e 4')
+      .optional()
+  ),
+  currentStage: z
+    .enum(['SCREENING', 'DIAGNOSIS', 'TREATMENT', 'FOLLOW_UP', 'PALLIATIVE'])
+    .default('SCREENING'),
 
-    // Tratamento atual (obrigatório em seguimento)
-    currentTreatment: z.string().optional(),
+  // Tratamento atual (obrigatório em seguimento)
+  currentTreatment: z.string().optional(),
 
-    // Comorbidades e Fatores de Risco
-    comorbidities: z.array(comorbiditySchema).optional(),
-    currentMedications: z.array(currentMedicationSchema).optional(),
-    smokingProfile: smokingProfileSchema,
-    alcoholProfile: alcoholProfileSchema,
-    occupationalExposureEntries: z
-      .array(occupationalExposureEntrySchema)
-      .optional(),
-    allergyEntries: z.array(allergyEntrySchema).optional(),
-    smokingHistory: z.string().optional(),
-    alcoholHistory: z.string().optional(),
-    occupationalExposure: z.string().optional(),
-    familyHistory: z.array(familyHistorySchema).optional(),
-    priorSurgeries: z.array(priorSurgeryItemSchema).optional(),
-    priorHospitalizations: z.array(priorHospitalizationItemSchema).optional(),
-    allergies: z.string().max(16000).optional(),
+  // Comorbidades e Fatores de Risco
+  comorbidities: z.array(comorbiditySchema).optional(),
+  currentMedications: z.array(currentMedicationSchema).optional(),
+  smokingProfile: smokingProfileSchema,
+  alcoholProfile: alcoholProfileSchema,
+  occupationalExposureEntries: z
+    .array(occupationalExposureEntrySchema)
+    .optional(),
+  allergyEntries: z.array(allergyEntrySchema).optional(),
+  smokingHistory: z.string().optional(),
+  alcoholHistory: z.string().optional(),
+  occupationalExposure: z.string().optional(),
+  familyHistory: z.array(familyHistorySchema).optional(),
+  priorSurgeries: z.array(priorSurgeryItemSchema).optional(),
+  priorHospitalizations: z.array(priorHospitalizationItemSchema).optional(),
+  allergies: z.string().max(16000).optional(),
 
-    // Etapa 3 - Integração EHR
-    ehrPatientId: z.string().optional(),
-  })
+  // Etapa 3 - Integração EHR
+  ehrPatientId: z.string().optional(),
+};
+
+const patientFormRefines = <T extends z.ZodTypeAny>(schema: T) =>
+  schema
+    .superRefine((data, ctx) => {
+      if (!requiresOncologyCoreFields(data.currentStage)) return;
+      const d = data as {
+        cancerType?: string | null;
+        diagnosisDate?: string | null;
+        stage?: string | null;
+        performanceStatus?: number | null | undefined;
+      };
+      if (!d.cancerType?.trim()) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['cancerType'],
+          message: 'Selecione o tipo de câncer.',
+        });
+      }
+      if (!d.diagnosisDate?.trim()) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['diagnosisDate'],
+          message: 'Informe a data do diagnóstico.',
+        });
+      }
+      if (!d.stage?.trim()) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['stage'],
+          message:
+            'Preencha o estadiamento TNM (T, N e M) para gerar o estágio, ou informe o estágio quando aplicável.',
+        });
+      }
+      if (d.performanceStatus === undefined || d.performanceStatus === null) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['performanceStatus'],
+          message: 'Selecione o Performance Status (ECOG).',
+        });
+      }
+    })
   .refine(
     (data) => {
-      // Em tratamento, seguimento ou paliativo: diagnóstico obrigatório (tipo, estágio TNM, data, ECOG)
-      const needsDiagnosis =
-        data.currentStage === 'TREATMENT' ||
-        data.currentStage === 'FOLLOW_UP' ||
-        data.currentStage === 'PALLIATIVE';
-      if (!needsDiagnosis) return true;
-      if (!data.cancerType?.trim()) return false;
-      if (!data.diagnosisDate?.trim()) return false;
-      if (!data.stage?.trim()) return false;
-      if (data.performanceStatus === undefined || data.performanceStatus === null)
-        return false;
-      return true;
-    },
-    {
-      message:
-        'Para pacientes em Tratamento ou Seguimento, preencha Tipo de Câncer, Estágio TNM, Data do Diagnóstico e Performance Status (ECOG).',
-      path: ['cancerType'],
-    }
-  )
-  .refine(
-    (data) => {
-      // Em tratamento, seguimento ou paliativo: tratamento obrigatório (em tratamento pode ser "A definir")
-      const needsTreatment =
-        data.currentStage === 'TREATMENT' ||
-        data.currentStage === 'FOLLOW_UP' ||
-        data.currentStage === 'PALLIATIVE';
-      if (!needsTreatment) return true;
+      if (!requiresCurrentTreatmentField(data.currentStage)) return true;
       return !!data.currentTreatment?.trim();
     },
     {
       message:
-        'Para pacientes em Tratamento ou Seguimento, informe o tratamento (ou "A definir").',
+        'Em Tratamento, Seguimento ou Cuidados Paliativos, informe o tratamento atual (ou "A definir").',
       path: ['currentTreatment'],
     }
   )
@@ -250,4 +276,33 @@ export const createPatientSchema = z
     }
   );
 
+/** Cadastro: telefone obrigatório (mín. 10 caracteres no campo). */
+export const createPatientSchema = patientFormRefines(
+  z.object({
+    ...patientFormSharedFields,
+    phone: z
+      .string()
+      .min(10, 'Telefone é obrigatório e deve ter pelo menos 10 dígitos'),
+  })
+);
+
+/** Edição: permite telefone vazio (paciente sem telefone no cadastro legado). */
+export const editPatientSchema = patientFormRefines(
+  z.object({
+    ...patientFormSharedFields,
+    // Normaliza null/undefined para '' — union sem preprocess falha com "Required" (Zod) quando o valor vem ausente.
+    phone: z.preprocess(
+      (v) => (v === null || v === undefined ? '' : v),
+      z.union([
+        z.literal(''),
+        z.string().min(
+          10,
+          'Telefone deve ter pelo menos 10 dígitos quando informado'
+        ),
+      ])
+    ),
+  })
+);
+
 export type CreatePatientFormData = z.infer<typeof createPatientSchema>;
+export type EditPatientFormData = z.infer<typeof editPatientSchema>;

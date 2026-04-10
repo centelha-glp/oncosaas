@@ -54,12 +54,12 @@ export interface AllergyEntryForm {
 }
 
 interface StructuredClinicalRisksFormProps {
-  smokingProfile?: SmokingProfileForm;
-  alcoholProfile?: AlcoholProfileForm;
-  occupationalExposureEntries?: OccupationalExposureEntryForm[];
-  allergyEntries?: AllergyEntryForm[];
+  smokingProfile?: SmokingProfileForm | null;
+  alcoholProfile?: AlcoholProfileForm | null;
+  occupationalExposureEntries?: OccupationalExposureEntryForm[] | null;
+  allergyEntries?: AllergyEntryForm[] | null;
   /** Texto livre complementar (legado / observações gerais). */
-  allergyNotes?: string;
+  allergyNotes?: string | null;
   onSmokingProfileChange: (v: SmokingProfileForm | undefined) => void;
   onAlcoholProfileChange: (v: AlcoholProfileForm | undefined) => void;
   onOccupationalEntriesChange: (v: OccupationalExposureEntryForm[]) => void;
@@ -68,28 +68,34 @@ interface StructuredClinicalRisksFormProps {
 }
 
 export function StructuredClinicalRisksForm({
-  smokingProfile = {},
-  alcoholProfile = {},
-  occupationalExposureEntries = [],
-  allergyEntries = [],
-  allergyNotes = '',
+  smokingProfile,
+  alcoholProfile,
+  occupationalExposureEntries,
+  allergyEntries,
+  allergyNotes,
   onSmokingProfileChange,
   onAlcoholProfileChange,
   onOccupationalEntriesChange,
   onAllergyEntriesChange,
   onAllergyNotesChange,
 }: StructuredClinicalRisksFormProps) {
+  const smoking = smokingProfile ?? {};
+  const alcohol = alcoholProfile ?? {};
+  const occEntries = occupationalExposureEntries ?? [];
+  const allergies = allergyEntries ?? [];
+  const allergyNotesSafe = allergyNotes ?? '';
+
   const patchSmoking = (partial: Partial<SmokingProfileForm>) => {
-    onSmokingProfileChange({ ...smokingProfile, ...partial });
+    onSmokingProfileChange({ ...smoking, ...partial });
   };
 
   const patchAlcohol = (partial: Partial<AlcoholProfileForm>) => {
-    onAlcoholProfileChange({ ...alcoholProfile, ...partial });
+    onAlcoholProfileChange({ ...alcohol, ...partial });
   };
 
   const addOcc = () => {
     onOccupationalEntriesChange([
-      ...occupationalExposureEntries,
+      ...occEntries,
       { agent: '', yearsApprox: undefined, notes: '' },
     ]);
   };
@@ -99,20 +105,20 @@ export function StructuredClinicalRisksForm({
     field: keyof OccupationalExposureEntryForm,
     val: unknown
   ) => {
-    const next = [...occupationalExposureEntries];
+    const next = [...occEntries];
     next[index] = { ...next[index], [field]: val };
     onOccupationalEntriesChange(next);
   };
 
   const removeOcc = (index: number) => {
     onOccupationalEntriesChange(
-      occupationalExposureEntries.filter((_, i) => i !== index)
+      occEntries.filter((_, i) => i !== index)
     );
   };
 
   const addAllergy = () => {
     onAllergyEntriesChange([
-      ...allergyEntries,
+      ...allergies,
       { substanceKey: '', customLabel: '', reactionNotes: '' },
     ]);
   };
@@ -122,7 +128,7 @@ export function StructuredClinicalRisksForm({
     field: keyof AllergyEntryForm,
     val: string
   ) => {
-    const next = [...allergyEntries];
+    const next = [...allergies];
     next[index] = { ...next[index], [field]: val };
     if (field === 'substanceKey' && val !== 'OTHER') {
       next[index].customLabel = '';
@@ -131,7 +137,7 @@ export function StructuredClinicalRisksForm({
   };
 
   const removeAllergy = (index: number) => {
-    onAllergyEntriesChange(allergyEntries.filter((_, i) => i !== index));
+    onAllergyEntriesChange(allergies.filter((_, i) => i !== index));
   };
 
   return (
@@ -142,7 +148,7 @@ export function StructuredClinicalRisksForm({
           <div>
             <Label className="text-xs">Situação</Label>
             <Select
-              value={smokingProfile.status ?? ''}
+              value={smoking.status ?? ''}
               onValueChange={(v) =>
                 patchSmoking({
                   status: v ? (v as SmokingStatus) : undefined,
@@ -168,9 +174,9 @@ export function StructuredClinicalRisksForm({
               step={0.1}
               placeholder="Opcional"
               value={
-                smokingProfile.packYears === undefined
+                smoking.packYears === undefined
                   ? ''
-                  : String(smokingProfile.packYears)
+                  : String(smoking.packYears)
               }
               onChange={(e) => {
                 const raw = e.target.value;
@@ -187,9 +193,9 @@ export function StructuredClinicalRisksForm({
               min={0}
               placeholder="Se ex-fumante"
               value={
-                smokingProfile.yearsQuit === undefined
+                smoking.yearsQuit === undefined
                   ? ''
-                  : String(smokingProfile.yearsQuit)
+                  : String(smoking.yearsQuit)
               }
               onChange={(e) => {
                 const raw = e.target.value;
@@ -202,7 +208,7 @@ export function StructuredClinicalRisksForm({
           <div className="md:col-span-2">
             <Label className="text-xs">Notas</Label>
             <Input
-              value={smokingProfile.notes ?? ''}
+              value={smoking.notes ?? ''}
               onChange={(e) => patchSmoking({ notes: e.target.value })}
               placeholder="Observações sobre tabagismo"
             />
@@ -216,7 +222,7 @@ export function StructuredClinicalRisksForm({
           <div>
             <Label className="text-xs">Padrão</Label>
             <Select
-              value={alcoholProfile.status ?? ''}
+              value={alcohol.status ?? ''}
               onValueChange={(v) =>
                 patchAlcohol({
                   status: v ? (v as AlcoholStatus) : undefined,
@@ -242,9 +248,9 @@ export function StructuredClinicalRisksForm({
               min={0}
               placeholder="Opcional"
               value={
-                alcoholProfile.drinksPerWeek === undefined
+                alcohol.drinksPerWeek === undefined
                   ? ''
-                  : String(alcoholProfile.drinksPerWeek)
+                  : String(alcohol.drinksPerWeek)
               }
               onChange={(e) => {
                 const raw = e.target.value;
@@ -257,7 +263,7 @@ export function StructuredClinicalRisksForm({
           <div className="md:col-span-2">
             <Label className="text-xs">Notas</Label>
             <Input
-              value={alcoholProfile.notes ?? ''}
+              value={alcohol.notes ?? ''}
               onChange={(e) => patchAlcohol({ notes: e.target.value })}
               placeholder="Observações sobre etilismo"
             />
@@ -273,13 +279,13 @@ export function StructuredClinicalRisksForm({
             Adicionar
           </Button>
         </div>
-        {occupationalExposureEntries.length === 0 ? (
+        {occEntries.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             Nenhuma exposição registrada.
           </p>
         ) : (
           <div className="space-y-2">
-            {occupationalExposureEntries.map((row, index) => (
+            {occEntries.map((row, index) => (
               <div
                 key={index}
                 className="flex flex-wrap gap-2 items-end p-2 border rounded-md bg-background"
@@ -350,14 +356,14 @@ export function StructuredClinicalRisksForm({
           Selecione a substância; a categoria é atribuída automaticamente. Use
           &quot;Outra&quot; para especificar texto livre.
         </p>
-        {allergyEntries.length === 0 ? (
+        {allergies.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             Nenhuma alergia listada. Adicione ou informe apenas observações
             abaixo.
           </p>
         ) : (
           <div className="space-y-3">
-            {allergyEntries.map((row, index) => {
+            {allergies.map((row, index) => {
               const cat =
                 row.substanceKey &&
                 ALLERGY_SUBSTANCE_CATALOG[row.substanceKey]?.category;
@@ -430,7 +436,7 @@ export function StructuredClinicalRisksForm({
             Observações adicionais sobre alergias (opcional)
           </Label>
           <Textarea
-            value={allergyNotes}
+            value={allergyNotesSafe}
             onChange={(e) => onAllergyNotesChange(e.target.value)}
             placeholder="Notas gerais, intolerâncias ou detalhes não listados acima"
             rows={3}

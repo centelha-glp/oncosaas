@@ -575,6 +575,39 @@ export interface ImportSpreadsheetResult {
   errors: Array<{ row: number; errors: string[] }>;
 }
 
+/** Garante objeto paciente mesmo com `{ data: patient }` ou aninhamento acidental. */
+function unwrapPatientDetailPayload(raw: unknown): PatientDetail {
+  const looksLikePatient = (x: unknown): x is PatientDetail =>
+    !!x &&
+    typeof x === 'object' &&
+    'id' in x &&
+    'name' in x &&
+    typeof (x as { name?: unknown }).name === 'string';
+
+  if (looksLikePatient(raw)) {
+    return raw;
+  }
+  let current: unknown = raw;
+  for (let depth = 0; depth < 3; depth++) {
+    if (current && typeof current === 'object' && 'data' in current) {
+      const inner = (current as { data: unknown }).data;
+      if (looksLikePatient(inner)) {
+        return inner;
+      }
+      current = inner;
+    } else {
+      break;
+    }
+  }
+  if (process.env.NODE_ENV === 'development') {
+    console.warn(
+      '[patientsApi.getDetail] Payload inesperado; campos podem ficar vazios no formulário.',
+      raw
+    );
+  }
+  return raw as PatientDetail;
+}
+
 export const patientsApi = {
   async getAll(): Promise<Patient[]> {
     const data = await apiClient.get<Patient[] | null>('/patients');
@@ -586,14 +619,8 @@ export const patientsApi = {
   },
 
   async getDetail(id: string): Promise<PatientDetail> {
-    const response = await apiClient.get<
-      { data: PatientDetail } | PatientDetail
-    >(`/patients/${id}/detail`);
-    // Backend retorna { data: patient }; garantir que retornamos o objeto paciente
-    if (response && typeof response === 'object' && 'data' in response) {
-      return (response as { data: PatientDetail }).data;
-    }
-    return response as PatientDetail;
+    const response = await apiClient.get<unknown>(`/patients/${id}/detail`);
+    return unwrapPatientDetailPayload(response);
   },
 
   async create(data: CreatePatientDto): Promise<Patient> {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createPatientSchema } from '../patient';
+import { createPatientSchema, editPatientSchema } from '../patient';
 
 // Dados mínimos válidos para um paciente em Rastreamento
 const base = {
@@ -133,9 +133,21 @@ describe('createPatientSchema — validações cruzadas para TREATMENT', () => {
     expect(createPatientSchema.safeParse(followUp).success).toBe(true);
   });
 
-  it('aceita DIAGNOSIS sem campos de diagnóstico (validação não se aplica)', () => {
+  it('rejeita DIAGNOSIS sem núcleo oncológico (tipo, TNM, data, ECOG)', () => {
     const result = createPatientSchema.safeParse({ ...base, currentStage: 'DIAGNOSIS' });
-    expect(result.success).toBe(true);
+    expect(result.success).toBe(false);
+  });
+
+  it('aceita DIAGNOSIS com núcleo oncológico completo sem tratamento atual', () => {
+    const diagnosisOnly = {
+      ...base,
+      currentStage: 'DIAGNOSIS' as const,
+      cancerType: 'bladder' as const,
+      diagnosisDate: '2023-08-01',
+      stage: 'T2N0M0',
+      performanceStatus: 1,
+    };
+    expect(createPatientSchema.safeParse(diagnosisOnly).success).toBe(true);
   });
 });
 
@@ -161,5 +173,18 @@ describe('createPatientSchema — campos TNM opcionais', () => {
     (['M0', 'M1', 'Mx'] as const).forEach((mStage) => {
       expect(createPatientSchema.safeParse({ ...base, mStage }).success).toBe(true);
     });
+  });
+});
+
+describe('editPatientSchema — edição (telefone opcional)', () => {
+  it('aceita telefone vazio quando demais campos válidos (cadastro legado)', () => {
+    expect(
+      editPatientSchema.safeParse({ ...base, phone: '' }).success
+    ).toBe(true);
+  });
+
+  it('rejeita telefone preenchido com menos de 10 caracteres', () => {
+    const result = editPatientSchema.safeParse({ ...base, phone: '1199999' });
+    expect(result.success).toBe(false);
   });
 });
