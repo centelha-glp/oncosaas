@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useForm, useWatch } from 'react-hook-form';
+import { useForm, useWatch, type FieldErrors } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import {
   Dialog,
@@ -34,7 +34,15 @@ import { useEnabledCancerTypes } from '@/hooks/useEnabledCancerTypes';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { JOURNEY_STAGE_LABELS } from '@/lib/utils/journey-stage';
+import {
+  JOURNEY_STAGE_LABELS,
+  requiresCurrentTreatmentField,
+  requiresOncologyCoreFields,
+} from '@/lib/utils/journey-stage';
+import {
+  collectAllFormErrorMessages,
+  messagesFromZodError,
+} from '@/lib/utils/form-field-errors';
 import { ComorbiditiesForm } from './comorbidities-form';
 import { CurrentMedicationsForm } from './current-medications-form';
 import { FamilyHistoryForm } from './family-history-form';
@@ -44,6 +52,11 @@ import { StructuredClinicalRisksForm } from './structured-clinical-risks-form';
 interface PatientCreateDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+}
+
+function fieldErrorText(err: { message?: unknown } | undefined): string {
+  const m = err?.message;
+  return typeof m === 'string' ? m : '';
 }
 
 const STEPS = [
@@ -67,8 +80,10 @@ export function PatientCreateDialog({
     control,
     setValue,
     reset,
+    getValues,
   } = useForm<CreatePatientFormData>({
     resolver: zodResolver(createPatientSchema),
+    criteriaMode: 'all',
     defaultValues: {
       gender: undefined,
       cancerType: undefined,
@@ -106,18 +121,45 @@ export function PatientCreateDialog({
   const allergyEntries = useWatch({ control, name: 'allergyEntries' });
   const allergies = useWatch({ control, name: 'allergies' });
 
-  const needsDiagnosisFields =
-    currentStage === 'TREATMENT' ||
-    currentStage === 'FOLLOW_UP' ||
-    currentStage === 'PALLIATIVE';
-  const needsTreatmentField =
-    currentStage === 'TREATMENT' ||
-    currentStage === 'FOLLOW_UP' ||
-    currentStage === 'PALLIATIVE';
+  const needsOncologyCoreFields = requiresOncologyCoreFields(currentStage);
+  const needsTreatmentField = requiresCurrentTreatmentField(currentStage);
   const treatmentOptions = getTreatmentOptionsForCancerType(
     cancerType ?? null,
     currentStage === 'TREATMENT'
   );
+
+  const onValidationError = (errs: FieldErrors<CreatePatientFormData>) => {
+    const merged: CreatePatientFormData = {
+      ...getValues(),
+      gender,
+      cancerType,
+      currentStage,
+      performanceStatus,
+      currentTreatment,
+      comorbidities,
+      currentMedications,
+      familyHistory,
+      priorSurgeries,
+      priorHospitalizations,
+      smokingProfile,
+      alcoholProfile,
+      occupationalExposureEntries,
+      allergyEntries,
+      allergies,
+    };
+    const parsed = createPatientSchema.safeParse(merged);
+    const messages = parsed.success
+      ? collectAllFormErrorMessages(errs)
+      : messagesFromZodError(parsed.error);
+    if (messages.length === 0) {
+      toast.error('Corrija os campos destacados antes de continuar.');
+      return;
+    }
+    toast.error(messages.join('\n'), {
+      duration: 12_000,
+      className: 'whitespace-pre-wrap text-left max-w-lg',
+    });
+  };
 
   const createPatientMutation = useMutation({
     mutationFn: (data: CreatePatientDto) => patientsApi.create(data),
@@ -134,6 +176,20 @@ export function PatientCreateDialog({
   });
 
   const onSubmit = (data: CreatePatientFormData) => {
+    type RowFH = NonNullable<CreatePatientFormData['familyHistory']>[number];
+    type RowOcc = NonNullable<
+      CreatePatientFormData['occupationalExposureEntries']
+    >[number];
+    type RowAllergy = NonNullable<CreatePatientFormData['allergyEntries']>[number];
+    type RowComorb = NonNullable<CreatePatientFormData['comorbidities']>[number];
+    type RowMed = NonNullable<
+      CreatePatientFormData['currentMedications']
+    >[number];
+    type RowPS = NonNullable<CreatePatientFormData['priorSurgeries']>[number];
+    type RowPH = NonNullable<
+      CreatePatientFormData['priorHospitalizations']
+    >[number];
+
     // Helper: filtra array e retorna undefined se vazio
     const filterNonEmpty = <T,>(
       arr: T[] | undefined,
@@ -146,10 +202,10 @@ export function PatientCreateDialog({
 
     const filteredFamilyHistory = filterNonEmpty(
       data.familyHistory,
-      (h) =>
+      (h: RowFH) =>
         (h.relationship?.trim().length ?? 0) > 0 &&
         (h.cancerType?.trim().length ?? 0) > 0
-    )?.map((h) => ({
+    )?.map((h: RowFH) => ({
       relationship: h.relationship!,
       cancerType: h.cancerType!,
       ageAtDiagnosis: h.ageAtDiagnosis,
@@ -176,8 +232,8 @@ export function PatientCreateDialog({
 
     const occPayload = filterNonEmpty(
       data.occupationalExposureEntries,
-      (o) => (o.agent?.trim()?.length ?? 0) > 0
-    )?.map((o) => ({
+      (o: RowOcc) => (o.agent?.trim()?.length ?? 0) > 0
+    )?.map((o: RowOcc) => ({
       agent: o.agent!.trim(),
       yearsApprox: o.yearsApprox,
       notes: o.notes?.trim() || undefined,
@@ -185,8 +241,8 @@ export function PatientCreateDialog({
 
     const allergyPayload = filterNonEmpty(
       data.allergyEntries,
-      (a) => (a.substanceKey?.trim()?.length ?? 0) > 0
-    )?.map((a) => ({
+      (a: RowAllergy) => (a.substanceKey?.trim()?.length ?? 0) > 0
+    )?.map((a: RowAllergy) => ({
       substanceKey: a.substanceKey!.trim(),
       customLabel:
         a.substanceKey === 'OTHER' ? a.customLabel?.trim() : undefined,
@@ -213,11 +269,11 @@ export function PatientCreateDialog({
       familyHistory: filteredFamilyHistory,
       comorbidities: filterNonEmpty(
         data.comorbidities,
-        (c) =>
+        (c: RowComorb) =>
           (c.name?.trim().length ?? 0) > 0 &&
           Boolean(c.type) &&
           Boolean(c.severity)
-      )?.map((c) => ({
+      )?.map((c: RowComorb) => ({
         name: c.name!.trim(),
         type: c.type as ComorbidityType,
         severity: c.severity as ComorbiditySeverity,
@@ -225,9 +281,9 @@ export function PatientCreateDialog({
       })),
       currentMedications: filterNonEmpty(
         data.currentMedications,
-        (m) =>
+        (m: RowMed) =>
           Boolean(m.catalogKey?.trim()) || (m.name?.trim()?.length ?? 0) > 0
-      )?.map((m) => {
+      )?.map((m: RowMed) => {
         const ck = m.catalogKey?.trim();
         if (ck && ck !== 'OTHER') {
           return {
@@ -261,8 +317,8 @@ export function PatientCreateDialog({
       ehrId: data.ehrPatientId || undefined,
       priorSurgeries: filterNonEmpty(
         data.priorSurgeries,
-        (s) => (s.procedureName?.trim().length ?? 0) > 0
-      )?.map((s) => ({
+        (s: RowPS) => (s.procedureName?.trim().length ?? 0) > 0
+      )?.map((s: RowPS) => ({
         procedureName: s.procedureName!.trim(),
         year: s.year,
         institution: s.institution?.trim() || undefined,
@@ -270,8 +326,8 @@ export function PatientCreateDialog({
       })),
       priorHospitalizations: filterNonEmpty(
         data.priorHospitalizations,
-        (h) => (h.summary?.trim().length ?? 0) > 0
-      )?.map((h) => ({
+        (h: RowPH) => (h.summary?.trim().length ?? 0) > 0
+      )?.map((h: RowPH) => ({
         summary: h.summary!.trim(),
         year: h.year,
         durationDays: h.durationDays,
@@ -336,7 +392,10 @@ export function PatientCreateDialog({
           ))}
         </div>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+        <form
+          onSubmit={handleSubmit(onSubmit, onValidationError)}
+          className="space-y-6"
+        >
           {/* Etapa 1: Dados Básicos */}
           {currentStep === 1 && (
             <div className="space-y-4">
@@ -345,7 +404,7 @@ export function PatientCreateDialog({
                 <Input {...register('name')} placeholder="Nome completo" />
                 {errors.name && (
                   <p className="text-sm text-destructive mt-1">
-                    {errors.name.message}
+                    {fieldErrorText(errors.name)}
                   </p>
                 )}
               </div>
@@ -355,7 +414,7 @@ export function PatientCreateDialog({
                 <Input {...register('cpf')} placeholder="000.000.000-00" />
                 {errors.cpf && (
                   <p className="text-sm text-destructive mt-1">
-                    {errors.cpf.message}
+                    {fieldErrorText(errors.cpf)}
                   </p>
                 )}
               </div>
@@ -367,7 +426,7 @@ export function PatientCreateDialog({
                 <Input type="date" {...register('birthDate')} />
                 {errors.birthDate && (
                   <p className="text-sm text-destructive mt-1">
-                    {errors.birthDate.message}
+                    {fieldErrorText(errors.birthDate)}
                   </p>
                 )}
               </div>
@@ -389,7 +448,7 @@ export function PatientCreateDialog({
                 </Select>
                 {errors.gender && (
                   <p className="text-sm text-destructive mt-1">
-                    {errors.gender.message}
+                    {fieldErrorText(errors.gender)}
                   </p>
                 )}
               </div>
@@ -405,7 +464,7 @@ export function PatientCreateDialog({
                 />
                 {errors.phone && (
                   <p className="text-sm text-destructive mt-1">
-                    {errors.phone.message}
+                    {fieldErrorText(errors.phone)}
                   </p>
                 )}
               </div>
@@ -419,7 +478,7 @@ export function PatientCreateDialog({
                 />
                 {errors.email && (
                   <p className="text-sm text-destructive mt-1">
-                    {errors.email.message}
+                    {fieldErrorText(errors.email)}
                   </p>
                 )}
               </div>
@@ -439,7 +498,11 @@ export function PatientCreateDialog({
                   value={currentStage}
                   onValueChange={(value) => {
                     setValue('currentStage', value as any);
-                    if (value !== 'TREATMENT' && value !== 'FOLLOW_UP') {
+                    if (
+                      value !== 'TREATMENT' &&
+                      value !== 'FOLLOW_UP' &&
+                      value !== 'PALLIATIVE'
+                    ) {
                       setValue('currentTreatment', '', {
                         shouldValidate: true,
                       });
@@ -459,11 +522,11 @@ export function PatientCreateDialog({
                 </Select>
               </div>
 
-              {/* Tipo de Câncer — obrigatório quando em Tratamento ou Seguimento */}
+              {/* Tipo de Câncer — obrigatório após Rastreamento */}
               <div>
                 <label className="text-sm font-medium">
                   Tipo de Câncer{' '}
-                  {needsDiagnosisFields && (
+                  {needsOncologyCoreFields && (
                     <span className="text-red-600">*</span>
                   )}
                 </label>
@@ -487,13 +550,13 @@ export function PatientCreateDialog({
                 </Select>
                 {errors.cancerType && (
                   <p className="text-sm text-destructive mt-1">
-                    {errors.cancerType.message}
+                    {fieldErrorText(errors.cancerType)}
                   </p>
                 )}
               </div>
 
-              {/* Campos de diagnóstico: só em Tratamento ou Seguimento */}
-              {needsDiagnosisFields && (
+              {/* Campos de diagnóstico: obrigatórios após Rastreamento */}
+              {needsOncologyCoreFields && (
                 <>
                   <div>
                     <label className="text-sm font-medium">
@@ -503,6 +566,11 @@ export function PatientCreateDialog({
                       {...register('stage')}
                       placeholder="Ex: T2N1M0 ou Estágio II"
                     />
+                    {errors.stage && (
+                      <p className="text-sm text-destructive mt-1">
+                        {fieldErrorText(errors.stage)}
+                      </p>
+                    )}
                   </div>
 
                   <div>
@@ -512,7 +580,7 @@ export function PatientCreateDialog({
                     <Input type="date" {...register('diagnosisDate')} />
                     {errors.diagnosisDate && (
                       <p className="text-sm text-destructive mt-1">
-                        {errors.diagnosisDate.message}
+                        {fieldErrorText(errors.diagnosisDate)}
                       </p>
                     )}
                   </div>
@@ -567,7 +635,7 @@ export function PatientCreateDialog({
                     </Select>
                     {errors.performanceStatus && (
                       <p className="text-sm text-destructive mt-1">
-                        {errors.performanceStatus.message}
+                        {fieldErrorText(errors.performanceStatus)}
                       </p>
                     )}
                   </div>
@@ -601,7 +669,7 @@ export function PatientCreateDialog({
                   </Select>
                   {errors.currentTreatment && (
                     <p className="text-sm text-destructive mt-1">
-                      {errors.currentTreatment.message}
+                      {fieldErrorText(errors.currentTreatment)}
                     </p>
                   )}
                 </div>

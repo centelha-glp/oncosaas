@@ -8,12 +8,27 @@ import {
   type ComorbiditySeverity,
   type ComorbidityType,
 } from '@/lib/api/patients';
-import { useForm } from 'react-hook-form';
+import {
+  Controller,
+  useForm,
+  type FieldErrors,
+  type Path,
+} from 'react-hook-form';
+import {
+  collectAllFormErrorMessages,
+  messagesFromZodError,
+} from '@/lib/utils/form-field-errors';
 import { zodResolver } from '@hookform/resolvers/zod';
 import {
-  createPatientSchema,
-  CreatePatientFormData,
+  editPatientSchema,
+  EditPatientFormData,
 } from '@/lib/validations/patient';
+import { getTreatmentOptionsForCancerType } from '@/lib/utils/patient-cancer-type';
+import {
+  JOURNEY_STAGE_LABELS,
+  requiresCurrentTreatmentField,
+  requiresOncologyCoreFields,
+} from '@/lib/utils/journey-stage';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -55,6 +70,11 @@ import {
 } from '@/lib/validations/cancer-diagnosis';
 import { getCancerTypeKey } from '@/lib/utils/patient-cancer-type';
 import { useEnabledCancerTypes } from '@/hooks/useEnabledCancerTypes';
+import { cn } from '@/lib/utils';
+import {
+  patientEditFieldId,
+  scrollFieldPathIntoView,
+} from '@/lib/utils/patient-form-anchors';
 import type {
   PriorHospitalizationItem,
   PriorSurgeryItem,
@@ -137,6 +157,44 @@ interface PatientEditPageProps {
   patientId: string;
 }
 
+function fieldErrorText(err: { message?: unknown } | undefined): string {
+  const m = err?.message;
+  return typeof m === 'string' ? m : '';
+}
+
+/** Primeiro path com erro, para foco (ex.: comorbidities.0.name). */
+function firstErrorFieldPath(
+  errs: FieldErrors<EditPatientFormData>
+): Path<EditPatientFormData> | undefined {
+  function walk(obj: unknown, prefix: string): string | undefined {
+    if (obj == null || typeof obj !== 'object') return undefined;
+    if (Array.isArray(obj)) {
+      for (let i = 0; i < obj.length; i++) {
+        const p = prefix ? `${prefix}.${i}` : String(i);
+        const sub = walk(obj[i], p);
+        if (sub) return sub;
+      }
+      return undefined;
+    }
+    const o = obj as Record<string, unknown>;
+    if (
+      'message' in o &&
+      typeof o.message === 'string' &&
+      o.message.length > 0
+    ) {
+      return prefix || undefined;
+    }
+    for (const [k, v] of Object.entries(o)) {
+      if (k === 'ref') continue;
+      const next = prefix ? `${prefix}.${k}` : k;
+      const sub = walk(v, next);
+      if (sub) return sub;
+    }
+    return undefined;
+  }
+  return walk(errs, '') as Path<EditPatientFormData> | undefined;
+}
+
 export function PatientEditPage({ patientId }: PatientEditPageProps) {
   const { data: patient, isLoading, error } = usePatientDetail(patientId);
   const updateMutation = usePatientUpdate();
@@ -150,12 +208,17 @@ export function PatientEditPage({ patientId }: PatientEditPageProps) {
   const {
     register,
     handleSubmit,
+    setFocus,
+    control,
     formState: { errors },
     watch,
     setValue,
     reset,
-  } = useForm<CreatePatientFormData>({
-    resolver: zodResolver(createPatientSchema),
+    getValues,
+  } = useForm<EditPatientFormData>({
+    resolver: zodResolver(editPatientSchema),
+    shouldFocusError: true,
+    criteriaMode: 'all',
     defaultValues: {
       name: '',
       cpf: '',
@@ -163,6 +226,7 @@ export function PatientEditPage({ patientId }: PatientEditPageProps) {
       phone: '',
       email: '',
       currentStage: 'SCREENING',
+      currentTreatment: '',
       smokingHistory: '',
       alcoholHistory: '',
       occupationalExposure: '',
@@ -206,7 +270,7 @@ export function PatientEditPage({ patientId }: PatientEditPageProps) {
 
   // Preencher formulário com dados do paciente quando carregar
   useEffect(() => {
-    if (patient && !isLoading) {
+    if (patient) {
       // Obter cancerType do primeiro diagnóstico ativo ou do campo legacy (pode vir em PT ou EN)
       const primaryDiagnosis =
         patient.cancerDiagnoses?.find((d) => d.isPrimary && d.isActive) ||
@@ -270,20 +334,21 @@ export function PatientEditPage({ patientId }: PatientEditPageProps) {
         'DIAGNOSIS',
         'TREATMENT',
         'FOLLOW_UP',
+        'PALLIATIVE',
       ] as const;
       const currentStageRaw =
         patient.currentStage?.toString?.()?.trim?.()?.toUpperCase?.() ?? '';
       const currentStageNormalized = (STAGES as readonly string[]).includes(
         currentStageRaw
       )
-        ? (currentStageRaw as CreatePatientFormData['currentStage'])
-        : ('SCREENING' as CreatePatientFormData['currentStage']);
+        ? (currentStageRaw as EditPatientFormData['currentStage'])
+        : ('SCREENING' as EditPatientFormData['currentStage']);
 
       const pExt = patient as typeof patient & {
-        smokingProfile?: CreatePatientFormData['smokingProfile'];
-        alcoholProfile?: CreatePatientFormData['alcoholProfile'];
-        occupationalExposureEntries?: CreatePatientFormData['occupationalExposureEntries'];
-        allergyEntries?: CreatePatientFormData['allergyEntries'];
+        smokingProfile?: EditPatientFormData['smokingProfile'];
+        alcoholProfile?: EditPatientFormData['alcoholProfile'];
+        occupationalExposureEntries?: EditPatientFormData['occupationalExposureEntries'];
+        allergyEntries?: EditPatientFormData['allergyEntries'];
       };
 
       let smokingProfile = pExt.smokingProfile;
@@ -325,7 +390,11 @@ export function PatientEditPage({ patientId }: PatientEditPageProps) {
         })
       );
 
-      const formData: Partial<CreatePatientFormData> = {
+      const patientWithTreatment = patient as typeof patient & {
+        currentTreatment?: string | null;
+      };
+
+      const formData: Partial<EditPatientFormData> = {
         name: patient.name || '',
         cpf: patient.cpf || '',
         birthDate: patient.birthDate
@@ -334,13 +403,14 @@ export function PatientEditPage({ patientId }: PatientEditPageProps) {
         gender: genderNormalized,
         phone: formatPhoneForDisplay(patient.phone),
         email: patient.email || '',
+        currentTreatment: patientWithTreatment.currentTreatment?.trim() || '',
         cancerType: (cancerType ||
-          undefined) as CreatePatientFormData['cancerType'],
+          undefined) as EditPatientFormData['cancerType'],
         stage: stage || undefined,
-        tStage: (tStage || undefined) as CreatePatientFormData['tStage'],
-        nStage: (nStage || undefined) as CreatePatientFormData['nStage'],
-        mStage: (mStage || undefined) as CreatePatientFormData['mStage'],
-        grade: (grade || undefined) as CreatePatientFormData['grade'],
+        tStage: (tStage || undefined) as EditPatientFormData['tStage'],
+        nStage: (nStage || undefined) as EditPatientFormData['nStage'],
+        mStage: (mStage || undefined) as EditPatientFormData['mStage'],
+        grade: (grade || undefined) as EditPatientFormData['grade'],
         diagnosisDate: diagnosisDate || undefined,
         currentStage: currentStageNormalized,
         // performanceStatus deve ser um número (não string) para o schema Zod
@@ -354,7 +424,12 @@ export function PatientEditPage({ patientId }: PatientEditPageProps) {
         allergyEntries,
         allergies: patient.allergies || '',
         comorbidities: Array.isArray(patient.comorbidities)
-          ? patient.comorbidities
+          ? patient.comorbidities.map((c) => ({
+              name: c.name,
+              type: String(c.type),
+              severity: String(c.severity),
+              controlled: c.controlled ?? false,
+            }))
           : [],
         currentMedications: Array.isArray(patient.medications)
           ? patient.medications.map((m) => ({
@@ -421,7 +496,7 @@ export function PatientEditPage({ patientId }: PatientEditPageProps) {
 
       return () => clearTimeout(timer);
     }
-  }, [patient, isLoading, reset, setValue]);
+  }, [patient, reset, setValue]);
 
   // Atualizar campo stage automaticamente quando campos TNM mudarem
   const tStage = watch('tStage');
@@ -444,7 +519,7 @@ export function PatientEditPage({ patientId }: PatientEditPageProps) {
     }
   }, [tStage, nStage, mStage, grade, setValue]);
 
-  const onSubmit = async (data: CreatePatientFormData) => {
+  const onSubmit = async (data: EditPatientFormData) => {
     // Normalizar telefone para formato aceito pelo validador IsPhoneNumber('BR')
     // O validador aceita formatos como: +5511999999999, 5511999999999, (11) 99999-9999
     // O backend normaliza depois para 55XXXXXXXXXXX
@@ -527,13 +602,19 @@ export function PatientEditPage({ patientId }: PatientEditPageProps) {
     if (data.occupationalExposureEntries !== undefined) {
       updateData.occupationalExposureEntries =
         data.occupationalExposureEntries?.filter(
-          (o) => (o.agent?.trim()?.length ?? 0) > 0
+          (o: { agent?: string }) => (o.agent?.trim()?.length ?? 0) > 0
         ) ?? [];
     }
     if (data.allergyEntries !== undefined) {
       updateData.allergyEntries = data.allergyEntries
-        ?.filter((a) => (a.substanceKey?.trim()?.length ?? 0) > 0)
-        .map((a) => ({
+        ?.filter((a: { substanceKey?: string }) =>
+          (a.substanceKey?.trim()?.length ?? 0) > 0
+        )
+        .map((a: {
+          substanceKey?: string;
+          customLabel?: string;
+          reactionNotes?: string;
+        }) => ({
           substanceKey: a.substanceKey!.trim(),
           customLabel:
             a.substanceKey === 'OTHER' ? a.customLabel?.trim() : undefined,
@@ -544,6 +625,9 @@ export function PatientEditPage({ patientId }: PatientEditPageProps) {
       updateData.allergies = data.allergies?.trim() || undefined;
     if (data.ehrPatientId !== undefined)
       updateData.ehrId = data.ehrPatientId || undefined;
+    if (data.currentTreatment !== undefined) {
+      updateData.currentTreatment = data.currentTreatment?.trim() || undefined;
+    }
 
     // Comorbidades - apenas se houver itens válidos e completos
     if (data.comorbidities !== undefined) {
@@ -650,14 +734,14 @@ export function PatientEditPage({ patientId }: PatientEditPageProps) {
       if (data.priorSurgeries.length > 0) {
         const valid = data.priorSurgeries
           .filter(
-            (s) =>
+            (s: PriorSurgeryItem | { procedureName?: string }) =>
               s &&
               typeof s === 'object' &&
               typeof (s as { procedureName?: string }).procedureName ===
                 'string' &&
               (s as { procedureName: string }).procedureName.trim().length > 0
           )
-          .map((s) => ({
+          .map((s: PriorSurgeryItem | { procedureName?: string }) => ({
             procedureName: (s as { procedureName: string }).procedureName.trim(),
             year:
               (s as { year?: number }).year !== undefined &&
@@ -677,13 +761,13 @@ export function PatientEditPage({ patientId }: PatientEditPageProps) {
       if (data.priorHospitalizations.length > 0) {
         const validH = data.priorHospitalizations
           .filter(
-            (h) =>
+            (h: PriorHospitalizationItem | { summary?: string }) =>
               h &&
               typeof h === 'object' &&
               typeof (h as { summary?: string }).summary === 'string' &&
               (h as { summary: string }).summary.trim().length > 0
           )
-          .map((h) => ({
+          .map((h: PriorHospitalizationItem | { summary?: string }) => ({
             summary: (h as { summary: string }).summary.trim(),
             year:
               (h as { year?: number }).year !== undefined &&
@@ -757,6 +841,71 @@ export function PatientEditPage({ patientId }: PatientEditPageProps) {
     }
   };
 
+  /** Alinha Controllers ao Zod: `getValues()` no submit inválido pode omitir/atrasar chaves e o `.default()` do schema mascarar a fase. */
+  const mergeWatchIntoValuesForZod = (): EditPatientFormData => {
+    const g = getValues();
+    return {
+      ...g,
+      name: watch('name') ?? g.name,
+      birthDate: watch('birthDate') ?? g.birthDate,
+      phone: watch('phone') ?? g.phone,
+      email: watch('email') ?? g.email,
+      gender: watch('gender') ?? g.gender,
+      cpf: watch('cpf') ?? g.cpf,
+      currentStage: (watch('currentStage') ??
+        g.currentStage) as EditPatientFormData['currentStage'],
+      cancerType: watch('cancerType') ?? g.cancerType,
+      diagnosisDate: watch('diagnosisDate') ?? g.diagnosisDate,
+      performanceStatus: watch('performanceStatus') ?? g.performanceStatus,
+      currentTreatment: watch('currentTreatment') ?? g.currentTreatment,
+      stage: watch('stage') ?? g.stage,
+      tStage: watch('tStage') ?? g.tStage,
+      nStage: watch('nStage') ?? g.nStage,
+      mStage: watch('mStage') ?? g.mStage,
+      grade: watch('grade') ?? g.grade,
+      smokingProfile: watch('smokingProfile') ?? g.smokingProfile,
+      alcoholProfile: watch('alcoholProfile') ?? g.alcoholProfile,
+      occupationalExposureEntries:
+        watch('occupationalExposureEntries') ?? g.occupationalExposureEntries,
+      allergyEntries: watch('allergyEntries') ?? g.allergyEntries,
+      allergies: watch('allergies') ?? g.allergies,
+      comorbidities: watch('comorbidities') ?? g.comorbidities,
+      currentMedications: watch('currentMedications') ?? g.currentMedications,
+      familyHistory: watch('familyHistory') ?? g.familyHistory,
+      priorSurgeries: watch('priorSurgeries') ?? g.priorSurgeries,
+      priorHospitalizations:
+        watch('priorHospitalizations') ?? g.priorHospitalizations,
+      smokingHistory: watch('smokingHistory') ?? g.smokingHistory,
+      alcoholHistory: watch('alcoholHistory') ?? g.alcoholHistory,
+      occupationalExposure:
+        watch('occupationalExposure') ?? g.occupationalExposure,
+      ehrPatientId: watch('ehrPatientId') ?? g.ehrPatientId,
+    };
+  };
+
+  const onValidationError = (errs: FieldErrors<EditPatientFormData>) => {
+    const merged = mergeWatchIntoValuesForZod();
+    const parsed = editPatientSchema.safeParse(merged);
+    const messages = parsed.success
+      ? collectAllFormErrorMessages(errs)
+      : messagesFromZodError(parsed.error);
+    const path = firstErrorFieldPath(errs);
+    if (messages.length === 0) {
+      toast.error('Corrija os campos destacados antes de salvar.');
+    } else {
+      toast.error(messages.join('\n'), {
+        duration: 12_000,
+        className: 'whitespace-pre-wrap text-left max-w-lg',
+      });
+    }
+    if (path) {
+      setFocus(path);
+      requestAnimationFrame(() => {
+        scrollFieldPathIntoView(String(path));
+      });
+    }
+  };
+
   const handleDeletePatient = async () => {
     if (!patientId) return;
     setIsDeleting(true);
@@ -810,6 +959,13 @@ export function PatientEditPage({ patientId }: PatientEditPageProps) {
   }
 
   const currentStage = watch('currentStage');
+  const cancerTypeWatch = watch('cancerType');
+  const needsOncologyCoreFields = requiresOncologyCoreFields(currentStage);
+  const needsTreatmentField = requiresCurrentTreatmentField(currentStage);
+  const treatmentOptions = getTreatmentOptionsForCancerType(
+    cancerTypeWatch ?? null,
+    currentStage === 'TREATMENT'
+  );
 
   return (
     <div className="p-6 space-y-6">
@@ -832,106 +988,141 @@ export function PatientEditPage({ patientId }: PatientEditPageProps) {
       </div>
 
       {/* Formulário */}
-      <form key={patientId} onSubmit={handleSubmit(onSubmit)}>
+      <form
+        key={patientId}
+        noValidate
+        onSubmit={handleSubmit(onSubmit, onValidationError)}
+      >
         <Card>
           <CardHeader>
             <CardTitle>Dados Básicos</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
+              <div id={patientEditFieldId('name')}>
                 <label className="text-sm font-medium mb-2 block">
                   Nome Completo *
                 </label>
                 <Input
                   {...register('name')}
                   placeholder="Nome completo do paciente"
+                  aria-invalid={!!errors.name}
+                  className={cn(errors.name && 'border-destructive')}
                 />
                 {errors.name && (
                   <p className="text-sm text-destructive mt-1">
-                    {errors.name.message}
+                    {fieldErrorText(errors.name)}
                   </p>
                 )}
               </div>
 
-              <div>
+              <div id={patientEditFieldId('cpf')}>
                 <label className="text-sm font-medium mb-2 block">CPF</label>
                 <Input
                   {...register('cpf')}
                   placeholder="000.000.000-00"
                   maxLength={14}
+                  aria-invalid={!!errors.cpf}
+                  className={cn(errors.cpf && 'border-destructive')}
                 />
                 {errors.cpf && (
                   <p className="text-sm text-destructive mt-1">
-                    {errors.cpf.message}
+                    {fieldErrorText(errors.cpf)}
                   </p>
                 )}
               </div>
 
-              <div>
+              <div id={patientEditFieldId('birthDate')}>
                 <label className="text-sm font-medium mb-2 block">
                   Data de Nascimento *
                 </label>
-                <Input type="date" {...register('birthDate')} />
+                <Input
+                  type="date"
+                  {...register('birthDate')}
+                  aria-invalid={!!errors.birthDate}
+                  className={cn(errors.birthDate && 'border-destructive')}
+                />
                 {errors.birthDate && (
                   <p className="text-sm text-destructive mt-1">
-                    {errors.birthDate.message}
+                    {fieldErrorText(errors.birthDate)}
                   </p>
                 )}
               </div>
 
-              <div>
-                <label className="text-sm font-medium mb-2 block">Sexo *</label>
-                <Select
-                  value={watch('gender') || ''}
-                  onValueChange={(value) => {
-                    if (value === '') {
-                      setValue('gender', undefined, { shouldValidate: true });
-                    } else {
-                      setValue('gender', value as 'male' | 'female' | 'other', {
-                        shouldValidate: true,
-                      });
-                    }
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecione o sexo" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="male">Masculino</SelectItem>
-                    <SelectItem value="female">Feminino</SelectItem>
-                    <SelectItem value="other">Outro</SelectItem>
-                  </SelectContent>
-                </Select>
+              <div id={patientEditFieldId('gender')}>
+                <label className="text-sm font-medium mb-2 block">Sexo</label>
+                <Controller
+                  name="gender"
+                  control={control}
+                  render={({ field }) => (
+                    <Select
+                      value={field.value ?? ''}
+                      onValueChange={(value) => {
+                        field.onChange(
+                          value === ''
+                            ? undefined
+                            : (value as 'male' | 'female' | 'other')
+                        );
+                      }}
+                    >
+                      <SelectTrigger
+                        ref={field.ref}
+                        name={field.name}
+                        onBlur={field.onBlur}
+                        aria-invalid={!!errors.gender}
+                        className={cn(
+                          errors.gender && 'border-destructive ring-1 ring-destructive'
+                        )}
+                      >
+                        <SelectValue placeholder="Selecione o sexo" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="male">Masculino</SelectItem>
+                        <SelectItem value="female">Feminino</SelectItem>
+                        <SelectItem value="other">Outro</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
                 {errors.gender && (
                   <p className="text-sm text-destructive mt-1">
-                    {errors.gender.message}
+                    {fieldErrorText(errors.gender)}
                   </p>
                 )}
               </div>
 
-              <div>
+              <div id={patientEditFieldId('phone')}>
                 <label className="text-sm font-medium mb-2 block">
-                  Telefone *
+                  Telefone{' '}
+                  <span className="text-muted-foreground font-normal">
+                    (opcional)
+                  </span>
                 </label>
-                <Input {...register('phone')} placeholder="(00) 00000-0000" />
+                <Input
+                  {...register('phone')}
+                  placeholder="(00) 00000-0000"
+                  aria-invalid={!!errors.phone}
+                  className={cn(errors.phone && 'border-destructive')}
+                />
                 {errors.phone && (
                   <p className="text-sm text-destructive mt-1">
-                    {errors.phone.message}
+                    {fieldErrorText(errors.phone)}
                   </p>
                 )}
               </div>
 
-              <div>
+              <div id={patientEditFieldId('email')}>
                 <label className="text-sm font-medium mb-2 block">E-mail</label>
                 <Input
                   type="email"
                   {...register('email')}
                   placeholder="email@exemplo.com"
+                  aria-invalid={!!errors.email}
+                  className={cn(errors.email && 'border-destructive')}
                 />
                 {errors.email && (
                   <p className="text-sm text-destructive mt-1">
-                    {errors.email.message}
+                    {fieldErrorText(errors.email)}
                   </p>
                 )}
               </div>
@@ -946,96 +1137,141 @@ export function PatientEditPage({ patientId }: PatientEditPageProps) {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
+              <div id={patientEditFieldId('currentStage')}>
                 <label className="text-sm font-medium mb-2 block">
                   Estágio da Jornada *
                 </label>
-                <Select
-                  value={watch('currentStage') || ''}
-                  onValueChange={(value) => {
-                    if (value === '') {
-                      setValue('currentStage', 'SCREENING', {
-                        shouldValidate: true,
-                      });
-                    } else {
-                      setValue(
-                        'currentStage',
-                        value as CreatePatientFormData['currentStage'],
-                        { shouldValidate: true }
-                      );
-                    }
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecione o estágio" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="SCREENING">Rastreio</SelectItem>
-                    <SelectItem value="DIAGNOSIS">Diagnóstico</SelectItem>
-                    <SelectItem value="TREATMENT">Tratamento</SelectItem>
-                    <SelectItem value="FOLLOW_UP">Seguimento</SelectItem>
-                  </SelectContent>
-                </Select>
+                <Controller
+                  name="currentStage"
+                  control={control}
+                  render={({ field }) => (
+                    <Select
+                      value={field.value ?? ''}
+                      onValueChange={(value) => {
+                        const next =
+                          (value === ''
+                            ? 'SCREENING'
+                            : value) as EditPatientFormData['currentStage'];
+                        field.onChange(next);
+                        if (
+                          next !== 'TREATMENT' &&
+                          next !== 'FOLLOW_UP' &&
+                          next !== 'PALLIATIVE'
+                        ) {
+                          setValue('currentTreatment', '', {
+                            shouldValidate: true,
+                          });
+                        }
+                      }}
+                    >
+                      <SelectTrigger
+                        ref={field.ref}
+                        name={field.name}
+                        onBlur={field.onBlur}
+                        aria-invalid={!!errors.currentStage}
+                        className={cn(
+                          errors.currentStage &&
+                            'border-destructive ring-1 ring-destructive'
+                        )}
+                      >
+                        <SelectValue placeholder="Selecione o estágio" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="SCREENING">
+                          {JOURNEY_STAGE_LABELS.SCREENING}
+                        </SelectItem>
+                        <SelectItem value="DIAGNOSIS">
+                          {JOURNEY_STAGE_LABELS.DIAGNOSIS}
+                        </SelectItem>
+                        <SelectItem value="TREATMENT">
+                          {JOURNEY_STAGE_LABELS.TREATMENT}
+                        </SelectItem>
+                        <SelectItem value="FOLLOW_UP">
+                          {JOURNEY_STAGE_LABELS.FOLLOW_UP}
+                        </SelectItem>
+                        <SelectItem value="PALLIATIVE">
+                          {JOURNEY_STAGE_LABELS.PALLIATIVE}
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
                 {errors.currentStage && (
                   <p className="text-sm text-destructive mt-1">
-                    {errors.currentStage.message}
+                    {fieldErrorText(errors.currentStage)}
                   </p>
                 )}
               </div>
 
-              <div>
+              <div id={patientEditFieldId('cancerType')}>
                 <label className="text-sm font-medium mb-2 block">
                   Tipo de Câncer
+                  {needsOncologyCoreFields && ' *'}
                 </label>
-                <Select
-                  value={watch('cancerType') || ''}
-                  onValueChange={(value) => {
-                    if (value === '') {
-                      setValue('cancerType', undefined, {
-                        shouldValidate: true,
-                      });
-                    } else {
-                      setValue(
-                        'cancerType',
-                        value as CreatePatientFormData['cancerType'],
-                        { shouldValidate: true }
-                      );
-                    }
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecione o tipo" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Object.entries(enabledCancerLabels).map(([key, label]) => (
-                      <SelectItem key={key} value={key}>
-                        {label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Controller
+                  name="cancerType"
+                  control={control}
+                  render={({ field }) => (
+                    <Select
+                      value={field.value ?? ''}
+                      onValueChange={(value) => {
+                        field.onChange(
+                          value === ''
+                            ? undefined
+                            : (value as EditPatientFormData['cancerType'])
+                        );
+                      }}
+                    >
+                      <SelectTrigger
+                        ref={field.ref}
+                        name={field.name}
+                        onBlur={field.onBlur}
+                        aria-invalid={!!errors.cancerType}
+                        className={cn(
+                          errors.cancerType &&
+                            'border-destructive ring-1 ring-destructive'
+                        )}
+                      >
+                        <SelectValue placeholder="Selecione o tipo" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Object.entries(enabledCancerLabels).map(
+                          ([key, label]) => (
+                            <SelectItem key={key} value={key}>
+                              {label}
+                            </SelectItem>
+                          )
+                        )}
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
                 {errors.cancerType && (
                   <p className="text-sm text-destructive mt-1">
-                    {errors.cancerType.message}
+                    {fieldErrorText(errors.cancerType)}
                   </p>
                 )}
               </div>
 
-              <div>
+              <div id={patientEditFieldId('stage')}>
                 <label className="text-sm font-medium mb-2 block">
                   Estágio (calculado automaticamente)
+                  {needsOncologyCoreFields && ' *'}
                 </label>
                 <Input
                   {...register('stage')}
                   placeholder="Preencha os campos TNM abaixo"
-                  value={watch('stage') ?? ''}
                   readOnly
-                  disabled
-                  className="bg-muted cursor-not-allowed"
+                  aria-readonly="true"
+                  aria-invalid={!!errors.stage}
+                  className={cn(
+                    'bg-muted cursor-not-allowed',
+                    errors.stage && 'border-destructive'
+                  )}
                 />
                 {errors.stage && (
                   <p className="text-sm text-destructive mt-1">
-                    {errors.stage.message}
+                    {fieldErrorText(errors.stage)}
                   </p>
                 )}
               </div>
@@ -1045,140 +1281,185 @@ export function PatientEditPage({ patientId }: PatientEditPageProps) {
             <div className="mt-3">
               <label className="text-sm font-medium mb-2 block">
                 Estadiamento TNM Estruturado
+                {needsOncologyCoreFields && ' *'}
               </label>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                <div>
+                <div id={patientEditFieldId('tStage')}>
                   <label className="text-sm font-medium mb-1 block">T</label>
-                  <Select
-                    value={watch('tStage') || ''}
-                    onValueChange={(value) => {
-                      if (value === '') {
-                        setValue('tStage', undefined, { shouldValidate: true });
-                      } else {
-                        setValue(
-                          'tStage',
-                          value as (typeof T_STAGE_VALUES)[number],
-                          { shouldValidate: true }
-                        );
-                      }
-                    }}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="T" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {T_STAGE_VALUES.map((value) => (
-                        <SelectItem key={value} value={value}>
-                          {value}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Controller
+                    name="tStage"
+                    control={control}
+                    render={({ field }) => (
+                      <Select
+                        value={field.value ?? ''}
+                        onValueChange={(value) => {
+                          field.onChange(
+                            value === ''
+                              ? undefined
+                              : (value as (typeof T_STAGE_VALUES)[number])
+                          );
+                        }}
+                      >
+                        <SelectTrigger
+                          ref={field.ref}
+                          name={field.name}
+                          onBlur={field.onBlur}
+                          aria-invalid={!!errors.tStage}
+                          className={cn(
+                            errors.tStage &&
+                              'border-destructive ring-1 ring-destructive'
+                          )}
+                        >
+                          <SelectValue placeholder="T" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {T_STAGE_VALUES.map((value) => (
+                            <SelectItem key={value} value={value}>
+                              {value}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
                   {errors.tStage && (
                     <p className="text-sm text-destructive mt-1">
-                      {errors.tStage.message}
+                      {fieldErrorText(errors.tStage)}
                     </p>
                   )}
                 </div>
 
-                <div>
+                <div id={patientEditFieldId('nStage')}>
                   <label className="text-sm font-medium mb-1 block">N</label>
-                  <Select
-                    value={watch('nStage') || ''}
-                    onValueChange={(value) => {
-                      if (value === '') {
-                        setValue('nStage', undefined, { shouldValidate: true });
-                      } else {
-                        setValue(
-                          'nStage',
-                          value as (typeof N_STAGE_VALUES)[number],
-                          { shouldValidate: true }
-                        );
-                      }
-                    }}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="N" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {N_STAGE_VALUES.map((value) => (
-                        <SelectItem key={value} value={value}>
-                          {value}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Controller
+                    name="nStage"
+                    control={control}
+                    render={({ field }) => (
+                      <Select
+                        value={field.value ?? ''}
+                        onValueChange={(value) => {
+                          field.onChange(
+                            value === ''
+                              ? undefined
+                              : (value as (typeof N_STAGE_VALUES)[number])
+                          );
+                        }}
+                      >
+                        <SelectTrigger
+                          ref={field.ref}
+                          name={field.name}
+                          onBlur={field.onBlur}
+                          aria-invalid={!!errors.nStage}
+                          className={cn(
+                            errors.nStage &&
+                              'border-destructive ring-1 ring-destructive'
+                          )}
+                        >
+                          <SelectValue placeholder="N" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {N_STAGE_VALUES.map((value) => (
+                            <SelectItem key={value} value={value}>
+                              {value}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
                   {errors.nStage && (
                     <p className="text-sm text-destructive mt-1">
-                      {errors.nStage.message}
+                      {fieldErrorText(errors.nStage)}
                     </p>
                   )}
                 </div>
 
-                <div>
+                <div id={patientEditFieldId('mStage')}>
                   <label className="text-sm font-medium mb-1 block">M</label>
-                  <Select
-                    value={watch('mStage') || ''}
-                    onValueChange={(value) => {
-                      if (value === '') {
-                        setValue('mStage', undefined, { shouldValidate: true });
-                      } else {
-                        setValue(
-                          'mStage',
-                          value as (typeof M_STAGE_VALUES)[number],
-                          { shouldValidate: true }
-                        );
-                      }
-                    }}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="M" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {M_STAGE_VALUES.map((value) => (
-                        <SelectItem key={value} value={value}>
-                          {value}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Controller
+                    name="mStage"
+                    control={control}
+                    render={({ field }) => (
+                      <Select
+                        value={field.value ?? ''}
+                        onValueChange={(value) => {
+                          field.onChange(
+                            value === ''
+                              ? undefined
+                              : (value as (typeof M_STAGE_VALUES)[number])
+                          );
+                        }}
+                      >
+                        <SelectTrigger
+                          ref={field.ref}
+                          name={field.name}
+                          onBlur={field.onBlur}
+                          aria-invalid={!!errors.mStage}
+                          className={cn(
+                            errors.mStage &&
+                              'border-destructive ring-1 ring-destructive'
+                          )}
+                        >
+                          <SelectValue placeholder="M" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {M_STAGE_VALUES.map((value) => (
+                            <SelectItem key={value} value={value}>
+                              {value}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
                   {errors.mStage && (
                     <p className="text-sm text-destructive mt-1">
-                      {errors.mStage.message}
+                      {fieldErrorText(errors.mStage)}
                     </p>
                   )}
                 </div>
 
-                <div>
+                <div id={patientEditFieldId('grade')}>
                   <label className="text-sm font-medium mb-1 block">Grau</label>
-                  <Select
-                    value={watch('grade') || ''}
-                    onValueChange={(value) => {
-                      if (value === '') {
-                        setValue('grade', undefined, { shouldValidate: true });
-                      } else {
-                        setValue(
-                          'grade',
-                          value as (typeof GRADE_VALUES)[number],
-                          { shouldValidate: true }
-                        );
-                      }
-                    }}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Grau" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {GRADE_VALUES.map((value) => (
-                        <SelectItem key={value} value={value}>
-                          {value}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Controller
+                    name="grade"
+                    control={control}
+                    render={({ field }) => (
+                      <Select
+                        value={field.value ?? ''}
+                        onValueChange={(value) => {
+                          field.onChange(
+                            value === ''
+                              ? undefined
+                              : (value as (typeof GRADE_VALUES)[number])
+                          );
+                        }}
+                      >
+                        <SelectTrigger
+                          ref={field.ref}
+                          name={field.name}
+                          onBlur={field.onBlur}
+                          aria-invalid={!!errors.grade}
+                          className={cn(
+                            errors.grade &&
+                              'border-destructive ring-1 ring-destructive'
+                          )}
+                        >
+                          <SelectValue placeholder="Grau" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {GRADE_VALUES.map((value) => (
+                            <SelectItem key={value} value={value}>
+                              {value}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
                   {errors.grade && (
                     <p className="text-sm text-destructive mt-1">
-                      {errors.grade.message}
+                      {fieldErrorText(errors.grade)}
                     </p>
                   )}
                 </div>
@@ -1187,62 +1468,119 @@ export function PatientEditPage({ patientId }: PatientEditPageProps) {
                 {`O campo "Estágio" acima será calculado automaticamente a partir dos campos TNM preenchidos.`}
               </p>
 
-              <div>
+              <div id={patientEditFieldId('diagnosisDate')}>
                 <label className="text-sm font-medium mb-2 block">
                   Data de Diagnóstico
-                  {currentStage !== 'SCREENING' && ' *'}
+                  {needsOncologyCoreFields && ' *'}
                 </label>
-                <Input type="date" {...register('diagnosisDate')} />
+                <Input
+                  type="date"
+                  {...register('diagnosisDate')}
+                  aria-invalid={!!errors.diagnosisDate}
+                  className={cn(errors.diagnosisDate && 'border-destructive')}
+                />
                 {errors.diagnosisDate && (
                   <p className="text-sm text-destructive mt-1">
-                    {errors.diagnosisDate.message}
+                    {fieldErrorText(errors.diagnosisDate)}
                   </p>
                 )}
               </div>
 
-              <div>
+              <div id={patientEditFieldId('performanceStatus')}>
                 <label className="text-sm font-medium mb-2 block">
-                  Performance Status
+                  Performance Status (ECOG)
+                  {needsOncologyCoreFields && ' *'}
                 </label>
-                <Select
-                  value={
-                    watch('performanceStatus') !== null &&
-                    watch('performanceStatus') !== undefined
-                      ? String(watch('performanceStatus'))
-                      : ''
-                  }
-                  onValueChange={(value) => {
-                    if (value === '' || value === undefined) {
-                      setValue('performanceStatus', undefined, {
-                        shouldValidate: true,
-                      });
-                    } else {
-                      const numValue = parseInt(value, 10);
-                      if (!isNaN(numValue)) {
-                        setValue('performanceStatus', numValue, {
-                          shouldValidate: true,
-                        });
+                <Controller
+                  name="performanceStatus"
+                  control={control}
+                  render={({ field }) => (
+                    <Select
+                      value={
+                        field.value !== null && field.value !== undefined
+                          ? String(field.value)
+                          : ''
                       }
-                    }
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecione o status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="0">ECOG 0</SelectItem>
-                    <SelectItem value="1">ECOG 1</SelectItem>
-                    <SelectItem value="2">ECOG 2</SelectItem>
-                    <SelectItem value="3">ECOG 3</SelectItem>
-                    <SelectItem value="4">ECOG 4</SelectItem>
-                  </SelectContent>
-                </Select>
+                      onValueChange={(value) => {
+                        if (value === '' || value === undefined) {
+                          field.onChange(undefined);
+                        } else {
+                          const numValue = parseInt(value, 10);
+                          if (!isNaN(numValue)) field.onChange(numValue);
+                        }
+                      }}
+                    >
+                      <SelectTrigger
+                        ref={field.ref}
+                        name={field.name}
+                        onBlur={field.onBlur}
+                        aria-invalid={!!errors.performanceStatus}
+                        className={cn(
+                          errors.performanceStatus &&
+                            'border-destructive ring-1 ring-destructive'
+                        )}
+                      >
+                        <SelectValue placeholder="Selecione o status" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="0">ECOG 0</SelectItem>
+                        <SelectItem value="1">ECOG 1</SelectItem>
+                        <SelectItem value="2">ECOG 2</SelectItem>
+                        <SelectItem value="3">ECOG 3</SelectItem>
+                        <SelectItem value="4">ECOG 4</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
                 {errors.performanceStatus && (
                   <p className="text-sm text-destructive mt-1">
-                    {errors.performanceStatus.message}
+                    {fieldErrorText(errors.performanceStatus)}
                   </p>
                 )}
               </div>
+
+              {needsTreatmentField && (
+                <div id={patientEditFieldId('currentTreatment')}>
+                  <label className="text-sm font-medium mb-2 block">
+                    Tratamento atual *
+                  </label>
+                  <Controller
+                    name="currentTreatment"
+                    control={control}
+                    render={({ field }) => (
+                      <Select
+                        value={field.value ?? ''}
+                        onValueChange={(value) => field.onChange(value)}
+                      >
+                        <SelectTrigger
+                          ref={field.ref}
+                          name={field.name}
+                          onBlur={field.onBlur}
+                          aria-invalid={!!errors.currentTreatment}
+                          className={cn(
+                            errors.currentTreatment &&
+                              'border-destructive ring-1 ring-destructive'
+                          )}
+                        >
+                          <SelectValue placeholder="Selecione o tratamento" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {treatmentOptions.map((opt) => (
+                            <SelectItem key={opt} value={opt}>
+                              {opt}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+                  {errors.currentTreatment && (
+                    <p className="text-sm text-destructive mt-1">
+                      {fieldErrorText(errors.currentTreatment)}
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -1279,7 +1617,13 @@ export function PatientEditPage({ patientId }: PatientEditPageProps) {
               }
             />
 
-            <div>
+            <div
+              id={patientEditFieldId('comorbidities')}
+              className={cn(
+                errors.comorbidities &&
+                  'rounded-md p-1 ring-2 ring-destructive ring-offset-2'
+              )}
+            >
               <ComorbiditiesForm
                 value={watch('comorbidities') as any}
                 onChange={(comorbidities) =>
@@ -1288,12 +1632,18 @@ export function PatientEditPage({ patientId }: PatientEditPageProps) {
               />
               {errors.comorbidities && (
                 <p className="text-sm text-destructive mt-1">
-                  {errors.comorbidities.message}
+                  {fieldErrorText(errors.comorbidities)}
                 </p>
               )}
             </div>
 
-            <div>
+            <div
+              id={patientEditFieldId('currentMedications')}
+              className={cn(
+                errors.currentMedications &&
+                  'rounded-md p-1 ring-2 ring-destructive ring-offset-2'
+              )}
+            >
               <CurrentMedicationsForm
                 value={watch('currentMedications') as any}
                 onChange={(currentMedications) =>
@@ -1302,12 +1652,18 @@ export function PatientEditPage({ patientId }: PatientEditPageProps) {
               />
               {errors.currentMedications && (
                 <p className="text-sm text-destructive mt-1">
-                  {errors.currentMedications.message}
+                  {fieldErrorText(errors.currentMedications)}
                 </p>
               )}
             </div>
 
-            <div>
+            <div
+              id={patientEditFieldId('familyHistory')}
+              className={cn(
+                errors.familyHistory &&
+                  'rounded-md p-1 ring-2 ring-destructive ring-offset-2'
+              )}
+            >
               <FamilyHistoryForm
                 value={watch('familyHistory') as any}
                 onChange={(familyHistory) =>
@@ -1316,7 +1672,7 @@ export function PatientEditPage({ patientId }: PatientEditPageProps) {
               />
               {errors.familyHistory && (
                 <p className="text-sm text-destructive mt-1">
-                  {errors.familyHistory.message}
+                  {fieldErrorText(errors.familyHistory)}
                 </p>
               )}
             </div>
@@ -1339,17 +1695,19 @@ export function PatientEditPage({ patientId }: PatientEditPageProps) {
             <CardTitle>Integração EHR (Opcional)</CardTitle>
           </CardHeader>
           <CardContent>
-            <div>
+            <div id={patientEditFieldId('ehrPatientId')}>
               <label className="text-sm font-medium mb-2 block">
                 ID do Paciente no EHR
               </label>
               <Input
                 {...register('ehrPatientId')}
                 placeholder="ID do paciente no sistema EHR"
+                aria-invalid={!!errors.ehrPatientId}
+                className={cn(errors.ehrPatientId && 'border-destructive')}
               />
               {errors.ehrPatientId && (
                 <p className="text-sm text-destructive mt-1">
-                  {errors.ehrPatientId.message}
+                  {fieldErrorText(errors.ehrPatientId)}
                 </p>
               )}
             </div>

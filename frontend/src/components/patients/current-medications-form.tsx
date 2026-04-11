@@ -1,5 +1,6 @@
 'use client';
 
+import { patientEditFieldId } from '@/lib/utils/patient-form-anchors';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -126,6 +127,7 @@ export function CurrentMedicationsForm({
             return (
               <div
                 key={index}
+                id={patientEditFieldId(`currentMedications.${index}`)}
                 className={`flex gap-2 items-start p-3 border rounded-lg ${
                   isRisky ? 'bg-amber-50 border-amber-200' : 'bg-gray-50'
                 }`}

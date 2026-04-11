@@ -1,5 +1,6 @@
 'use client';
 
+import { patientEditFieldId } from '@/lib/utils/patient-form-anchors';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -59,6 +60,7 @@ export function FamilyHistoryForm({
           {familyHistory.map((member, index) => (
             <div
               key={index}
+              id={patientEditFieldId(`familyHistory.${index}`)}
               className="flex gap-2 items-start p-3 border rounded-lg bg-gray-50"
             >
               <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-2">

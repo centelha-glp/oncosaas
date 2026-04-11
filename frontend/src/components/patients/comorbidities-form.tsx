@@ -10,6 +10,7 @@ import {
   type ComorbidityType,
   type ComorbiditySeverity,
 } from '@/lib/api/patients';
+import { patientEditFieldId } from '@/lib/utils/patient-form-anchors';
 
 /** Linha em edição — tipo/gravidade opcionais até o usuário escolher. */
 export type ComorbidityFormRow = {
@@ -173,6 +174,7 @@ export function ComorbiditiesForm({
             return (
               <div
                 key={index}
+                id={patientEditFieldId(`comorbidities.${index}`)}
                 className={`flex gap-2 items-start p-3 border rounded-lg ${
                   isHighRisk ? 'bg-red-50 border-red-200' : 'bg-gray-50'
                 }`}

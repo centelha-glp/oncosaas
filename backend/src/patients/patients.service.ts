@@ -1209,6 +1209,13 @@ export class PatientsService {
             results: { orderBy: { performedAt: 'desc' } },
           },
         },
+        medications: {
+          where: { isActive: true },
+          orderBy: { updatedAt: 'desc' },
+        },
+        comorbidities: {
+          orderBy: { updatedAt: 'desc' },
+        },
         alerts: {
           where: {
             status: { not: 'RESOLVED' },
