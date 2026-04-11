@@ -1,6 +1,6 @@
 ---
 name: ai-service
-description: 'Dono do serviço Python FastAPI e do pipeline conversacional: orchestrator, symptom analyzer, questionnaire engine, protocol engine, wiring LLM/RAG no fluxo, rotas do agente e integração com o backend NestJS. Acione para ai-service/src/agent/ (exceto foco exclusivo em corpus RAG → rag-engineer), prompts/contexto pontual → llm-context-engineer, arquitetura multi-agente → llm-agent-architect. NÃO acione para treino LightGBM, EDA, notebooks de retreino ou trabalho principal em priority_model/train_model — use data-scientist ou engenheiro-ia-predicao.'
+description: 'AGENTE PAI — delegue quando o trabalho for sobretudo FastAPI/Python em ai-service/: orchestrator, symptom_analyzer, protocol_engine, questionnaire_engine, clinical_rules/scores, llm_provider, context_builder, prompts em src/agent/prompts/, POST /agent/process, contrato com AgentService. Gatilhos: pipeline de mensagem, ESAS/PRO-CTCAE, sintomas, decisões/ações da IA. Redirecionar: só corpus/embeddings/FAISS → rag-engineer; só prompts/contexto sem arquitetura → llm-context-engineer; orchestrator multi-step novo → llm-agent-architect; treino LightGBM/EDA/notebooks → data-scientist; priorityScore/contrato produto → engenheiro-ia-predicao.'
 tools: Read, Edit, Write, Bash, Grep, Glob
 model: inherit
 is_background: true

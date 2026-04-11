@@ -1,6 +1,6 @@
 ---
 name: frontend-nextjs
-description: 'Use para tarefas de frontend Next.js: criar/editar páginas, componentes, hooks React Query, stores Zustand, API clients, validações Zod, testes Vitest. Acione quando a tarefa envolver arquivos em frontend/src/.'
+description: 'AGENTE PAI — delegue quando o trabalho for sobretudo Next.js/React em frontend/: App Router, páginas, componentes, hooks (React Query), Zustand, apiClient/lib/api, Zod, Vitest, middleware, Tailwind, dashboards, chat UI, formulários de paciente. Gatilhos: UX, estado cliente, chamadas ao backend via JWT/X-Tenant-Id. NÃO use para NestJS/Prisma nem para Python ai-service.'
 tools: Read, Edit, Write, Bash, Grep, Glob
 model: inherit
 is_background: true

@@ -1,6 +1,6 @@
 ---
 name: seguranca-compliance
-description: OBRIGATÓRIO após criar ou modificar qualquer controller, service, DTO ou guard no backend. Também use para revisões de segurança, compliance LGPD/HIPAA, isolamento multi-tenant, criptografia de dados sensíveis, audit trail e validação de input. Acione sempre antes de commitar código backend novo ou modificado.
+description: 'AGENTE PAI — delegue após alterar ou criar controllers/services/DTOs/guards no backend, mudanças em auth/JWT/tenant, exposição de dados sensíveis, Prisma com PII, ou quando o pedido for revisão LGPD/segurança/isolamento multi-tenant/audit trail/validação de input. Gatilhos: novo endpoint, refactor de guard, resposta de API com dados clínicos. Complementar (não substituir) backend-nestjs: primeiro implementação, depois revisão de segurança antes de commit.'
 tools: Read, Edit, Write, Grep, Glob
 model: inherit
 is_background: true

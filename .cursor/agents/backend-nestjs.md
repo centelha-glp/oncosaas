@@ -1,6 +1,6 @@
 ---
 name: backend-nestjs
-description: 'Use para tarefas de backend NestJS: criar/editar módulos, controllers, services, DTOs, migrations Prisma, testes Jest, guards, interceptors. Acione quando a tarefa envolver arquivos em backend/src/ ou backend/prisma/.'
+description: 'AGENTE PAI — delegue quando o trabalho for sobretudo NestJS/TypeScript em backend/: módulos, controllers, services, DTOs, guards (JWT/tenant/roles), interceptors, Prisma (queries com tenantId, migrations, backend/prisma/schema), Jest, WebSocket, ChannelGateway, agent.service, whatsapp-connections no Nest, audit. Gatilhos: nova rota/API, refactor de serviço, bug em guard ou tenant. NÃO use para Python em ai-service/ nem UI em frontend/src (→ ai-service ou frontend-nextjs).'
 tools: Read, Edit, Write, Bash, Grep, Glob
 model: inherit
 is_background: true
