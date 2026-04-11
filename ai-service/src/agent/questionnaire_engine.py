@@ -1,6 +1,7 @@
 import re
 import logging
 from typing import Dict, List, Optional, Any, Tuple
+from .clinical_thresholds import ESAS_ALERT_THRESHOLD, PRO_CTCAE_ALERT_GRADE
 from .llm_provider import llm_provider
 
 """
@@ -229,12 +230,6 @@ PRO_CTCAE_ITEM_ORDER: List[str] = [
     "pain", "fatigue", "nausea", "diarrhea", "constipation",
     "appetite_loss", "dyspnea", "insomnia", "neuropathy", "mucositis",
 ]
-
-# ESAS alert threshold: any score >= 7 triggers a nursing alert
-ESAS_ALERT_THRESHOLD = 7
-
-# PRO-CTCAE alert threshold: any grade >= 3 triggers a nursing alert
-PRO_CTCAE_ALERT_GRADE = 3
 
 
 class QuestionnaireEngine:

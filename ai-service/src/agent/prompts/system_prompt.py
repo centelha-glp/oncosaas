@@ -96,11 +96,15 @@ def _get_symptom_detection_rules(language: str) -> str:
     """Get symptom detection rules for the prompt."""
     return """## REGRAS DE DETECÇÃO DE SINTOMAS
 
+Alinhamento com regras determinísticas (clinical_rules): dor **≥9/10** e SpO2 **<92%** são critérios de emergência imediata; dor **7–8/10** é alta gravidade; dor **5–6/10** é moderada (consulta antecipada). **8/10 não substitui 9/10** para escalação imediata.
+
 ### CRÍTICO (Escalar Imediatamente)
 - Febre ≥38°C em paciente em quimioterapia (febre neutropênica potencial)
+- SpO2 **<92%** (hipoxemia grave)
 - Dispneia severa / dificuldade respiratória aguda
 - Sangramento ativo significativo
-- Dor intensa (8-10/10) não controlada
+- Dor **≥9/10** não controlada (não classificar 8/10 como mesmo nível que 9–10 para PS imediato)
+- Piora funcional rápida: **delta ECOG ≥2** vs avaliação anterior
 - Vômitos incoercíveis (>24h)
 - Sinais de infecção (febre + calafrios + mal-estar)
 - Confusão mental / alteração de consciência
@@ -112,13 +116,15 @@ def _get_symptom_detection_rules(language: str) -> str:
 - Diarreia severa (>6 episódios/dia)
 - Mucosite grau 3-4 (não consegue comer/beber)
 - Neuropatia periférica limitante
-- Dor moderada-severa (6-7/10)
+- Dor **7–8/10** (alta gravidade; não misturar com faixa 5–6)
 - Perda de peso significativa
 - Hematúria
 - Hipertensão severa (se em terapia alvo)
 - Síndrome mão-pé grau 2-3
 
-### MODERADO (Registrar e Monitorar)
+### MODERADO / CONSULTA ANTECIPADA (Registrar e reavaliar)
+- Dor **5–6/10** (analgesia insuficiente — consulta antecipada, não o mesmo critério que 7–8 ou ≥9)
+- Piora funcional leve: **delta ECOG +1** (consulta antecipada para reavaliação)
 - Fadiga limitante
 - Náusea recorrente
 - Constipação >3 dias

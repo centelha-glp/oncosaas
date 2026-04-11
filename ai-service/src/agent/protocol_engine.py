@@ -2,12 +2,55 @@ from typing import Dict, List, Optional, Any
 import logging
 from datetime import datetime, date
 
+from .clinical_thresholds import ESAS_ALERT_THRESHOLD, ESAS_TOTAL_ALERT
+
 """
 Protocol Engine.
 Evaluates clinical protocol rules and generates protocol-driven actions.
 """
 
 logger = logging.getLogger(__name__)
+
+
+def _keywords_from_critical_symptoms_list(raw: Any) -> List[str]:
+    """Normalize criticalSymptoms from DB (strings or {keyword}) to keyword strings."""
+    if not raw:
+        return []
+    out: List[str] = []
+    seen_lower: set[str] = set()
+    for item in raw:
+        if isinstance(item, str):
+            kw = item.strip()
+        elif isinstance(item, dict):
+            kw = (item.get("keyword") or item.get("name") or "").strip()
+        else:
+            continue
+        if not kw:
+            continue
+        low = kw.lower()
+        if low in seen_lower:
+            continue
+        seen_lower.add(low)
+        out.append(kw)
+    return out
+
+
+def _merge_critical_keyword_lists(
+    stage_keywords: List[str], root_keywords: List[str]
+) -> List[str]:
+    """Stage keywords first, then root; dedupe by case-insensitive match, stable order."""
+    seen_lower: set[str] = set()
+    merged: List[str] = []
+    for kw in stage_keywords + root_keywords:
+        if not kw or not str(kw).strip():
+            continue
+        s = str(kw).strip()
+        low = s.lower()
+        if low in seen_lower:
+            continue
+        seen_lower.add(low)
+        merged.append(s)
+    return merged
 
 
 # Protocol rule definitions per cancer type
@@ -173,14 +216,170 @@ PROTOCOL_RULES: Dict[str, Dict[str, Any]] = {
             "high_score": "ALERT_NURSING",
         },
     },
+    "breast": {
+        "stages": {
+            "SCREENING": {
+                "check_in_frequency": "weekly",
+                "questionnaire": None,
+                "critical_symptoms": [
+                    "nódulo mamário",
+                    "dor no peito",
+                    "febre neutropênica",
+                    "linfedema grave",
+                    "neuropatia periférica",
+                ],
+            },
+            "DIAGNOSIS": {
+                "check_in_frequency": "twice_weekly",
+                "questionnaire": None,
+                "critical_symptoms": [
+                    "nódulo mamário",
+                    "dor no peito",
+                    "febre neutropênica",
+                    "linfedema grave",
+                    "neuropatia periférica",
+                ],
+            },
+            "TREATMENT": {
+                "check_in_frequency": "daily",
+                "questionnaire": "ESAS",
+                "critical_symptoms": [
+                    "nódulo mamário",
+                    "dor no peito",
+                    "febre neutropênica",
+                    "linfedema grave",
+                    "neuropatia periférica",
+                ],
+            },
+            "FOLLOW_UP": {
+                "check_in_frequency": "weekly",
+                "questionnaire": "PRO_CTCAE",
+                "critical_symptoms": [
+                    "nódulo mamário",
+                    "dor no peito",
+                    "febre neutropênica",
+                    "linfedema grave",
+                    "neuropatia periférica",
+                ],
+            },
+        },
+        "check_in_triggers": {
+            "missed_check_in": "ALERT_NURSING",
+            "critical_symptom": "ESCALATE_IMMEDIATELY",
+            "high_score": "ALERT_NURSING",
+        },
+    },
+    "lung": {
+        "stages": {
+            "SCREENING": {
+                "check_in_frequency": "weekly",
+                "questionnaire": None,
+                "critical_symptoms": [
+                    "hemoptise",
+                    "dispneia grave",
+                    "febre neutropênica",
+                    "dor torácica intensa",
+                    "tosse persistente",
+                    "fadiga severa",
+                ],
+            },
+            "DIAGNOSIS": {
+                "check_in_frequency": "twice_weekly",
+                "questionnaire": None,
+                "critical_symptoms": [
+                    "hemoptise",
+                    "dispneia grave",
+                    "febre neutropênica",
+                    "dor torácica intensa",
+                    "tosse persistente",
+                    "fadiga severa",
+                ],
+            },
+            "TREATMENT": {
+                "check_in_frequency": "daily",
+                "questionnaire": "ESAS",
+                "critical_symptoms": [
+                    "hemoptise",
+                    "dispneia grave",
+                    "febre neutropênica",
+                    "dor torácica intensa",
+                    "tosse persistente",
+                    "fadiga severa",
+                ],
+            },
+            "FOLLOW_UP": {
+                "check_in_frequency": "weekly",
+                "questionnaire": "PRO_CTCAE",
+                "critical_symptoms": [
+                    "hemoptise",
+                    "dispneia grave",
+                    "febre neutropênica",
+                    "dor torácica intensa",
+                    "tosse persistente",
+                    "fadiga severa",
+                ],
+            },
+        },
+        "check_in_triggers": {
+            "missed_check_in": "ALERT_NURSING",
+            "critical_symptom": "ESCALATE_IMMEDIATELY",
+            "high_score": "ALERT_NURSING",
+        },
+    },
+    "other": {
+        "stages": {
+            "SCREENING": {
+                "check_in_frequency": "weekly",
+                "questionnaire": None,
+                "critical_symptoms": [
+                    "febre neutropênica",
+                    "sangramento intenso",
+                    "dor intensa",
+                    "náusea severa",
+                    "fadiga extrema",
+                ],
+            },
+            "DIAGNOSIS": {
+                "check_in_frequency": "twice_weekly",
+                "questionnaire": None,
+                "critical_symptoms": [
+                    "febre neutropênica",
+                    "sangramento intenso",
+                    "dor intensa",
+                    "náusea severa",
+                    "fadiga extrema",
+                ],
+            },
+            "TREATMENT": {
+                "check_in_frequency": "daily",
+                "questionnaire": "ESAS",
+                "critical_symptoms": [
+                    "febre neutropênica",
+                    "sangramento intenso",
+                    "dor intensa",
+                    "náusea severa",
+                    "fadiga extrema",
+                ],
+            },
+            "FOLLOW_UP": {
+                "check_in_frequency": "weekly",
+                "questionnaire": "PRO_CTCAE",
+                "critical_symptoms": [
+                    "febre neutropênica",
+                    "sangramento intenso",
+                    "dor intensa",
+                    "náusea severa",
+                    "fadiga extrema",
+                ],
+            },
+        },
+        "check_in_triggers": {
+            "missed_check_in": "ALERT_NURSING",
+            "critical_symptom": "ESCALATE_IMMEDIATELY",
+            "high_score": "ALERT_NURSING",
+        },
+    },
 }
-
-# ESAS score thresholds for alerts
-ESAS_ALERT_THRESHOLD = 7   # Score >= 7 on any item → alert nursing
-ESAS_TOTAL_ALERT = 50      # Total ESAS score >= 50 → alert nursing
-
-# PRO-CTCAE grade thresholds
-PRO_CTCAE_ALERT_GRADE = 3  # Grade >= 3 → alert nursing
 
 
 class ProtocolEngine:
@@ -269,12 +468,19 @@ class ProtocolEngine:
         """Convert database protocol format to internal rule format."""
         check_in_rules = protocol.get("checkInRules", {})
         stages = {}
+        root_keywords = _keywords_from_critical_symptoms_list(
+            protocol.get("criticalSymptoms")
+        )
 
         for stage, rules in check_in_rules.items():
+            stage_keywords = _keywords_from_critical_symptoms_list(
+                rules.get("criticalSymptoms", [])
+            )
+            merged = _merge_critical_keyword_lists(stage_keywords, root_keywords)
             stages[stage] = {
                 "check_in_frequency": rules.get("frequency", "weekly"),
                 "questionnaire": rules.get("questionnaire"),
-                "critical_symptoms": rules.get("criticalSymptoms", []),
+                "critical_symptoms": merged,
             }
 
         return {
