@@ -198,6 +198,26 @@ describe('OncologyNavigationService', () => {
       expect(templates.length).toBeGreaterThan(0);
       expect(templates.map((t) => t.stepKey)).toContain('palliative_comfort_care');
     });
+
+    it('should return cancer-type TREATMENT templates when status is PALLIATIVE_CARE (not empty list)', async () => {
+      mockPrisma.patient.findFirst.mockResolvedValue({
+        cancerType: 'colorectal',
+        status: PatientStatus.PALLIATIVE_CARE,
+        cancerDiagnoses: [],
+      });
+      mockPrisma.navigationStep.findMany.mockResolvedValue([]);
+
+      const templates = await service.getAvailableStepTemplates(
+        PATIENT_ID,
+        TENANT,
+        JourneyStage.TREATMENT
+      );
+
+      expect(templates.length).toBeGreaterThan(0);
+      for (const t of templates) {
+        expect(t.journeyStage).toBe(JourneyStage.TREATMENT);
+      }
+    });
   });
 
   // ─── createStepFromTemplate ──────────────────────────────────────────────────

@@ -753,7 +753,11 @@ export class OncologyNavigationService {
 
     const cancerType = String(cancerTypeRaw).toLowerCase();
 
-    const allConfigs = this.getStepConfigs(cancerType, patient.status);
+    const allConfigs = this.getStepConfigs(
+      cancerType,
+      patient.status,
+      journeyStage,
+    );
     const templateConfig = allConfigs.find(
       (c) => c.stepKey === stepKey && c.journeyStage === journeyStage
     );
@@ -1213,16 +1217,14 @@ export class OncologyNavigationService {
    */
   private getStepConfigs(
     cancerType: string,
-    patientStatus?: PatientStatus,
+    _patientStatus?: PatientStatus,
     currentStage?: JourneyStage,
   ): StepConfig[] {
     let base: StepConfig[];
-    // New JourneyStage PALLIATIVE must provision palliative templates
-    // even when patient.status is not yet synchronized to PALLIATIVE_CARE.
-    if (
-      currentStage === JourneyStage.PALLIATIVE ||
-      patientStatus === PatientStatus.PALLIATIVE_CARE
-    ) {
+    // Palliative *stage* templates only when the requested stage is PALLIATIVE.
+    // patient.status === PALLIATIVE_CARE must not replace cancer-specific configs
+    // for SCREENING/DIAGNOSIS/TREATMENT/FOLLOW_UP (e.g. step-templates API).
+    if (currentStage === JourneyStage.PALLIATIVE) {
       base = this.getPalliativeStepConfigs();
     } else {
       switch (cancerType.toLowerCase()) {
