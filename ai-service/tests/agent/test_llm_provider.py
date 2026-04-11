@@ -1,6 +1,8 @@
 """
 Tests for LLMProvider — key resolution, fallback response, degraded mode.
 """
+from types import SimpleNamespace
+
 import pytest
 from src.agent.llm_provider import LLMProvider
 
@@ -100,3 +102,31 @@ class TestGetClients:
     def test_get_openai_client_returns_client_with_valid_key(self, provider):
         client = provider._get_openai_client(api_key="sk-test-openai-1234")
         assert client is not None
+
+
+class TestAnthropicAssistantBlockReplay:
+
+    def test_maps_text_thinking_tool_use_for_round_trip(self, provider):
+        text = SimpleNamespace(type="text", text="Olá")
+        thinking = SimpleNamespace(type="thinking", thinking="...", signature="sig")
+        tool = SimpleNamespace(type="tool_use", id="tu_1", name="consultar_agente_sintomas", input={"foco": "dor"})
+
+        assert provider._anthropic_block_to_assistant_param(text) == {"type": "text", "text": "Olá"}
+        assert provider._anthropic_block_to_assistant_param(thinking) == {
+            "type": "thinking",
+            "thinking": "...",
+            "signature": "sig",
+        }
+        assert provider._anthropic_block_to_assistant_param(tool) == {
+            "type": "tool_use",
+            "id": "tu_1",
+            "name": "consultar_agente_sintomas",
+            "input": {"foco": "dor"},
+        }
+
+    def test_redacted_thinking_no_signature(self, provider):
+        b = SimpleNamespace(type="redacted_thinking", data="abc")
+        assert provider._anthropic_block_to_assistant_param(b) == {
+            "type": "redacted_thinking",
+            "data": "abc",
+        }

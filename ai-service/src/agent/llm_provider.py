@@ -252,6 +252,40 @@ class LLMProvider:
 
         return response.choices[0].message.content or ""
 
+    def _anthropic_block_to_assistant_param(self, block: Any) -> Optional[Dict[str, Any]]:
+        """
+        Serialize a content block from messages.create() for replay in the next turn.
+
+        Required when using extended/adaptive thinking with tool_use: Anthropic expects
+        thinking (or redacted_thinking) blocks to be preserved before tool_result messages.
+        """
+        t = getattr(block, "type", None)
+        if t == "text":
+            return {"type": "text", "text": getattr(block, "text", "") or ""}
+        if t == "thinking":
+            out: Dict[str, Any] = {
+                "type": "thinking",
+                "thinking": getattr(block, "thinking", "") or "",
+            }
+            sig = getattr(block, "signature", None)
+            if sig:
+                out["signature"] = sig
+            return out
+        if t == "redacted_thinking":
+            return {
+                "type": "redacted_thinking",
+                "data": getattr(block, "data", "") or "",
+            }
+        if t == "tool_use":
+            return {
+                "type": "tool_use",
+                "id": block.id,
+                "name": block.name,
+                "input": block.input,
+            }
+        logger.debug("Skipping unsupported Anthropic block for assistant replay: %s", t)
+        return None
+
     def _tools_openai_to_anthropic(self, tools: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Convert OpenAI function tools to Anthropic custom tool format."""
         anthropic_tools = []
@@ -556,24 +590,21 @@ class LLMProvider:
                             text_parts.append(block.text)
                         elif block.type == "tool_use":
                             tool_use_blocks.append(block)
-                        elif getattr(block, "type", None) == "thinking":
-                            pass
                     final_text = " ".join(text_parts).strip()
 
                     if response.stop_reason == "end_turn" or not tool_use_blocks:
                         break
 
-                    assistant_content = []
+                    assistant_content: List[Dict[str, Any]] = []
                     for block in response.content:
-                        if block.type == "text":
-                            assistant_content.append({"type": "text", "text": block.text})
-                        elif block.type == "tool_use":
-                            assistant_content.append({
-                                "type": "tool_use",
-                                "id": block.id,
-                                "name": block.name,
-                                "input": block.input,
-                            })
+                        param = self._anthropic_block_to_assistant_param(block)
+                        if param:
+                            assistant_content.append(param)
+                    if not assistant_content:
+                        logger.warning(
+                            "Anthropic returned tool_use but no serializable assistant blocks"
+                        )
+                        break
                     working_messages.append({"role": "assistant", "content": assistant_content})
 
                     tool_results = []
