@@ -6,7 +6,8 @@ remain stable and useful in day-to-day workflows.
 ## Supported
 
 - `train_model.py`
-  - Train/evaluate the oncology priority model.
+  - Train/evaluate the oncology priority model (synthetic data from `src/models/train_priority.py`).
+  - Training uses a 15% stratified holdout for recall (ER_IMMEDIATE) and under-triage rate; `--eval` runs a separate fixed-seed test set.
   - Examples:
     - `python -m scripts.train_model`
     - `python -m scripts.train_model --eval`

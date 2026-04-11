@@ -146,7 +146,13 @@ class OncologyPriorityModel:
         )
 
     def train(self, X: pd.DataFrame, y: pd.Series) -> Dict[str, Any]:
-        """Train the ordinal classifier."""
+        """
+        Train the ordinal classifier.
+
+        The returned classification_report is computed on the same rows used for
+        fitting (optimistic). For an unbiased estimate, use the CLI holdout in
+        ``python -m scripts.train_model`` or ``python -m scripts.train_model --eval``.
+        """
         from sklearn.metrics import classification_report
 
         self.model = self._create_model()

@@ -8,14 +8,18 @@ import pandas as pd
 import numpy as np
 from src.models.train_priority import generate_synthetic_dataset
 from src.models.priority_model import FEATURE_COLUMNS, DISPOSITION_CLASSES, DISPOSITION_TO_IDX, priority_model, MODEL_PATH
-from sklearn.metrics import classification_report, confusion_matrix
+from sklearn.metrics import classification_report, confusion_matrix, recall_score
+from sklearn.model_selection import train_test_split
 
 """
 CLI script to train or retrain the oncology priority ordinal classifier.
+
+Synthetic rows come from ``src.models.train_priority.generate_synthetic_dataset`` (rules-based labels).
+
 Usage:
-  python -m scripts.train_model                    # Train from synthetic data
+  python -m scripts.train_model                    # Train from synthetic data (+ stratified holdout log)
   python -m scripts.train_model --real data.json   # Blend synthetic + real feedback data
-  python -m scripts.train_model --eval              # Evaluate current model
+  python -m scripts.train_model --eval             # Evaluate saved model on a fixed synthetic test seed
 """
 
 logging.basicConfig(
@@ -62,8 +66,27 @@ def train(real_data_path: str | None = None, n_synthetic: int = 5000):
     X = df_train[FEATURE_COLUMNS].fillna(0)
     y = df_train["label"]
 
-    logger.info("Training ordinal classifier on %d samples...", len(X))
-    metrics = priority_model.train(X, y)
+    # Stratified holdout (15%) for metrics less optimistic than training-set-only fit
+    X_hold = None
+    y_hold = None
+    try:
+        X_fit, X_hold, y_fit, y_hold = train_test_split(
+            X, y, test_size=0.15, random_state=42, stratify=y
+        )
+    except ValueError:
+        X_fit, y_fit = X, y
+        logger.warning(
+            "Holdout split skipped (stratify not feasible — e.g. too few rows per class). "
+            "Increase --n-synthetic or check class balance."
+        )
+
+    holdout_n = len(X_hold) if X_hold is not None else 0
+    logger.info(
+        "Training ordinal classifier on %d samples (holdout reserved: %d)...",
+        len(X_fit),
+        holdout_n,
+    )
+    metrics = priority_model.train(X_fit, y_fit)
 
     report = metrics.get("classification_report", {})
     macro = report.get("macro avg", {})
@@ -73,6 +96,21 @@ def train(real_data_path: str | None = None, n_synthetic: int = 5000):
         macro.get("precision", 0),
         macro.get("recall", 0),
     )
+
+    if X_hold is not None and len(X_hold) > 0:
+        y_pred_h = np.argmax(priority_model.model.predict_proba(X_hold), axis=1)
+        n_h = len(y_hold)
+        under_h = sum(1 for p, a in zip(y_pred_h, y_hold) if p < a)
+        try:
+            rec_er = recall_score(y_hold, y_pred_h, labels=[4], average="macro", zero_division=0)
+        except Exception:
+            rec_er = 0.0
+        logger.info(
+            "Holdout (15%% stratified, n=%d): recall ER_IMMEDIATE=%.3f, under_triage=%.3f",
+            n_h,
+            rec_er,
+            under_h / n_h if n_h else 0.0,
+        )
 
     logger.info("Saving model to %s", MODEL_PATH)
     priority_model.save(str(MODEL_PATH))

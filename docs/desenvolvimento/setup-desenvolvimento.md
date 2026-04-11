@@ -74,11 +74,11 @@ python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
-# Gerar dataset sintético
-python ../scripts/generate_synthetic_data.py
-
-# Treinar modelo (opcional)
-python ../scripts/train_priority_model.py
+# Treinar modelo de priorização ordinal (LightGBM) — fluxo canónico no ai-service
+# Gera dados sintéticos via clinical rules (generate_synthetic_dataset em src/models/train_priority.py)
+python -m scripts.train_model
+# Avaliar modelo salvo sem retreinar: python -m scripts.train_model --eval
+# Blend com feedback real exportado: python -m scripts.train_model --real data/feedback.json
 
 # Iniciar servidor
 uvicorn main:app --reload --port 8001
