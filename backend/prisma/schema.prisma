@@ -1585,6 +1585,7 @@ model Medication {
   @@index([isAnticoagulant])
   @@index([isCorticosteroid])
   @@index([isImmunosuppressant])
+  @@index([catalogKey])
   @@map("medications")
 }
 
