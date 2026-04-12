@@ -43,8 +43,9 @@ function hasValidAuthTokenLegacy(token: string | undefined): boolean {
   }
 }
 
-/** Quando `JWT_SECRET` está definido (mesmo valor do backend), valida assinatura HS256.
- *  Em produção, defina sempre `JWT_SECRET` no ambiente do Next; o modo legado (só exp) é fraco. */
+/** Valida assinatura HS256 do JWT usando JWT_SECRET.
+ *  [M-01] Em produção JWT_SECRET é obrigatório — sem ele, toda sessão é rejeitada.
+ *  Em desenvolvimento sem JWT_SECRET, aceita apenas verificação de expiração (fallback fraco). */
 async function hasValidAuthToken(token: string | undefined): Promise<boolean> {
   if (!token) {
     return false;
@@ -60,6 +61,13 @@ async function hasValidAuthToken(token: string | undefined): Promise<boolean> {
     }
   }
 
+  // [M-01] Em produção sem JWT_SECRET, rejeitar toda sessão (falha segura)
+  if (process.env.NODE_ENV === 'production') {
+    return false;
+  }
+
+  // Desenvolvimento sem JWT_SECRET: fallback com apenas validação de expiração
+  // NUNCA usar em produção — qualquer JWT forjado com exp futuro seria aceito
   return hasValidAuthTokenLegacy(token);
 }
 
