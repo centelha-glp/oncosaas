@@ -341,7 +341,17 @@ export default function ChatPage() {
     <div className="h-screen bg-gray-50 overflow-hidden flex flex-col">
       <NavigationBar />
 
-      <div className="flex-1 overflow-hidden">
+      <div
+        className="shrink-0 border-b border-indigo-100 bg-indigo-50/90 px-3 py-2 text-xs text-indigo-950 sm:px-4"
+        role="note"
+      >
+        <strong className="font-semibold">Chat:</strong> operações em tempo real
+        no WhatsApp (pacientes, alertas, decisões). Para visão do turno e
+        métricas agregadas, use o{' '}
+        <span className="font-medium">Dashboard</span>.
+      </div>
+
+      <div className="flex-1 overflow-hidden min-h-0">
         <div className="flex h-full">
           {/* Sidebar Esquerda - Pacientes e Alertas */}
           <ResizablePanel

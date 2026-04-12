@@ -15,7 +15,10 @@ import {
   AlertCircle,
   FileText,
   TrendingUp,
+  RefreshCw,
 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 
 const INTERVENTION_TYPE_LABELS: Record<string, string> = {
   ASSUME: 'Assumiu Conversa',
@@ -53,6 +56,8 @@ export function InterventionHistory({ patientId }: InterventionHistoryProps) {
     data: interventions,
     isLoading,
     error,
+    refetch,
+    isFetching,
   } = patientId ? patientInterventionsQuery : myInterventionsQuery;
 
   if (isLoading) {
@@ -76,10 +81,24 @@ export function InterventionHistory({ patientId }: InterventionHistoryProps) {
         <CardHeader>
           <CardTitle>Histórico de Intervenções</CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className="text-center py-4 text-red-500">
-            Erro ao carregar histórico: {error.message}
-          </div>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-destructive" role="alert">
+            Não foi possível carregar o histórico. Verifique sua conexão e tente
+            novamente.
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => refetch()}
+            disabled={isFetching}
+          >
+            <RefreshCw
+              className={cn('mr-2 h-4 w-4', isFetching && 'animate-spin')}
+              aria-hidden
+            />
+            {isFetching ? 'Carregando...' : 'Tentar novamente'}
+          </Button>
         </CardContent>
       </Card>
     );

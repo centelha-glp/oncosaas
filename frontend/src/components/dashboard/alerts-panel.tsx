@@ -9,8 +9,10 @@ import {
   XCircle,
   Bell,
   Filter,
+  RefreshCw,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import { useAcknowledgeAlert, useResolveAlert } from '@/hooks/useAlerts';
 import { Alert } from '@/lib/api/alerts';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -27,7 +29,8 @@ export function AlertsPanel({
   selectedAlertId,
   severityFilter,
 }: AlertsPanelProps) {
-  const { data: alerts, isLoading, error } = useAlerts('PENDING');
+  const { data: alerts, isLoading, error, refetch, isFetching } =
+    useAlerts('PENDING');
   const acknowledgeAlert = useAcknowledgeAlert();
   const resolveAlert = useResolveAlert();
 
@@ -69,14 +72,20 @@ export function AlertsPanel({
       <EmptyState
         icon={<AlertTriangle className="h-12 w-12 text-red-500" />}
         title="Erro ao carregar alertas"
-        description={`Não foi possível carregar a lista de alertas. ${error.message}`}
+        description="Não foi possível carregar a lista de alertas. Verifique sua conexão e tente novamente."
         action={
           <Button
             variant="outline"
             size="sm"
-            onClick={() => window.location.reload()}
+            type="button"
+            onClick={() => refetch()}
+            disabled={isFetching}
           >
-            Tentar novamente
+            <RefreshCw
+              className={cn('mr-2 h-4 w-4', isFetching && 'animate-spin')}
+              aria-hidden
+            />
+            {isFetching ? 'Carregando...' : 'Tentar novamente'}
           </Button>
         }
       />

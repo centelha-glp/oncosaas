@@ -4,6 +4,10 @@ const isProd = process.env.NODE_ENV === 'production'
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  experimental: {
+    // Tree-shake de pacotes com muitos exports nomeados (menor first-load JS)
+    optimizePackageImports: ['lucide-react', 'date-fns', 'recharts'],
+  },
   images: {
     domains: [],
   },

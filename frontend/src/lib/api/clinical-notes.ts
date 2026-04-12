@@ -3,6 +3,22 @@ import { apiClient } from './client';
 export type ClinicalNoteType = 'NURSING' | 'MEDICAL';
 export type ClinicalNoteStatus = 'DRAFT' | 'SIGNED' | 'VOIDED';
 
+/** Chave da etapa de navegação correspondente a cada tipo de evolução (alinhado ao backend). */
+export const CLINICAL_EVOLUTION_NAVIGATION_STEP_KEY: Record<
+  ClinicalNoteType,
+  string
+> = {
+  MEDICAL: 'specialist_consultation',
+  NURSING: 'navigation_consultation',
+};
+
+export type ClinicalNoteNavigationStepRef = {
+  id: string;
+  stepKey: string;
+  stepName: string;
+  journeyStage: string;
+};
+
 export const CLINICAL_NOTE_SECTION_KEYS = [
   'identificacao',
   'hda',
@@ -118,6 +134,8 @@ export interface ClinicalNoteListItem {
   noteType: ClinicalNoteType;
   status: ClinicalNoteStatus;
   amendsClinicalNoteId: string | null;
+  navigationStepId: string | null;
+  navigationStep: ClinicalNoteNavigationStepRef | null;
   createdAt: string;
   updatedAt: string;
   createdBy: ClinicalNoteUserRef;
@@ -138,6 +156,8 @@ export interface ClinicalNoteDetail {
   noteType: ClinicalNoteType;
   status: ClinicalNoteStatus;
   amendsClinicalNoteId: string | null;
+  navigationStepId: string | null;
+  navigationStep: ClinicalNoteNavigationStepRef | null;
   createdAt: string;
   updatedAt: string;
   createdBy: ClinicalNoteUserRef;
@@ -161,6 +181,7 @@ export interface ClinicalNoteMutationResponse {
   latestVersionNumber: number;
   sectionsContentHash: string;
   amendsClinicalNoteId: string | null;
+  navigationStepId: string | null;
   updatedAt: string;
 }
 
@@ -182,12 +203,20 @@ export const clinicalNotesApi = {
     );
   },
 
-  /** Texto sugerido por seção a partir do cadastro e dados clínicos estruturados */
+  /**
+   * Texto sugerido por seção a partir do cadastro e dados clínicos estruturados.
+   * `noteType` + `navigationStepId` ativam modelo SOAP específico (médica vs enfermagem) e foco na etapa.
+   */
   getSectionSuggestions(
-    patientId: string
+    patientId: string,
+    params?: {
+      navigationStepId?: string;
+      noteType?: ClinicalNoteType;
+    }
   ): Promise<Record<ClinicalNoteSectionKey, string>> {
     return apiClient.get<Record<ClinicalNoteSectionKey, string>>(
-      `/patients/${patientId}/clinical-notes/section-suggestions`
+      `/patients/${patientId}/clinical-notes/section-suggestions`,
+      { params }
     );
   },
 
@@ -197,7 +226,11 @@ export const clinicalNotesApi = {
 
   create(
     patientId: string,
-    body: { noteType: ClinicalNoteType; sections: Record<string, string> }
+    body: {
+      noteType: ClinicalNoteType;
+      navigationStepId: string;
+      sections: Record<string, string>;
+    }
   ): Promise<ClinicalNoteMutationResponse> {
     return apiClient.post<ClinicalNoteMutationResponse>(
       `/patients/${patientId}/clinical-notes`,
@@ -207,7 +240,11 @@ export const clinicalNotesApi = {
 
   update(
     id: string,
-    body: { sections: Record<string, string>; changeReason?: string }
+    body: {
+      sections: Record<string, string>;
+      changeReason?: string;
+      navigationStepId?: string;
+    }
   ): Promise<ClinicalNoteMutationResponse> {
     return apiClient.patch<ClinicalNoteMutationResponse>(
       `/clinical-notes/${id}`,

@@ -28,6 +28,7 @@ import {
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { PatientWithCriticalStep } from '@/lib/api/patients-critical-steps';
+import { QueryErrorRetry } from '@/components/shared/query-error-retry';
 
 const JOURNEY_STAGE_LABELS: Record<string, string> = {
   SCREENING: 'Rastreio',
@@ -75,6 +76,8 @@ export function PatientsCriticalStepsList({
     data: patients,
     isLoading,
     error,
+    refetch,
+    isFetching,
   } = usePatientsCriticalSteps(filters);
 
   // Filtrar por termo de busca
@@ -112,9 +115,11 @@ export function PatientsCriticalStepsList({
     return (
       <Card>
         <CardContent className="py-6">
-          <div className="text-center text-red-500">
-            Erro ao carregar pacientes: {error.message}
-          </div>
+          <QueryErrorRetry
+            title="Não foi possível carregar os pacientes com etapas críticas"
+            onRetry={refetch}
+            isFetching={isFetching}
+          />
         </CardContent>
       </Card>
     );

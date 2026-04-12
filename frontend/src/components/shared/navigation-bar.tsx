@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import {
@@ -18,6 +19,27 @@ import { useAuthStore } from '@/stores/auth-store';
 import { useCriticalAlertsCount } from '@/hooks/useAlerts';
 import { useUnassumedPatientIds } from '@/hooks/useMessages';
 import { useReadPatients } from '@/hooks/useReadPatients';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import { WelcomeOnboarding } from '@/components/shared/welcome-onboarding';
+
+/** Viewport ≤1023px: rótulos da barra em modo compacto (só ícone + tooltip). */
+function useNavCompactMode() {
+  const [compact, setCompact] = useState(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 1023px)');
+    const apply = () => setCompact(mq.matches);
+    apply();
+    mq.addEventListener('change', apply);
+    return () => mq.removeEventListener('change', apply);
+  }, []);
+
+  return compact;
+}
 
 interface NavItem {
   path: string;
@@ -76,6 +98,7 @@ const observabilityNavItem: NavItem = {
 };
 
 export function NavigationBar() {
+  const compactNav = useNavCompactMode();
   const router = useRouter();
   const pathname = usePathname();
   const { user, logout } = useAuthStore();
@@ -158,88 +181,165 @@ export function NavigationBar() {
     return null;
   };
 
-  return (
-    <nav className="bg-white border-b px-4 py-3">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const active = isActive(item.path);
-            const badge = getBadge(item.path);
+  const renderMainNavButton = (item: NavItem) => {
+    const Icon = item.icon;
+    const active = isActive(item.path);
+    const badge = getBadge(item.path);
 
-            return (
-              <Button
-                key={item.path}
-                variant={active ? 'default' : 'ghost'}
-                size="sm"
-                onClick={() => router.push(item.path)}
-                className={cn(
-                  'relative flex items-center gap-2',
-                  active && 'bg-indigo-600 text-white hover:bg-indigo-700'
-                )}
-              >
-                <Icon className="h-4 w-4" />
-                <span>{item.label}</span>
-                {badge !== null && (
-                  <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white leading-none">
-                    {badge > 99 ? '99+' : badge}
-                  </span>
-                )}
-              </Button>
-            );
-          })}
+    const button = (
+      <Button
+        variant={active ? 'default' : 'ghost'}
+        size="sm"
+        onClick={() => router.push(item.path)}
+        aria-label={item.label}
+        aria-current={active ? 'page' : undefined}
+        className={cn(
+          'relative flex shrink-0 items-center gap-2',
+          active && 'bg-indigo-600 text-white hover:bg-indigo-700'
+        )}
+      >
+        <Icon className="h-4 w-4 shrink-0" aria-hidden />
+        <span className="hidden lg:inline">{item.label}</span>
+        {badge !== null && (
+          <span
+            className="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white"
+            aria-hidden
+          >
+            {badge > 99 ? '99+' : badge}
+          </span>
+        )}
+      </Button>
+    );
+
+    if (compactNav) {
+      return (
+        <Tooltip key={item.path}>
+          <TooltipTrigger asChild>{button}</TooltipTrigger>
+          <TooltipContent side="bottom">{item.label}</TooltipContent>
+        </Tooltip>
+      );
+    }
+
+    return <div key={item.path}>{button}</div>;
+  };
+
+  return (
+    <>
+    <nav
+      className="bg-white border-b px-3 py-3 sm:px-4"
+      aria-label="Navegação principal"
+    >
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 flex-wrap items-center gap-1">
+          {navItems.map((item) => renderMainNavButton(item))}
           {canManageUsers &&
             adminNavItems.map((item) => {
               const Icon = item.icon;
               const active = isActive(item.path);
 
-              return (
+              const button = (
                 <Button
-                  key={item.path}
                   variant={active ? 'default' : 'ghost'}
                   size="sm"
                   onClick={() => router.push(item.path)}
+                  aria-label={item.label}
+                  aria-current={active ? 'page' : undefined}
                   className={cn(
-                    'flex items-center gap-2',
+                    'flex shrink-0 items-center gap-2',
                     active && 'bg-indigo-600 text-white hover:bg-indigo-700'
                   )}
                 >
-                  <Icon className="h-4 w-4" />
-                  <span>{item.label}</span>
+                  <Icon className="h-4 w-4 shrink-0" aria-hidden />
+                  <span className="hidden lg:inline">{item.label}</span>
                 </Button>
               );
+
+              if (compactNav) {
+                return (
+                  <Tooltip key={item.path}>
+                    <TooltipTrigger asChild>{button}</TooltipTrigger>
+                    <TooltipContent side="bottom">{item.label}</TooltipContent>
+                  </Tooltip>
+                );
+              }
+
+              return <div key={item.path}>{button}</div>;
             })}
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex shrink-0 items-center gap-2 sm:gap-3">
           {user && (
             <>
-              <div className="text-sm text-gray-600 hidden md:block">
+              <div className="text-sm text-gray-600 hidden md:block max-w-[200px] truncate lg:max-w-none">
                 <span className="font-medium">{user.name}</span>
                 <span className="text-gray-400 mx-1">·</span>
                 <span className="text-xs text-gray-500">
                   {user?.tenant?.name || 'Hospital Teste'}
                 </span>
               </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => router.push('/profile')}
-                className={cn(
-                  isActive('/profile') && 'bg-indigo-50 text-indigo-700'
-                )}
-                aria-label="Meu perfil"
-              >
-                <Settings className="h-4 w-4" />
-              </Button>
-              <Button variant="outline" size="sm" onClick={handleLogout}>
-                <LogOut className="h-4 w-4 mr-2" />
-                Sair
-              </Button>
+              {compactNav ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => router.push('/profile')}
+                      className={cn(
+                        isActive('/profile') && 'bg-indigo-50 text-indigo-700'
+                      )}
+                      aria-label="Meu perfil"
+                      aria-current={
+                        isActive('/profile') ? 'page' : undefined
+                      }
+                    >
+                      <Settings className="h-4 w-4" aria-hidden />
+                      <span className="hidden lg:inline">Perfil</span>
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">Meu perfil</TooltipContent>
+                </Tooltip>
+              ) : (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => router.push('/profile')}
+                  className={cn(
+                    isActive('/profile') && 'bg-indigo-50 text-indigo-700'
+                  )}
+                  aria-label="Meu perfil"
+                  aria-current={isActive('/profile') ? 'page' : undefined}
+                >
+                  <Settings className="h-4 w-4 lg:mr-1" aria-hidden />
+                  <span className="hidden lg:inline">Perfil</span>
+                </Button>
+              )}
+              {compactNav ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleLogout}
+                      aria-label="Sair"
+                    >
+                      <LogOut className="h-4 w-4" aria-hidden />
+                      <span className="hidden lg:inline">Sair</span>
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">Sair</TooltipContent>
+                </Tooltip>
+              ) : (
+                <Button variant="outline" size="sm" onClick={handleLogout}>
+                  <LogOut className="h-4 w-4 lg:mr-2" aria-hidden />
+                  <span className="hidden lg:inline">Sair</span>
+                </Button>
+              )}
             </>
           )}
         </div>
       </div>
     </nav>
+    <WelcomeOnboarding />
+    </>
   );
 }
 

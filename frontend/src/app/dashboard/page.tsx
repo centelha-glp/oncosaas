@@ -42,6 +42,12 @@ import {
   getPatientAllCancerTypes,
 } from '@/lib/utils/patient-cancer-type';
 import { ChartDrillDownModal } from '@/components/dashboard/shared/chart-drill-down-modal';
+import type { PeriodFilter } from '@/components/dashboard/shared/chart-filters';
+
+/** API só aceita 7d/30d/90d; "Todos" nos gráficos = janela máxima (90d). */
+function toStatisticsApiPeriod(p: PeriodFilter): '7d' | '30d' | '90d' {
+  return p === 'all' ? '90d' : p;
+}
 
 // Componente do Dashboard Específico para Enfermeiros
 import { NurseSpecificDashboard } from '@/components/dashboard/nurse/nurse-specific-dashboard';
@@ -555,7 +561,7 @@ function ManagementDashboard() {
                   isLoading={false}
                   onPriorityFilter={handlePriorityFilter}
                   onPeriodChange={(period) =>
-                    setStatisticsPeriod(period as '7d' | '30d' | '90d')
+                    setStatisticsPeriod(toStatisticsApiPeriod(period))
                   }
                   currentPeriod={statisticsPeriod}
                 />

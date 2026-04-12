@@ -29,7 +29,6 @@ import {
   XCircle,
   Search,
   Edit,
-  Upload,
   File,
   X,
   Check,
@@ -67,6 +66,14 @@ import {
   parseNavDropId,
   StageDroppableColumn,
 } from '@/components/patients/navigation-step-dnd';
+import { NavigationStepEditPanel } from '@/components/oncology-navigation/navigation-step-edit-panel';
+import { cn } from '@/lib/utils';
+import {
+  getFilledStepDetailEntries,
+  getNavStepFormVariant,
+  parseStepDetailFromMetadata,
+  VARIANT_SECTION_TITLE,
+} from '@/lib/utils/nav-step-form-variants';
 
 interface FileMetadata {
   filename: string;
@@ -91,13 +98,14 @@ function normalizeCancerTypeKey(raw: string): string {
   return lower;
 }
 
-const STATUS_COLORS: Record<string, string> = {
-  PENDING: 'bg-gray-100 text-gray-700',
-  IN_PROGRESS: 'bg-blue-100 text-blue-700',
-  COMPLETED: 'bg-green-100 text-green-700',
-  OVERDUE: 'bg-red-100 text-red-700',
-  CANCELLED: 'bg-yellow-100 text-yellow-700',
-  NOT_APPLICABLE: 'bg-gray-50 text-gray-500',
+/** Borda esquerda por status — fundo neutro (bg-card) para melhor leitura do formulário */
+const STATUS_BORDER: Record<string, string> = {
+  PENDING: 'border-l-slate-400',
+  IN_PROGRESS: 'border-l-blue-600',
+  COMPLETED: 'border-l-emerald-600',
+  OVERDUE: 'border-l-red-600',
+  CANCELLED: 'border-l-amber-500',
+  NOT_APPLICABLE: 'border-l-slate-300',
 };
 
 const STATUS_ICONS: Record<string, React.ReactElement> = {
@@ -860,6 +868,8 @@ function StepCard({ step, apiUrl, dragHandle }: StepCardProps) {
   const [isCompleted, setIsCompleted] = useState(step.isCompleted);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
+  const variant = useMemo(() => getNavStepFormVariant(step.stepKey), [step.stepKey]);
+
   // Novos campos do formulário
   const [institutionName, setInstitutionName] = useState(
     step.institutionName || ''
@@ -877,6 +887,10 @@ function StepCard({ step, apiUrl, dragHandle }: StepCardProps) {
     step.dueDate ? new Date(step.dueDate).toISOString().split('T')[0] : ''
   );
 
+  const [stepDetail, setStepDetail] = useState<Record<string, string>>(() =>
+    parseStepDetailFromMetadata(step.metadata, variant)
+  );
+
   const [confirmDelete, setConfirmDelete] = useState(false);
   const updateStep = useUpdateNavigationStep();
   const uploadFile = useUploadStepFile();
@@ -885,8 +899,50 @@ function StepCard({ step, apiUrl, dragHandle }: StepCardProps) {
   const files = ((step.metadata as { files?: FileMetadata[] })?.files ||
     []) as FileMetadata[];
 
+  const detailPreview = useMemo(
+    () => getFilledStepDetailEntries(step.metadata, variant),
+    [step.metadata, variant]
+  );
+
+  useEffect(() => {
+    if (isEditing) {
+      return;
+    }
+    setNotes(step.notes || '');
+    setIsCompleted(step.isCompleted);
+    setInstitutionName(step.institutionName || '');
+    setProfessionalName(step.professionalName || '');
+    setResult(step.result || '');
+    setFindings(step.findings || []);
+    setActualDate(
+      step.actualDate ? new Date(step.actualDate).toISOString().split('T')[0] : ''
+    );
+    setDueDate(
+      step.dueDate ? new Date(step.dueDate).toISOString().split('T')[0] : ''
+    );
+    setStepDetail(parseStepDetailFromMetadata(step.metadata, variant));
+  }, [step, isEditing, variant]);
+
   const handleSave = async (): Promise<void> => {
+    if (!dueDate?.trim()) {
+      toast.error('Informe a data limite da etapa para manter o monitoramento de prazos.');
+      return;
+    }
     try {
+      const existingMeta =
+        step.metadata && typeof step.metadata === 'object'
+          ? { ...(step.metadata as Record<string, unknown>) }
+          : {};
+      const nextMetadata: Record<string, unknown> = {
+        ...existingMeta,
+        formVariant: variant,
+      };
+      if (variant !== 'generic') {
+        nextMetadata.stepDetail = stepDetail;
+      } else {
+        delete nextMetadata.stepDetail;
+      }
+
       await updateStep.mutateAsync({
         stepId: step.id,
         data: {
@@ -898,12 +954,14 @@ function StepCard({ step, apiUrl, dragHandle }: StepCardProps) {
               : undefined,
           institutionName: institutionName || undefined,
           professionalName: professionalName || undefined,
-          result: result || undefined,
-          findings: findings.length > 0 ? findings : undefined,
+          result: variant === 'generic' ? result || undefined : undefined,
+          findings:
+            variant === 'generic' && findings.length > 0 ? findings : undefined,
           actualDate: actualDate
             ? new Date(actualDate).toISOString()
             : undefined,
           dueDate: dueDate ? new Date(dueDate).toISOString() : undefined,
+          metadata: nextMetadata,
         },
       });
       setIsEditing(false);
@@ -970,9 +1028,11 @@ function StepCard({ step, apiUrl, dragHandle }: StepCardProps) {
 
   return (
     <div
-      className={`flex items-start gap-3 p-3 rounded-lg border ${
-        STATUS_COLORS[step.status] || STATUS_COLORS.PENDING
-      }`}
+      className={cn(
+        'flex items-start gap-3 rounded-lg border border-border bg-card p-3 text-card-foreground shadow-sm',
+        'border-l-4',
+        STATUS_BORDER[step.status] || STATUS_BORDER.PENDING
+      )}
     >
       {dragHandle && (
         <div className="flex-shrink-0 mt-0.5">{dragHandle}</div>
@@ -1063,295 +1123,64 @@ function StepCard({ step, apiUrl, dragHandle }: StepCardProps) {
         </div>
 
         {isEditing ? (
-          <div className="mt-3 space-y-4">
-            {/* Seção: Informações Básicas */}
-            <div className="border-b pb-3">
-              <h4 className="text-sm font-semibold text-gray-700 mb-3">
-                Informações Básicas
-              </h4>
-
-              {/* Data Limite (para gerar alarmes de atraso) */}
-              <div className="mb-3">
-                <label className="block text-sm font-medium mb-1">
-                  Data Limite <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="date"
-                  value={dueDate}
-                  onChange={(e) => setDueDate(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-sm"
-                  required
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  Data limite para conclusão da etapa (gera alarmes de atraso)
-                </p>
-              </div>
-
-              {/* Data Realizada */}
-              <div className="mb-3">
-                <label className="block text-sm font-medium mb-1">
-                  Data Realizada
-                </label>
-                <input
-                  type="date"
-                  value={actualDate}
-                  onChange={(e) => setActualDate(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-sm"
-                />
-              </div>
-
-              {/* Checkbox para marcar como concluída */}
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={isCompleted}
-                  onChange={(e) => setIsCompleted(e.target.checked)}
-                  className="w-4 h-4"
-                />
-                <span className="text-sm font-medium">
-                  Marcar como concluída
-                </span>
-              </label>
-            </div>
-
-            {/* Seção: Local e Profissional */}
-            <div className="border-b pb-3">
-              <h4 className="text-sm font-semibold text-gray-700 mb-3">
-                Local e Profissional
-              </h4>
-
-              {/* Instituição de Saúde */}
-              <div className="mb-3">
-                <label className="block text-sm font-medium mb-1">
-                  Instituição de Saúde
-                </label>
-                <input
-                  type="text"
-                  value={institutionName}
-                  onChange={(e) => setInstitutionName(e.target.value)}
-                  placeholder="Ex: Hospital das Clínicas, Clínica ABC..."
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-sm"
-                />
-              </div>
-
-              {/* Profissional que Realizou */}
-              <div className="mb-3">
-                <label className="block text-sm font-medium mb-1">
-                  Profissional que Realizou
-                </label>
-                <input
-                  type="text"
-                  value={professionalName}
-                  onChange={(e) => setProfessionalName(e.target.value)}
-                  placeholder="Ex: Dr. João Silva, CRM 12345"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-sm"
-                />
-              </div>
-            </div>
-
-            {/* Seção: Resultados */}
-            <div className="border-b pb-3">
-              <h4 className="text-sm font-semibold text-gray-700 mb-3">
-                Resultados
-              </h4>
-
-              {/* Resultado */}
-              <div className="mb-3">
-                <label className="block text-sm font-medium mb-1">
-                  Resultado
-                </label>
-                <select
-                  value={result}
-                  onChange={(e) => setResult(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-sm"
-                >
-                  <option value="">Selecione...</option>
-                  <option value="Normal">Normal</option>
-                  <option value="Alterado">Alterado</option>
-                  <option value="Pendente">Pendente</option>
-                  <option value="Inconclusivo">Inconclusivo</option>
-                  <option value="Outro">Outro</option>
-                </select>
-              </div>
-
-              {/* Achados (Lista de Alterações) */}
-              <div className="mb-3">
-                <label className="block text-sm font-medium mb-1">
-                  Achados (Alterações Encontradas)
-                </label>
-                <div className="flex gap-2 mb-2">
-                  <input
-                    type="text"
-                    value={newFinding}
-                    onChange={(e) => setNewFinding(e.target.value)}
-                    onKeyPress={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        handleAddFinding();
-                      }
-                    }}
-                    placeholder="Digite um achado e pressione Enter"
-                    className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-sm"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleAddFinding}
-                    className="px-3 py-2 bg-indigo-600 text-white rounded-md text-sm hover:bg-indigo-700"
-                  >
-                    Adicionar
-                  </button>
-                </div>
-                {findings.length > 0 && (
-                  <div className="space-y-1">
-                    {findings.map((finding, index) => (
-                      <div
-                        key={index}
-                        className="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-md text-sm"
-                      >
-                        <span className="flex-1">{finding}</span>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveFinding(index)}
-                          className="text-red-600 hover:text-red-800"
-                        >
-                          <X className="h-4 w-4" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Seção: Observações e Arquivos */}
-            <div className="border-b pb-3">
-              <h4 className="text-sm font-semibold text-gray-700 mb-3">
-                Observações e Documentos
-              </h4>
-
-              {/* Campo de observações */}
-              <div className="mb-3">
-                <label className="block text-sm font-medium mb-1">
-                  Observações
-                </label>
-                <textarea
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Adicione observações sobre esta etapa..."
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-sm"
-                  rows={3}
-                />
-              </div>
-
-              {/* Upload de arquivo */}
-              <div>
-                <label className="block text-sm font-medium mb-1">
-                  Anexar arquivo
-                </label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="file"
-                    onChange={(e) =>
-                      setSelectedFile(e.target.files?.[0] || null)
-                    }
-                    className="text-sm"
-                    accept="image/*,.pdf,.doc,.docx,.xls,.xlsx"
-                  />
-                  {selectedFile && (
-                    <button
-                      onClick={handleFileUpload}
-                      disabled={uploadFile.isPending}
-                      className="px-3 py-1 bg-indigo-600 text-white rounded-md text-sm hover:bg-indigo-700 disabled:opacity-50 flex items-center gap-1"
-                    >
-                      <Upload className="h-3 w-3" />
-                      {uploadFile.isPending ? 'Enviando...' : 'Enviar'}
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* Lista de arquivos existentes */}
-              {files.length > 0 && (
-                <div>
-                  <label className="block text-sm font-medium mb-1">
-                    Arquivos anexados
-                  </label>
-                  <div className="space-y-1">
-                    {files.map((file: FileMetadata, index: number) => {
-                      const fileHref = buildSafeApiFileHref(apiUrl, file.path);
-                      return (
-                      <div
-                        key={index}
-                        className="flex items-center gap-2 px-2 py-1 bg-gray-100 rounded text-sm"
-                      >
-                        <File className="h-4 w-4 text-gray-600" />
-                        <span className="flex-1 truncate">
-                          {file.originalName}
-                        </span>
-                        <span className="text-xs text-gray-500">
-                          {formatFileSize(file.size)}
-                        </span>
-                        {fileHref ? (
-                          <a
-                            href={fileHref}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-indigo-600 hover:text-indigo-800"
-                          >
-                            Abrir
-                          </a>
-                        ) : (
-                          <span className="text-xs text-gray-400" title="Link inválido">
-                            —
-                          </span>
-                        )}
-                      </div>
-                    );
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Botões de ação */}
-            <div className="flex items-center gap-2 pt-2">
-              <button
-                onClick={handleSave}
-                disabled={updateStep.isPending}
-                className="px-4 py-2 bg-indigo-600 text-white rounded-md text-sm hover:bg-indigo-700 disabled:opacity-50 flex items-center gap-2"
-              >
-                <Check className="h-4 w-4" />
-                {updateStep.isPending ? 'Salvando...' : 'Salvar'}
-              </button>
-              <button
-                onClick={() => {
-                  setIsEditing(false);
-                  setNotes(step.notes || '');
-                  setIsCompleted(step.isCompleted);
-                  setSelectedFile(null);
-                  setInstitutionName(step.institutionName || '');
-                  setProfessionalName(step.professionalName || '');
-                  setResult(step.result || '');
-                  setFindings(step.findings || []);
-                  setActualDate(
-                    step.actualDate
-                      ? new Date(step.actualDate).toISOString().split('T')[0]
-                      : ''
-                  );
-                  setDueDate(
-                    step.dueDate
-                      ? new Date(step.dueDate).toISOString().split('T')[0]
-                      : ''
-                  );
-                  setNewFinding('');
-                }}
-                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md text-sm hover:bg-gray-300 flex items-center gap-2"
-              >
-                <X className="h-4 w-4" />
-                Cancelar
-              </button>
-            </div>
-          </div>
+          <NavigationStepEditPanel
+            stepKey={step.stepKey}
+            variant={variant}
+            stepDetail={stepDetail}
+            onStepDetailFieldChange={(key, value) =>
+              setStepDetail((prev) => ({ ...prev, [key]: value }))
+            }
+            dueDate={dueDate}
+            onDueDateChange={setDueDate}
+            actualDate={actualDate}
+            onActualDateChange={setActualDate}
+            isCompleted={isCompleted}
+            onIsCompletedChange={setIsCompleted}
+            institutionName={institutionName}
+            onInstitutionNameChange={setInstitutionName}
+            professionalName={professionalName}
+            onProfessionalNameChange={setProfessionalName}
+            result={result}
+            onResultChange={setResult}
+            findings={findings}
+            newFinding={newFinding}
+            onNewFindingChange={setNewFinding}
+            onAddFinding={handleAddFinding}
+            onRemoveFinding={handleRemoveFinding}
+            notes={notes}
+            onNotesChange={setNotes}
+            selectedFile={selectedFile}
+            onFileChange={setSelectedFile}
+            files={files}
+            apiUrl={apiUrl}
+            onUpload={() => void handleFileUpload()}
+            uploadPending={uploadFile.isPending}
+            formatFileSize={formatFileSize}
+            onSave={() => void handleSave()}
+            onCancel={() => {
+              setIsEditing(false);
+              setNotes(step.notes || '');
+              setIsCompleted(step.isCompleted);
+              setSelectedFile(null);
+              setInstitutionName(step.institutionName || '');
+              setProfessionalName(step.professionalName || '');
+              setResult(step.result || '');
+              setFindings(step.findings || []);
+              setStepDetail(parseStepDetailFromMetadata(step.metadata, variant));
+              setActualDate(
+                step.actualDate
+                  ? new Date(step.actualDate).toISOString().split('T')[0]
+                  : ''
+              );
+              setDueDate(
+                step.dueDate
+                  ? new Date(step.dueDate).toISOString().split('T')[0]
+                  : ''
+              );
+              setNewFinding('');
+            }}
+            savePending={updateStep.isPending}
+          />
         ) : (
           <div className="mt-2 space-y-2">
             {/* Informações de Local e Profissional */}
@@ -1370,8 +1199,22 @@ function StepCard({ step, apiUrl, dragHandle }: StepCardProps) {
               </div>
             )}
 
+            {variant !== 'generic' && detailPreview.length > 0 && (
+              <div className="space-y-3 rounded-md border border-primary/25 bg-primary/5 p-3">
+                <p className="text-sm font-semibold text-foreground">
+                  {VARIANT_SECTION_TITLE[variant]}
+                </p>
+                {detailPreview.map((row, idx) => (
+                  <div key={`${row.label}-${idx}`} className="space-y-0.5">
+                    <p className="text-xs font-medium text-muted-foreground">{row.label}</p>
+                    <p className="text-sm whitespace-pre-wrap text-foreground">{row.value}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+
             {/* Resultado */}
-            {step.result && (
+            {variant === 'generic' && step.result && (
               <div className="p-2 bg-blue-50 rounded border border-blue-200">
                 <p className="text-sm text-gray-700">
                   <strong>Resultado:</strong>{' '}
@@ -1381,7 +1224,7 @@ function StepCard({ step, apiUrl, dragHandle }: StepCardProps) {
             )}
 
             {/* Achados */}
-            {step.findings && step.findings.length > 0 && (
+            {variant === 'generic' && step.findings && step.findings.length > 0 && (
               <div className="p-2 bg-yellow-50 rounded border border-yellow-200">
                 <p className="text-sm font-medium text-gray-700 mb-1">
                   Achados Encontrados:

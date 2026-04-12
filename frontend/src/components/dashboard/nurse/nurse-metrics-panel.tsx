@@ -6,9 +6,11 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { AlertCircle, Clock, Users, TrendingUp } from 'lucide-react';
 import { MetricInfoTooltip } from '@/components/shared/metric-info-tooltip';
 import { formatMinutes } from '@/lib/utils';
+import { QueryErrorRetry } from '@/components/shared/query-error-retry';
 
 export function NurseMetricsPanel() {
-  const { data: metrics, isLoading, error } = useNurseMetrics();
+  const { data: metrics, isLoading, error, refetch, isFetching } =
+    useNurseMetrics();
 
   if (isLoading) {
     return (
@@ -29,8 +31,12 @@ export function NurseMetricsPanel() {
 
   if (error) {
     return (
-      <div className="text-center py-4 text-red-500">
-        Erro ao carregar métricas: {error.message}
+      <div className="max-w-lg py-2">
+        <QueryErrorRetry
+          title="Não foi possível carregar as métricas"
+          onRetry={refetch}
+          isFetching={isFetching}
+        />
       </div>
     );
   }

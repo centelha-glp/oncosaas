@@ -9,8 +9,9 @@ import { sortPatientsByPriority } from '@/lib/utils/patient-sorting';
 import { filterPatients, PatientFilters } from '@/lib/utils/patient-filtering';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
-import { Users, Search, Filter, AlertCircle } from 'lucide-react';
+import { Users, Search, Filter, AlertCircle, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import { mapPriorityToDisplay } from '@/lib/utils/priority';
 import { getPatientCancerType } from '@/lib/utils/patient-cancer-type';
 
@@ -32,7 +33,8 @@ export function PatientListConnected({
   hideActionButtons = false,
 }: PatientListConnectedProps) {
   const router = useRouter();
-  const { data: patients, isLoading, error } = usePatients();
+  const { data: patients, isLoading, error, refetch, isFetching } =
+    usePatients();
 
   if (isLoading) {
     return (
@@ -71,14 +73,20 @@ export function PatientListConnected({
       <EmptyState
         icon={<AlertCircle className="h-12 w-12 text-red-500" />}
         title="Erro ao carregar pacientes"
-        description={`Não foi possível carregar a lista de pacientes. ${error.message}`}
+        description="Não foi possível carregar a lista. Verifique sua conexão e tente novamente."
         action={
           <Button
             variant="outline"
             size="sm"
-            onClick={() => window.location.reload()}
+            type="button"
+            onClick={() => refetch()}
+            disabled={isFetching}
           >
-            Tentar novamente
+            <RefreshCw
+              className={cn('mr-2 h-4 w-4', isFetching && 'animate-spin')}
+              aria-hidden
+            />
+            {isFetching ? 'Carregando...' : 'Tentar novamente'}
           </Button>
         }
       />

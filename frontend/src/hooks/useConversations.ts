@@ -31,6 +31,7 @@ export function useConversations(params?: {
   return useQuery({
     queryKey: conversationKeys.list(params || {}),
     queryFn: () => conversationsApi.list(params),
+    staleTime: 60_000,
   });
 }
 
@@ -39,6 +40,7 @@ export function useConversation(id: string | null) {
     queryKey: conversationKeys.detail(id || ''),
     queryFn: () => conversationsApi.get(id!),
     enabled: !!id,
+    staleTime: 60_000,
   });
 }
 
@@ -48,6 +50,7 @@ export function usePendingDecisions() {
   return useQuery({
     queryKey: conversationKeys.decisions(),
     queryFn: () => conversationsApi.getPendingDecisions(),
+    staleTime: 30_000,
     refetchInterval: 30_000, // Poll every 30s
   });
 }

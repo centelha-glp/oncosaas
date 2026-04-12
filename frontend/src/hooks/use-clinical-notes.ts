@@ -31,10 +31,12 @@ export function useClinicalNoteMutations(patientId: string) {
   const create = useMutation({
     mutationFn: (payload: {
       noteType: ClinicalNoteType;
+      navigationStepId: string;
       sections: Record<string, string>;
     }) =>
       clinicalNotesApi.create(patientId, {
         noteType: payload.noteType,
+        navigationStepId: payload.navigationStepId,
         sections: payload.sections,
       }),
     onSuccess: () => {
@@ -47,10 +49,12 @@ export function useClinicalNoteMutations(patientId: string) {
       id: string;
       sections: Record<string, string>;
       changeReason?: string;
+      navigationStepId?: string;
     }) =>
       clinicalNotesApi.update(args.id, {
         sections: args.sections,
         changeReason: args.changeReason,
+        navigationStepId: args.navigationStepId,
       }),
     onSuccess: (_, v) => {
       invalidate();

@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 import { PatientDetail } from '@/lib/api/patients';
 import {
+  CLINICAL_EVOLUTION_NAVIGATION_STEP_KEY,
   CLINICAL_NOTE_SECTION_KEYS,
   cloneClinicalNoteSections,
   clinicalNotePrimaryPersonName,
@@ -16,6 +17,9 @@ import {
   type ClinicalNoteSectionKey,
   type ClinicalNoteType,
 } from '@/lib/api/clinical-notes';
+import type { NavigationStep } from '@/lib/api/oncology-navigation';
+import { usePatientNavigationSteps } from '@/hooks/useOncologyNavigation';
+import { JOURNEY_STAGE_LABELS, type JourneyStage } from '@/lib/utils/journey-stage';
 import {
   useClinicalNoteDetail,
   useClinicalNotesList,
@@ -45,6 +49,14 @@ import {
   canVoidClinicalNote,
 } from '@/lib/utils/clinical-note-permissions';
 import { useDebounce } from '@/lib/utils/use-debounce';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { QueryErrorRetry } from '@/components/shared/query-error-retry';
 
 /** Tempo sem digitar antes de enviar PATCH (salvamento automático do rascunho) */
 const CLINICAL_NOTE_AUTOSAVE_MS = 1000;
@@ -70,10 +82,22 @@ interface PatientProntuarioTabProps {
   patient: PatientDetail;
 }
 
+function journeyStageLabel(stage: string): string {
+  const s = stage as JourneyStage;
+  return JOURNEY_STAGE_LABELS[s] ?? stage;
+}
+
 export function PatientProntuarioTab({
   patient,
 }: PatientProntuarioTabProps): React.ReactElement {
-  const { data: list, isLoading, error } = useClinicalNotesList(patient.id);
+  const {
+    data: list,
+    isLoading,
+    error,
+    refetch,
+    isFetching,
+  } = useClinicalNotesList(patient.id);
+  const { data: navigationSteps = [] } = usePatientNavigationSteps(patient.id);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const { data: detail, isLoading: loadingDetail } = useClinicalNoteDetail(
     selectedId ?? undefined
@@ -88,6 +112,12 @@ export function PatientProntuarioTab({
   const [voidReason, setVoidReason] = useState('');
   const [isResolvingCreateTemplate, setIsResolvingCreateTemplate] =
     useState(false);
+  const [evolutionPick, setEvolutionPick] = useState<{
+    noteType: ClinicalNoteType;
+    sections: Record<string, string>;
+    candidates: NavigationStep[];
+    selectedStepId: string;
+  } | null>(null);
   const user = useAuthStore((s) => s.user);
   const isInitializing = useAuthStore((s) => s.isInitializing);
   const role = user?.role;
@@ -236,6 +266,16 @@ export function PatientProntuarioTab({
   const handleCreateEvolution = async (noteType: ClinicalNoteType) => {
     setIsResolvingCreateTemplate(true);
     try {
+      const stepKey = CLINICAL_EVOLUTION_NAVIGATION_STEP_KEY[noteType];
+      const candidates = navigationSteps.filter((s) => s.stepKey === stepKey);
+
+      if (candidates.length === 0) {
+        toast.error(
+          'Não há etapa de navegação correspondente no paciente. Abra Navegação oncológica no menu e garanta as etapas "Consulta especializada" (evolução médica) ou "Consulta de navegação oncológica" (evolução de enfermagem).'
+        );
+        return;
+      }
+
       const sections = await loadSectionsFromPreviousEvolution(
         noteType,
         list?.data ?? []
@@ -243,7 +283,12 @@ export function PatientProntuarioTab({
       let merged = sections;
       try {
         const suggestions = await clinicalNotesApi.getSectionSuggestions(
-          patient.id
+          patient.id,
+          {
+            noteType,
+            navigationStepId:
+              candidates.length === 1 ? candidates[0]!.id : undefined,
+          }
         );
         merged = mergeClinicalSectionsWithCadastroSuggestions(
           sections,
@@ -252,8 +297,68 @@ export function PatientProntuarioTab({
       } catch {
         /* cadastro opcional; evolução segue só com texto da evolução anterior */
       }
-      const res = await create.mutateAsync({ noteType, sections: merged });
+
+      if (candidates.length > 1) {
+        setEvolutionPick({
+          noteType,
+          sections: merged,
+          candidates,
+          selectedStepId: candidates[0]!.id,
+        });
+        return;
+      }
+
+      const res = await create.mutateAsync({
+        noteType,
+        sections: merged,
+        navigationStepId: candidates[0]!.id,
+      });
       setSelectedId(res.id);
+    } catch (err) {
+      const msg =
+        err instanceof ApiClientError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : 'Não foi possível criar a evolução.';
+      toast.error(msg);
+    } finally {
+      setIsResolvingCreateTemplate(false);
+    }
+  };
+
+  const confirmEvolutionPick = async () => {
+    if (!evolutionPick) return;
+    setIsResolvingCreateTemplate(true);
+    try {
+      const base = await loadSectionsFromPreviousEvolution(
+        evolutionPick.noteType,
+        list?.data ?? []
+      );
+      let sections = evolutionPick.sections;
+      try {
+        const suggestions = await clinicalNotesApi.getSectionSuggestions(
+          patient.id,
+          {
+            noteType: evolutionPick.noteType,
+            navigationStepId: evolutionPick.selectedStepId,
+          }
+        );
+        sections = mergeClinicalSectionsWithCadastroSuggestions(
+          base,
+          suggestions
+        );
+      } catch {
+        sections = evolutionPick.sections;
+      }
+
+      const res = await create.mutateAsync({
+        noteType: evolutionPick.noteType,
+        sections,
+        navigationStepId: evolutionPick.selectedStepId,
+      });
+      setSelectedId(res.id);
+      setEvolutionPick(null);
     } catch (err) {
       const msg =
         err instanceof ApiClientError
@@ -389,9 +494,12 @@ export function PatientProntuarioTab({
       </div>
 
       {error && (
-        <p className="text-destructive text-sm">
-          {error instanceof Error ? error.message : 'Erro ao carregar notas'}
-        </p>
+        <QueryErrorRetry
+          title="Não foi possível carregar as evoluções"
+          onRetry={refetch}
+          isFetching={isFetching}
+          className="max-w-lg"
+        />
       )}
 
       {isLoading && (
@@ -427,6 +535,12 @@ export function PatientProntuarioTab({
                       locale: ptBR,
                     })}
                   </span>
+                  {n.navigationStep && (
+                    <span className="text-xs text-muted-foreground font-normal max-w-[16rem] truncate block">
+                      {n.navigationStep.stepName} ·{' '}
+                      {journeyStageLabel(n.navigationStep.journeyStage)}
+                    </span>
+                  )}
                   {n.status === 'DRAFT' && n.lastEditedBy && (
                     <span className="text-xs text-muted-foreground font-normal max-w-[14rem] truncate">
                       Última edição: {n.lastEditedBy.name}
@@ -460,6 +574,13 @@ export function PatientProntuarioTab({
                     <span className="text-xs text-muted-foreground">
                       {clinicalNoteTypeLabel(detail.noteType)}
                     </span>
+                    {detail.navigationStep && (
+                      <span className="text-xs text-muted-foreground">
+                        · {detail.navigationStep.stepName} (
+                        {journeyStageLabel(detail.navigationStep.journeyStage)}
+                        )
+                      </span>
+                    )}
                     {statusBadge(detail.status)}
                     {detail.amendsClinicalNoteId && (
                       <span className="text-xs text-muted-foreground">
@@ -586,6 +707,59 @@ export function PatientProntuarioTab({
           )}
         </div>
       )}
+
+      <AlertDialog
+        open={evolutionPick !== null}
+        onOpenChange={(open) => {
+          if (!open) setEvolutionPick(null);
+        }}
+      >
+        <AlertDialogContent className="max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Vincular à etapa de navegação</AlertDialogTitle>
+            <AlertDialogDescription>
+              Existe mais de uma etapa compatível com este tipo de evolução.
+              Selecione a consulta à qual este registro se refere.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {evolutionPick && (
+            <div className="space-y-2 py-2">
+              <Label htmlFor="evolution-nav-step-select">Etapa de navegação</Label>
+              <Select
+                value={evolutionPick.selectedStepId}
+                onValueChange={(v) =>
+                  setEvolutionPick((prev) =>
+                    prev ? { ...prev, selectedStepId: v } : null
+                  )
+                }
+              >
+                <SelectTrigger id="evolution-nav-step-select">
+                  <SelectValue placeholder="Selecione a etapa" />
+                </SelectTrigger>
+                <SelectContent>
+                  {evolutionPick.candidates.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>
+                      {s.stepName} · {journeyStageLabel(s.journeyStage)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={create.isPending}>
+              Cancelar
+            </AlertDialogCancel>
+            <Button
+              type="button"
+              disabled={create.isPending || !evolutionPick}
+              onClick={() => void confirmEvolutionPick()}
+            >
+              {create.isPending ? 'Criando…' : 'Criar evolução'}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={voidOpen} onOpenChange={setVoidOpen}>
         <AlertDialogContent>

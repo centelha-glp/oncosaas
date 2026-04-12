@@ -361,6 +361,20 @@ export default function ProfilePage() {
             </div>
           </form>
 
+          {!canEditSettings && profile && (
+            <div
+              className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-600"
+              role="note"
+            >
+              <p>
+                As configurações da instituição (tipos de câncer habilitados na
+                navegação oncológica) são alteradas apenas por perfis
+                autorizados (ex.: administração ou coordenação). Em dúvida,
+                procure o gestor da sua unidade.
+              </p>
+            </div>
+          )}
+
           {/* Configurações do Tenant — apenas para roles permitidas */}
           {canEditSettings && (
             <div className="bg-white rounded-lg border border-gray-200 p-6 space-y-4">

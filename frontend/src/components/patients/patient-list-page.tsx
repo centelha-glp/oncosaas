@@ -1,17 +1,24 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { usePatients } from '@/hooks/use-patients';
+import { usePatients } from '@/hooks/usePatients';
 import { PatientFilters } from './patient-filters';
 import { PatientTable } from './patient-table';
 import { Button } from '@/components/ui/button';
+import { QueryErrorRetry } from '@/components/shared/query-error-retry';
 import { Plus, Upload } from 'lucide-react';
 import { PatientImportDialog } from './patient-import-dialog';
 import { PatientCreateDialog } from './patient-create-dialog';
 import { Patient } from '@/lib/api/patients';
 
 export function PatientListPage() {
-  const { data: patients = [], isLoading, error } = usePatients();
+  const {
+    data: patients = [],
+    isLoading,
+    error,
+    refetch,
+    isFetching,
+  } = usePatients();
   const [searchTerm, setSearchTerm] = useState('');
   const [cancerTypeFilter, setCancerTypeFilter] = useState('all');
   const [stageFilter, setStageFilter] = useState('all');
@@ -75,10 +82,12 @@ export function PatientListPage() {
 
   if (error) {
     return (
-      <div className="p-6">
-        <div className="text-destructive">
-          Erro ao carregar pacientes: {error.message}
-        </div>
+      <div className="p-6 max-w-lg">
+        <QueryErrorRetry
+          title="Não foi possível carregar os pacientes"
+          onRetry={refetch}
+          isFetching={isFetching}
+        />
       </div>
     );
   }

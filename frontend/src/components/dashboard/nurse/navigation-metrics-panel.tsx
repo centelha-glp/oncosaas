@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { MetricInfoTooltip } from '@/components/shared/metric-info-tooltip';
+import { QueryErrorRetry } from '@/components/shared/query-error-retry';
 
 const JOURNEY_STAGE_LABELS: Record<string, string> = {
   SCREENING: 'Rastreio',
@@ -22,7 +23,8 @@ const JOURNEY_STAGE_LABELS: Record<string, string> = {
 };
 
 export function NavigationMetricsPanel() {
-  const { data: metrics, isLoading, error } = useNavigationMetrics();
+  const { data: metrics, isLoading, error, refetch, isFetching } =
+    useNavigationMetrics();
 
   if (isLoading) {
     return (
@@ -43,8 +45,12 @@ export function NavigationMetricsPanel() {
 
   if (error) {
     return (
-      <div className="text-center py-6 text-red-500">
-        Erro ao carregar métricas de navegação: {error.message}
+      <div className="max-w-lg py-2">
+        <QueryErrorRetry
+          title="Não foi possível carregar as métricas de navegação"
+          onRetry={refetch}
+          isFetching={isFetching}
+        />
       </div>
     );
   }

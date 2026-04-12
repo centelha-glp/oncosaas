@@ -106,6 +106,7 @@ export function ChartDrillDownModal({
           overdueOnly: true,
         }),
       enabled: open && isOverdueSteps,
+      staleTime: 30_000,
     });
 
   // Buscar alertas pendentes (drill-down "Alertas Pendentes") — lista de alertas, não de pacientes
@@ -118,8 +119,7 @@ export function ChartDrillDownModal({
     queryKey: ['dashboard', 'pending-alerts'],
     queryFn: () => dashboardApi.getPendingAlerts(100),
     enabled: open && isAlertsFilter,
-    staleTime: 0,
-    refetchOnMount: 'always',
+    staleTime: 30_000,
   });
   const pendingAlerts = React.useMemo<PendingAlert[]>(
     () => (Array.isArray(pendingAlertsRaw) ? pendingAlertsRaw : []),
@@ -140,8 +140,7 @@ export function ChartDrillDownModal({
         100
       ),
     enabled: open && (filterType === 'messages' || filterType === 'biomarkers'),
-    staleTime: 0,
-    refetchOnMount: 'always',
+    staleTime: 30_000,
   });
   const indicatorPatients = React.useMemo<Patient[]>(
     () => (Array.isArray(indicatorPatientsRaw) ? indicatorPatientsRaw : []),
@@ -153,6 +152,7 @@ export function ChartDrillDownModal({
     queryKey: ['patients', 'drill-down'],
     queryFn: () => patientsApi.getAll(),
     enabled: open && !isOverdueSteps && !isIndicatorFilter,
+    staleTime: 2 * 60_000,
   });
 
   const isLoading = isOverdueSteps
