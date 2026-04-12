@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import { usePatients } from '@/hooks/usePatients';
 import { PatientFilters } from './patient-filters';
 import { PatientTable } from './patient-table';
@@ -32,16 +32,6 @@ export function PatientListPage() {
   const [navigationStageFilter, setNavigationStageFilter] = useState('all');
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
-
-  useEffect(() => {
-    setPage(1);
-  }, [
-    searchTerm,
-    cancerTypeFilter,
-    stageFilter,
-    priorityFilter,
-    navigationStageFilter,
-  ]);
 
   const filteredPatients = useMemo(() => {
     if (!patients) return [];
@@ -133,15 +123,30 @@ export function PatientListPage() {
       {/* Filtros */}
       <PatientFilters
         searchTerm={searchTerm}
-        onSearchChange={setSearchTerm}
+        onSearchChange={(value) => {
+          setSearchTerm(value);
+          setPage(1);
+        }}
         cancerTypeFilter={cancerTypeFilter}
-        onCancerTypeChange={setCancerTypeFilter}
+        onCancerTypeChange={(value) => {
+          setCancerTypeFilter(value);
+          setPage(1);
+        }}
         stageFilter={stageFilter}
-        onStageChange={setStageFilter}
+        onStageChange={(value) => {
+          setStageFilter(value);
+          setPage(1);
+        }}
         priorityFilter={priorityFilter}
-        onPriorityChange={setPriorityFilter}
+        onPriorityChange={(value) => {
+          setPriorityFilter(value);
+          setPage(1);
+        }}
         navigationStageFilter={navigationStageFilter}
-        onNavigationStageChange={setNavigationStageFilter}
+        onNavigationStageChange={(value) => {
+          setNavigationStageFilter(value);
+          setPage(1);
+        }}
       />
 
       {/* Tabela */}
