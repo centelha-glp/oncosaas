@@ -196,19 +196,49 @@ describe('AuditLogInterceptor', () => {
     });
   });
 
-  describe('rotas GET — audit NÃO é chamado', () => {
-    it('não deve chamar auditLogService.log para método GET', async () => {
+  describe('rotas GET — [A-07] audit VIEW em recursos PHI', () => {
+    it('deve registrar VIEW com itemCount para listagem de patients', async () => {
       const ctx = buildContext('GET', '/api/v1/patients');
-      const handler = buildCallHandler([{ id: 'patient-1' }]);
+      const handler = buildCallHandler([
+        { id: 'patient-1' },
+        { id: 'patient-2' },
+      ]);
 
       await firstValueFrom(interceptor.intercept(ctx, handler));
 
-      expect(mockAuditLogService.log).not.toHaveBeenCalled();
+      expect(mockAuditLogService.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'VIEW',
+          resourceType: 'patients',
+          newValues: expect.objectContaining({
+            readType: 'list',
+            itemCount: 2,
+          }),
+        })
+      );
     });
 
-    it('não deve chamar auditLogService.log para método GET em recurso PHI', async () => {
-      const ctx = buildContext('GET', '/api/v1/medications/uuid-1');
-      const handler = buildCallHandler({ id: 'uuid-1' });
+    it('deve registrar VIEW para GET de medication por id', async () => {
+      const ctx = buildContext(
+        'GET',
+        '/api/v1/medications/550e8400-e29b-41d4-a716-446655440000'
+      );
+      const handler = buildCallHandler({ id: '550e8400-e29b-41d4-a716-446655440000' });
+
+      await firstValueFrom(interceptor.intercept(ctx, handler));
+
+      expect(mockAuditLogService.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'VIEW',
+          resourceType: 'medications',
+          resourceId: '550e8400-e29b-41d4-a716-446655440000',
+        })
+      );
+    });
+
+    it('não deve auditar GET em recurso não-PHI', async () => {
+      const ctx = buildContext('GET', '/api/v1/conversations');
+      const handler = buildCallHandler([{ id: 'c1' }]);
 
       await firstValueFrom(interceptor.intercept(ctx, handler));
 

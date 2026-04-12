@@ -6,6 +6,7 @@ import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '@/prisma/prisma.service';
 import { RedisService } from '@/redis/redis.service';
+import { AuditLogService } from '@/audit-log/audit-log.service';
 
 // Minimal mocks
 const mockPrisma = {
@@ -35,6 +36,10 @@ const mockConfig = {
   get: jest.fn().mockReturnValue(undefined),
 };
 
+const mockAuditLog = {
+  log: jest.fn().mockResolvedValue({}),
+};
+
 describe('AuthService', () => {
   let service: AuthService;
 
@@ -48,6 +53,7 @@ describe('AuthService', () => {
         { provide: JwtService, useValue: mockJwt },
         { provide: ConfigService, useValue: mockConfig },
         { provide: RedisService, useValue: mockRedis },
+        { provide: AuditLogService, useValue: mockAuditLog },
       ],
     })
       .overrideProvider('PrismaService')
@@ -63,6 +69,7 @@ describe('AuthService', () => {
     (service as any).jwtService = mockJwt;
     (service as any).configService = mockConfig;
     (service as any).redisService = mockRedis;
+    (service as any).auditLogService = mockAuditLog;
   });
 
   describe('validateUser', () => {

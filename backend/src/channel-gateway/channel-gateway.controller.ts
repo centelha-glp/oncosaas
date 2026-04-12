@@ -76,10 +76,17 @@ export class ChannelGatewayController {
     const isProduction =
       this.configService.get<string>('NODE_ENV') === 'production';
     const signature = req.headers['x-hub-signature-256'] as string | undefined;
+    const appSecret = this.configService.get<string>('META_APP_SECRET')?.trim();
 
-    // Validar assinatura em todos os ambientes quando META_APP_SECRET está configurado.
-    // Em produção, a assinatura é sempre obrigatória.
-    const appSecret = this.configService.get<string>('META_APP_SECRET');
+    // [A-04] Header de assinatura sem secret configurado → não verificável; rejeitar.
+    if (signature && !appSecret) {
+      this.logger.warn(
+        'WhatsApp webhook: x-hub-signature-256 present but META_APP_SECRET is not set',
+      );
+      throw new ForbiddenException(
+        'Webhook signature verification not configured',
+      );
+    }
 
     if (isProduction) {
       if (!req.rawBody || !signature) {
@@ -92,8 +99,14 @@ export class ChannelGatewayController {
         this.logger.warn('Invalid WhatsApp webhook signature');
         throw new ForbiddenException('Invalid signature');
       }
-    } else if (appSecret && signature && req.rawBody) {
-      // Non-production: validar somente quando META_APP_SECRET está configurado
+    } else if (appSecret) {
+      // Non-production com META_APP_SECRET: mesma exigência de assinatura válida
+      if (!req.rawBody || !signature) {
+        this.logger.warn(
+          'WhatsApp webhook (non-production): missing raw body or signature',
+        );
+        throw new ForbiddenException('Webhook signature required');
+      }
       if (
         !this.whatsAppChannel.validateWebhookSignature(req.rawBody, signature)
       ) {

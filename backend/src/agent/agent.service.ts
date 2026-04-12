@@ -1,5 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import {
+  getAiServiceConfig,
+  getAiServiceHeadersWithTenant,
+} from '../common/utils/ai-service.util';
 import { PrismaService } from '../prisma/prisma.service';
 import { ChannelGatewayService } from '../channel-gateway/channel-gateway.service';
 import { ConversationService } from './conversation.service';
@@ -395,14 +399,12 @@ export class AgentService {
     agentState: Record<string, any> | null;
     agentConfig: any;
   }): Promise<AgentResponse | null> {
-    const aiServiceUrl =
-      this.configService.get<string>('AI_SERVICE_URL') ||
-      'http://localhost:8001';
+    const { aiServiceUrl, headers: aiHeaders } = getAiServiceConfig(this.configService);
 
     try {
       const response = await fetch(`${aiServiceUrl}/api/v1/agent/process`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: aiHeaders,
         body: JSON.stringify({
           message: request.message,
           patient_id: request.patientId,
@@ -1230,14 +1232,12 @@ export class AgentService {
       ),
     };
 
-    const aiServiceUrl =
-      this.configService.get<string>('AI_SERVICE_URL') ||
-      'http://localhost:8001';
+    const { aiServiceUrl, headers: aiHeaders } = getAiServiceConfig(this.configService);
 
     try {
       const response = await fetch(`${aiServiceUrl}/api/v1/agent/nurse-assist`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: aiHeaders,
         body: JSON.stringify(payload),
       });
 
@@ -1379,16 +1379,16 @@ export class AgentService {
       treatments: [],
     };
 
-    const aiServiceUrl =
-      this.configService.get<string>('AI_SERVICE_URL') ||
-      'http://localhost:8001';
+    const { aiServiceUrl, headers: aiHeaders } = getAiServiceConfig(
+      this.configService,
+    );
 
     try {
       const response = await fetch(
         `${aiServiceUrl}/api/v1/agent/patient-summary`,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: aiHeaders,
           body: JSON.stringify(payload),
         },
       );
@@ -1446,14 +1446,15 @@ export class AgentService {
   // OBSERVABILITY PROXY
   // ==========================================
 
-  private getAiServiceUrl(): string {
-    return this.configService.get<string>('AI_SERVICE_URL') || 'http://localhost:8001';
-  }
-
   async getObservabilityTraces(tenantId: string, limit = 50): Promise<any> {
     try {
-      const url = `${this.getAiServiceUrl()}/api/v1/observability/traces?limit=${limit}`;
-      const response = await fetch(url, { headers: { 'X-Tenant-Id': tenantId } });
+      const { aiServiceUrl } = getAiServiceConfig(this.configService);
+      const url = `${aiServiceUrl}/api/v1/observability/traces?limit=${limit}`;
+      const headers = getAiServiceHeadersWithTenant(
+        this.configService,
+        tenantId,
+      );
+      const response = await fetch(url, { headers });
       return response.json();
     } catch (error) {
       this.logger.error(`Failed to fetch observability traces: ${error.message}`);
@@ -1463,8 +1464,13 @@ export class AgentService {
 
   async getObservabilityStats(tenantId: string): Promise<any> {
     try {
-      const url = `${this.getAiServiceUrl()}/api/v1/observability/stats`;
-      const response = await fetch(url, { headers: { 'X-Tenant-Id': tenantId } });
+      const { aiServiceUrl } = getAiServiceConfig(this.configService);
+      const url = `${aiServiceUrl}/api/v1/observability/stats`;
+      const headers = getAiServiceHeadersWithTenant(
+        this.configService,
+        tenantId,
+      );
+      const response = await fetch(url, { headers });
       return response.json();
     } catch (error) {
       this.logger.error(`Failed to fetch observability stats: ${error.message}`);
@@ -1474,10 +1480,15 @@ export class AgentService {
 
   async clearObservabilityTraces(tenantId: string): Promise<any> {
     try {
-      const url = `${this.getAiServiceUrl()}/api/v1/observability/traces`;
+      const { aiServiceUrl } = getAiServiceConfig(this.configService);
+      const url = `${aiServiceUrl}/api/v1/observability/traces`;
+      const headers = getAiServiceHeadersWithTenant(
+        this.configService,
+        tenantId,
+      );
       const response = await fetch(url, {
         method: 'DELETE',
-        headers: { 'X-Tenant-Id': tenantId },
+        headers,
       });
       return response.json();
     } catch (error) {

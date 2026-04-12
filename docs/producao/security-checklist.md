@@ -39,6 +39,8 @@ Complete this checklist before every production deployment.
 
 - [ ] At least one of `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` is set
   - Without this, the agent returns mock responses only
+- [ ] `BACKEND_SERVICE_TOKEN` is set on the ai-service container/process (backend calls require `Authorization: Bearer`)
+- [ ] Optional: `AI_SERVICE_REQUIRE_SERVICE_TOKEN=true` in staging/pre-prod to reject startup-style misconfiguration (503 if token unset), matching production strictness
 
 ## Deployment Verification
 

@@ -139,14 +139,16 @@ export class ThrottleGuard implements CanActivate {
     return this.defaultLimit;
   }
 
+  /**
+   * [A-01] Com `trust proxy` configurado em main.ts, `request.ip` já reflete o cliente
+   * após o proxy confiável. Não priorizar X-Forwarded-For bruto — evita spoofing de rate limit.
+   */
   private getClientIp(request: Request): string {
-    const forwarded = request.headers['x-forwarded-for'];
-    if (forwarded) {
-      const ips = Array.isArray(forwarded)
-        ? forwarded[0]
-        : forwarded.split(',')[0];
-      return ips.trim();
+    const fromExpress =
+      request.ip || request.socket?.remoteAddress || undefined;
+    if (fromExpress) {
+      return fromExpress;
     }
-    return request.ip || request.socket.remoteAddress || 'unknown';
+    return 'unknown';
   }
 }

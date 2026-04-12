@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { getAiServiceConfig } from '../common/utils/ai-service.util';
 import { PrismaService } from '../prisma/prisma.service';
 
 /**
@@ -129,12 +130,13 @@ export class PriorityRecalculationService {
         treatment_cycle: treatmentCycle,
       };
 
-      const aiServiceUrl =
-        this.configService.get<string>('AI_SERVICE_URL') || 'http://localhost:8001';
+      const { aiServiceUrl, headers: aiHeaders } = getAiServiceConfig(
+        this.configService,
+      );
 
       const response = await fetch(`${aiServiceUrl}/api/v1/prioritize`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: aiHeaders,
         body: JSON.stringify(payload),
       });
 

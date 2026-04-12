@@ -25,6 +25,15 @@ def _get_service_token() -> str:
     return os.getenv("BACKEND_SERVICE_TOKEN", "").strip()
 
 
+def _require_service_token_env() -> bool:
+    """
+    Se true, nunca aceita endpoints sem BACKEND_SERVICE_TOKEN configurado
+    (útil em dev/staging alinhado a produção). [C-01]
+    """
+    v = os.getenv("AI_SERVICE_REQUIRE_SERVICE_TOKEN", "").strip().lower()
+    return v in ("1", "true", "yes", "on")
+
+
 def require_service_token(
     credentials: HTTPAuthorizationCredentials | None = Security(_bearer),
 ) -> None:
@@ -37,11 +46,12 @@ def require_service_token(
     expected = _get_service_token()
 
     if not expected:
-        # Token não configurado → bloquear em produção, avisar em dev
+        # Token não configurado → bloquear em produção ou com AI_SERVICE_REQUIRE_SERVICE_TOKEN
         env = os.getenv("ENVIRONMENT", os.getenv("NODE_ENV", "development"))
-        if env == "production":
+        if env == "production" or _require_service_token_env():
             logger.error(
-                "BACKEND_SERVICE_TOKEN não configurado em produção. Bloqueando requisição."
+                "BACKEND_SERVICE_TOKEN não configurado. Bloqueando requisição "
+                "(produção ou AI_SERVICE_REQUIRE_SERVICE_TOKEN)."
             )
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -49,7 +59,8 @@ def require_service_token(
             )
         logger.warning(
             "BACKEND_SERVICE_TOKEN não configurado. "
-            "Endpoint acessível sem autenticação (apenas em desenvolvimento)."
+            "Endpoint acessível sem autenticação (apenas em desenvolvimento). "
+            "Defina AI_SERVICE_REQUIRE_SERVICE_TOKEN=true para exigir token."
         )
         return
 

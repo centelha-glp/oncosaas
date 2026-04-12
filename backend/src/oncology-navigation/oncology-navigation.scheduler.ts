@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { getAiServiceConfig } from '../common/utils/ai-service.util';
 import { OncologyNavigationService } from './oncology-navigation.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AlertsService } from '../alerts/alerts.service';
@@ -93,8 +94,9 @@ export class OncologyNavigationScheduler {
   async handleDailyPriorityRecalculation() {
     this.logger.log('Iniciando recálculo diário de prioridades...');
 
-    const aiServiceUrl =
-      this.configService.get<string>('AI_SERVICE_URL') || 'http://localhost:8001';
+    const { aiServiceUrl, headers: aiHeaders } = getAiServiceConfig(
+      this.configService,
+    );
 
     try {
       const tenants = await this.prisma.tenant.findMany({ select: { id: true, name: true } });
@@ -144,7 +146,7 @@ export class OncologyNavigationScheduler {
             try {
               const response = await fetch(`${aiServiceUrl}/api/v1/prioritize-bulk`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: aiHeaders,
                 body: JSON.stringify({ patients: batch }),
               });
 
@@ -213,8 +215,9 @@ export class OncologyNavigationScheduler {
   async handleDailyPredictiveAlerts() {
     this.logger.log('Iniciando análise preditiva diária de riscos...');
 
-    const aiServiceUrl =
-      this.configService.get<string>('AI_SERVICE_URL') || 'http://localhost:8001';
+    const { aiServiceUrl, headers: aiHeaders } = getAiServiceConfig(
+      this.configService,
+    );
 
     const RISK_TYPE_TO_ALERT_TYPE: Record<string, AlertType> = {
       STEP_DELAY: 'NAVIGATION_DELAY',
@@ -314,7 +317,7 @@ export class OncologyNavigationScheduler {
             try {
               const response = await fetch(`${aiServiceUrl}/api/v1/agent/predict-risk-bulk`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: aiHeaders,
                 body: JSON.stringify({ patients: batch }),
               });
 

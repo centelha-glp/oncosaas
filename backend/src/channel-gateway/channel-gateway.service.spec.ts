@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { MessagesGateway } from '../gateways/messages.gateway';
 import { WhatsAppChannel } from './channels/whatsapp.channel';
 import { AgentService } from '../agent/agent.service';
+import { RedisService } from '../redis/redis.service';
 
 const mockPrisma = {
   patient: { findFirst: jest.fn() },
@@ -35,6 +36,12 @@ const mockAgent = {
   processIncomingMessage: jest.fn(),
 };
 
+const mockRedis = {
+  isConnected: jest.fn().mockReturnValue(false),
+  get: jest.fn().mockResolvedValue(null),
+  increment: jest.fn().mockResolvedValue(1),
+};
+
 const TENANT = 'tenant-uuid-1';
 const PATIENT_ID = 'patient-uuid-1';
 
@@ -51,6 +58,7 @@ describe('ChannelGatewayService', () => {
         { provide: MessagesGateway, useValue: mockGateway },
         { provide: WhatsAppChannel, useValue: mockWhatsApp },
         { provide: AgentService, useValue: mockAgent },
+        { provide: RedisService, useValue: mockRedis },
       ],
     }).compile();
 
@@ -70,6 +78,42 @@ describe('ChannelGatewayService', () => {
       );
 
       expect(result).toBeNull();
+    });
+
+    it('[A-06] com Redis ativo, incrementa contador ao não encontrar paciente', async () => {
+      mockRedis.isConnected.mockReturnValue(true);
+      mockRedis.get.mockResolvedValue(null);
+      mockPrisma.patient.findFirst.mockResolvedValue(null);
+
+      await service.processIncomingMessage(
+        '+5511777777777',
+        'Olá',
+        'WHATSAPP',
+        'ext-unknown-redis',
+        new Date()
+      );
+
+      expect(mockRedis.increment).toHaveBeenCalled();
+      mockRedis.isConnected.mockReturnValue(false);
+      mockRedis.get.mockResolvedValue(null);
+    });
+
+    it('[A-06] deve retornar null sem consultar paciente quando anti-flood Redis ativo', async () => {
+      mockRedis.isConnected.mockReturnValue(true);
+      mockRedis.get.mockResolvedValue('48');
+
+      const result = await service.processIncomingMessage(
+        '+5511888888888',
+        'Olá',
+        'WHATSAPP',
+        'ext-msg-flood',
+        new Date()
+      );
+
+      expect(result).toBeNull();
+      expect(mockPrisma.patient.findFirst).not.toHaveBeenCalled();
+      mockRedis.isConnected.mockReturnValue(false);
+      mockRedis.get.mockResolvedValue(null);
     });
 
     it('deve retornar null quando mensagem duplicada (mesmo externalMessageId)', async () => {

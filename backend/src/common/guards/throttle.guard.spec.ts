@@ -1,4 +1,5 @@
 import { ExecutionContext, HttpException, HttpStatus } from '@nestjs/common';
+import { Request } from 'express';
 import { ThrottleGuard } from './throttle.guard';
 import { RedisService } from '../../redis/redis.service';
 
@@ -121,6 +122,18 @@ describe('ThrottleGuard', () => {
       }
 
       await expect(guard.canActivate(makeContext(path, ip))).rejects.toThrow(HttpException);
+    });
+  });
+
+  describe('getClientIp — A-01', () => {
+    it('deve preferir request.ip ao header X-Forwarded-For (anti-spoofing)', () => {
+      const req = {
+        ip: '10.0.0.1',
+        socket: { remoteAddress: '127.0.0.1' },
+        headers: { 'x-forwarded-for': '203.0.113.50' },
+      } as unknown as Request;
+
+      expect((guard as any).getClientIp(req)).toBe('10.0.0.1');
     });
   });
 

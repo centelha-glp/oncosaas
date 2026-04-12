@@ -60,14 +60,59 @@ export class AuditLogInterceptor implements NestInterceptor {
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
     const req = context.switchToHttp().getRequest();
-    const action = METHOD_TO_ACTION[req.method as string];
+    const method = req.method as string;
+    const tenantId: string | undefined = req.user?.tenantId;
+    const userId: string | undefined = req.user?.sub ?? req.user?.id;
+
+    // [A-07] Leituras GET em recursos PHI — audit VIEW síncrono (listagens e detalhe)
+    if (method === 'GET') {
+      if (!tenantId) {
+        return next.handle();
+      }
+      const resourceType = this.extractResourceType(req.path as string);
+      if (PHI_RESOURCE_TYPES.has(resourceType)) {
+        const ipAddress = (
+          req.headers['x-forwarded-for'] ||
+          req.socket?.remoteAddress ||
+          ''
+        )
+          .toString()
+          .split(',')[0]
+          .trim();
+        const userAgent = (req.headers['user-agent'] || '') as string;
+
+        return next.handle().pipe(
+          switchMap((responseBody) => {
+            const summary = this.summarizePhiReadResponse(responseBody);
+            const pathId = this.extractResourceIdFromGetPath(req.path as string);
+            const resourceId = summary.resourceId ?? pathId;
+            return from(
+              this.auditLogService
+                .log({
+                  tenantId,
+                  userId,
+                  action: AuditAction.VIEW,
+                  resourceType,
+                  resourceId,
+                  newValues: summary.newValues,
+                  ipAddress,
+                  userAgent,
+                })
+                .catch((err) => {
+                  this.logger.error('Sync PHI read audit log failed', err);
+                })
+            ).pipe(switchMap(() => from([responseBody])));
+          })
+        );
+      }
+      return next.handle();
+    }
+
+    const action = METHOD_TO_ACTION[method];
 
     if (!action) {
       return next.handle();
     }
-
-    const tenantId: string | undefined = req.user?.tenantId;
-    const userId: string | undefined = req.user?.sub ?? req.user?.id;
 
     if (!tenantId) {
       return next.handle();
@@ -144,6 +189,56 @@ export class AuditLogInterceptor implements NestInterceptor {
     // e.g. /api/v1/patients/123  → "patients"
     const segments = path.replace(/^\/api\/v1\//, '').split('/');
     return segments[0] ?? 'unknown';
+  }
+
+  /** UUID no path (ex.: /patients/:id, /patients/:id/detail), exclui rotas reservadas. */
+  private extractResourceIdFromGetPath(path: string): string | undefined {
+    const segments = path
+      .replace(/^\/api\/v1\//, '')
+      .split('/')
+      .filter(Boolean);
+    if (segments.length < 2) {
+      return undefined;
+    }
+    const cand = segments[1];
+    const reserved = new Set(['by-phone', 'import']);
+    if (reserved.has(cand)) {
+      return undefined;
+    }
+    const uuidRe =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (uuidRe.test(cand)) {
+      return cand;
+    }
+    return undefined;
+  }
+
+  /** Resumo mínimo da leitura (sem corpo PHI completo). */
+  private summarizePhiReadResponse(body: unknown): {
+    resourceId?: string;
+    newValues: Record<string, unknown>;
+  } {
+    if (Array.isArray(body)) {
+      return {
+        newValues: { readType: 'list', itemCount: body.length },
+      };
+    }
+    if (body && typeof body === 'object') {
+      const o = body as Record<string, unknown>;
+      if (Array.isArray(o['data'])) {
+        const data = o['data'] as unknown[];
+        return {
+          newValues: { readType: 'list', itemCount: data.length },
+        };
+      }
+      if (typeof o['id'] === 'string') {
+        return {
+          resourceId: o['id'],
+          newValues: { readType: 'detail' },
+        };
+      }
+    }
+    return { newValues: { readType: 'view' } };
   }
 
   private extractResourceId(body: unknown): string | undefined {

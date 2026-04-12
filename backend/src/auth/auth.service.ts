@@ -79,12 +79,37 @@ export class AuthService {
     await this.redisService.del(this.lockedKey(email));
   }
 
+  /** [A-03] Auditoria de falha de login — sem expor senha; email desconhecido vira hash em resourceId. */
+  private auditLoginFailed(
+    reason: 'unknown_user' | 'invalid_password',
+    email: string,
+    user: { id: string; tenantId: string } | null,
+    ctx?: { ipAddress?: string; userAgent?: string }
+  ): void {
+    const emailNorm = email.toLowerCase().trim();
+    const resourceId =
+      user?.id ??
+      crypto.createHash('sha256').update(emailNorm).digest('hex');
+
+    void this.auditLogService.log({
+      tenantId: user?.tenantId ?? 'system',
+      userId: user?.id,
+      action: 'CREATE',
+      resourceType: 'UserAuth',
+      resourceId,
+      newValues: { event: 'LOGIN_FAILED', reason },
+      ipAddress: ctx?.ipAddress,
+      userAgent: ctx?.userAgent,
+    });
+  }
+
   // ─── Core auth logic ────────────────────────────────────────────────────────
 
   async validateUser(
     email: string,
     password: string,
-    tenantId?: string
+    tenantId?: string,
+    auditContext?: { ipAddress?: string; userAgent?: string }
   ): Promise<any> {
     if (await this.isLocked(email)) {
       throw new ForbiddenException(
@@ -99,6 +124,7 @@ export class AuthService {
 
     if (!user) {
       await this.recordFailedAttempt(email);
+      this.auditLoginFailed('unknown_user', email, null, auditContext);
       throw new UnauthorizedException('Credenciais inválidas');
     }
 
@@ -106,6 +132,12 @@ export class AuthService {
 
     if (!isPasswordValid) {
       await this.recordFailedAttempt(email);
+      this.auditLoginFailed(
+        'invalid_password',
+        email,
+        { id: user.id, tenantId: user.tenantId },
+        auditContext
+      );
       throw new UnauthorizedException('Credenciais inválidas');
     }
 
@@ -126,7 +158,8 @@ export class AuthService {
     const user = await this.validateUser(
       loginDto.email,
       loginDto.password,
-      tenantId
+      tenantId,
+      { ipAddress, userAgent }
     );
 
     const payload: JwtPayload = {
@@ -394,6 +427,16 @@ export class AuthService {
     const ttl = 60 * 60; // 1 hora
     await this.redisService.set(`prt:${token}`, user.id, ttl);
 
+    // [A-03] Auditoria — apenas dev; não registrar o token
+    void this.auditLogService.log({
+      tenantId: user.tenantId,
+      userId: user.id,
+      action: 'CREATE',
+      resourceType: 'UserAuth',
+      resourceId: user.id,
+      newValues: { event: 'PASSWORD_RESET_REQUESTED' },
+    });
+
     this.logger.log(
       `[DEV] Password reset requested for ${email} (token stored in Redis; do not log tokens)`
     );
@@ -426,6 +469,16 @@ export class AuthService {
 
     // Clear any account lockout
     await this.clearFailedAttempts(user.email);
+
+    // [A-03] Senha alterada com sucesso (token de uso único já invalidado)
+    void this.auditLogService.log({
+      tenantId: user.tenantId,
+      userId: user.id,
+      action: 'UPDATE',
+      resourceType: 'UserAuth',
+      resourceId: user.id,
+      newValues: { event: 'PASSWORD_RESET_COMPLETED' },
+    });
   }
 
   // ─── Invite System ──────────────────────────────────────────────────────────

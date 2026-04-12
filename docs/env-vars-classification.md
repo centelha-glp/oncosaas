@@ -91,6 +91,7 @@ Legend:
 |---|---|---|---|---|
 | `BACKEND_URL` | No | Yes | Variable | Backend base URL for side effects. |
 | `BACKEND_SERVICE_TOKEN` | No | Yes | Secret | Required for authenticated write-backs to backend. |
+| `AI_SERVICE_REQUIRE_SERVICE_TOKEN` | No | Yes | Variable | If `true`/`1`/`yes`/`on`, ai-service returns 503 when `BACKEND_SERVICE_TOKEN` is unset (any environment). |
 | `OPENAI_API_KEY` | No | Yes | Secret | Optional individually, but at least one LLM key is needed for non-fallback responses. |
 | `ANTHROPIC_API_KEY` | No | Yes | Secret | Optional individually, but at least one LLM key is needed for non-fallback responses. |
 | `CORS_ORIGINS` | No | Yes | Variable | Comma-separated allowed origins. |
