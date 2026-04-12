@@ -384,20 +384,58 @@ export class AuthService {
     await this.clearFailedAttempts(user.email);
   }
 
-  async register(registerDto: RegisterDto) {
-    const tenant = await this.prisma.tenant.findUnique({
-      where: { id: registerDto.tenantId },
-    });
+  // ─── Invite System ──────────────────────────────────────────────────────────
 
+  private inviteKey(token: string) {
+    return `inv:${token}`;
+  }
+
+  async createInvite(
+    tenantId: string,
+    role: UserRole,
+    createdByUserId: string
+  ): Promise<{ inviteToken: string; expiresIn: string }> {
+    const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
     if (!tenant) {
       throw new UnauthorizedException('Tenant não encontrado');
     }
 
+    const token = crypto.randomBytes(32).toString('hex');
+    const ttl = 48 * 60 * 60; // 48 horas
+    await this.redisService.set(
+      this.inviteKey(token),
+      JSON.stringify({ tenantId, role }),
+      ttl
+    );
+
+    this.logger.log(
+      `Invite created by user ${createdByUserId} for tenant ${tenantId} with role ${role}`
+    );
+
+    return { inviteToken: token, expiresIn: '48h' };
+  }
+
+  async register(registerDto: RegisterDto) {
+    const inviteRaw = await this.redisService.get(this.inviteKey(registerDto.inviteToken));
+
+    if (!inviteRaw) {
+      throw new UnauthorizedException('Token de convite inválido ou expirado');
+    }
+
+    let invitePayload: { tenantId: string; role: UserRole };
+    try {
+      invitePayload = JSON.parse(inviteRaw) as { tenantId: string; role: UserRole };
+    } catch {
+      throw new UnauthorizedException('Token de convite malformado');
+    }
+
+    const { tenantId, role } = invitePayload;
+
+    // Invalidar o token antes de criar o usuário (evita replay)
+    await this.redisService.del(this.inviteKey(registerDto.inviteToken));
+
     const existingUser = await this.prisma.user.findFirst({
-      where: {
-        tenantId: registerDto.tenantId,
-        email: registerDto.email,
-      },
+      where: { tenantId, email: registerDto.email },
     });
 
     if (existingUser) {
@@ -411,8 +449,8 @@ export class AuthService {
         email: registerDto.email,
         password: hashedPassword,
         name: registerDto.name,
-        role: UserRole.NURSE,
-        tenantId: registerDto.tenantId,
+        role,
+        tenantId,
       },
       include: { tenant: true },
     });

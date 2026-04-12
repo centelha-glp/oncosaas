@@ -104,20 +104,20 @@ export class WhatsAppChannel implements IChannel {
    */
   validateWebhookSignature(payload: Buffer, signature: string): boolean {
     const appSecret = this.configService.get<string>('META_APP_SECRET');
-    const isProduction =
-      this.configService.get<string>('NODE_ENV') === 'production';
+    const isDevelopment =
+      this.configService.get<string>('NODE_ENV') === 'development';
 
     if (!appSecret) {
-      if (isProduction) {
-        this.logger.error(
-          'META_APP_SECRET not configured; rejecting webhook in production'
+      if (isDevelopment) {
+        this.logger.warn(
+          'META_APP_SECRET not configured, skipping signature validation (development only)'
         );
-        return false;
+        return true;
       }
-      this.logger.warn(
-        'META_APP_SECRET not configured, skipping signature validation (development only)'
+      this.logger.error(
+        'META_APP_SECRET not configured; rejecting webhook (staging/production)'
       );
-      return true;
+      return false;
     }
 
     const expectedSignature =

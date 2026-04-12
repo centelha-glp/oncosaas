@@ -5,8 +5,8 @@ import {
   CallHandler,
   Logger,
 } from '@nestjs/common';
-import { Observable } from 'rxjs';
-import { tap } from 'rxjs/operators';
+import { Observable, from } from 'rxjs';
+import { tap, switchMap } from 'rxjs/operators';
 import { AuditAction } from '@generated/prisma/client';
 import { AuditLogService } from './audit-log.service';
 
@@ -33,6 +33,20 @@ const METHOD_TO_ACTION: Record<string, AuditAction> = {
   PATCH: AuditAction.UPDATE,
   DELETE: AuditAction.DELETE,
 };
+
+/**
+ * Resource types that store PHI (Protected Health Information) or LGPD-sensitive data.
+ * Audit writes for these resources are performed synchronously to guarantee delivery.
+ */
+const PHI_RESOURCE_TYPES = new Set([
+  'patients',
+  'cancer-diagnoses',
+  'clinical-disposition',
+  'medications',
+  'performance-status',
+  'observations',
+  'questionnaire-responses',
+]);
 
 /**
  * Automatically logs CREATE / UPDATE / DELETE actions on all mutating endpoints.
@@ -70,6 +84,37 @@ export class AuditLogInterceptor implements NestInterceptor {
       .trim();
     const userAgent = (req.headers['user-agent'] || '') as string;
 
+    const isPhiResource = PHI_RESOURCE_TYPES.has(resourceType);
+
+    if (isPhiResource) {
+      // PHI mutations: synchronous audit — response waits for the log write
+      return next.handle().pipe(
+        switchMap((responseBody) => {
+          const resourceId = this.extractResourceId(responseBody);
+          return from(
+            this.auditLogService
+              .log({
+                tenantId,
+                userId,
+                action,
+                resourceType,
+                resourceId,
+                newValues:
+                  action !== AuditAction.DELETE
+                    ? this.sanitize(responseBody)
+                    : undefined,
+                ipAddress,
+                userAgent,
+              })
+              .catch((err) => {
+                this.logger.error('Sync PHI audit log failed', err);
+              })
+          ).pipe(switchMap(() => from([responseBody])));
+        })
+      );
+    }
+
+    // Non-PHI mutations: fire-and-forget (preserves original latency)
     return next.handle().pipe(
       tap((responseBody) => {
         const resourceId = this.extractResourceId(responseBody);

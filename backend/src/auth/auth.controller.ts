@@ -22,6 +22,7 @@ import {
   IsOptional,
   IsArray,
   ArrayMinSize,
+  IsEnum,
 } from 'class-validator';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
@@ -30,6 +31,9 @@ import { RegisterInstitutionDto } from './dto/register-institution.dto';
 import { Public } from './decorators/public.decorator';
 import { Roles } from './decorators/roles.decorator';
 import { RolesGuard } from './guards/roles.guard';
+import { TenantGuard } from './guards/tenant.guard';
+import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { CurrentUser, type CurrentUser as CurrentUserType } from './decorators/current-user.decorator';
 import { UserRole } from '@generated/prisma/client';
 import {
   REFRESH_TOKEN_COOKIE,
@@ -67,6 +71,11 @@ class UpdateTenantSettingsDto {
   @ArrayMinSize(1)
   @IsString({ each: true })
   enabledCancerTypes: string[];
+}
+
+class CreateInviteDto {
+  @IsEnum(UserRole)
+  role: UserRole;
 }
 
 class UpdateProfileDto {
@@ -198,6 +207,25 @@ export class AuthController {
     );
   }
 
+  /**
+   * Emite token de convite (48h) para um novo usuário.
+   * Apenas ADMIN e COORDINATOR podem convidar.
+   */
+  @Post('invite')
+  @UseGuards(JwtAuthGuard, TenantGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.COORDINATOR)
+  @HttpCode(HttpStatus.CREATED)
+  async createInvite(
+    @Body() dto: CreateInviteDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.authService.createInvite(user.tenantId, dto.role, user.id);
+  }
+
+  /**
+   * Registra um usuário usando um token de convite emitido via POST /auth/invite.
+   * O endpoint permanece público mas requer um token válido no body.
+   */
   @Public()
   @Post('register')
   async register(@Body() registerDto: RegisterDto) {

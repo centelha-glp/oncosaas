@@ -19,7 +19,8 @@ export class RegisterDto {
   @IsNotEmpty()
   name: string;
 
+  /** Token de convite emitido por um ADMIN via POST /auth/invite */
   @IsString()
   @IsNotEmpty()
-  tenantId: string;
+  inviteToken: string;
 }

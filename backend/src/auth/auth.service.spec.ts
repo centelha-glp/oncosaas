@@ -324,6 +324,186 @@ describe('AuthService', () => {
     });
   });
 
+  // ─── register (invite system) ──────────────────────────────────────────────
+
+  describe('register', () => {
+    const INVITE_TOKEN = 'valid-invite-token-abc123';
+    const INVITE_KEY = `inv:${INVITE_TOKEN}`;
+
+    it('deve criar usuário com tenantId e role extraídos do payload do convite', async () => {
+      const payload = JSON.stringify({ tenantId: 'tenant-1', role: 'NURSE' });
+      mockRedis.get.mockResolvedValueOnce(payload);
+      mockRedis.del.mockResolvedValue(1);
+      mockPrisma.user.findFirst.mockResolvedValue(null);
+      const createdUser = {
+        id: 'user-new',
+        email: 'nova@example.com',
+        name: 'Nova Enfermeira',
+        role: 'NURSE',
+        tenantId: 'tenant-1',
+        tenant: { id: 'tenant-1', name: 'Hospital Teste' },
+        clinicalSubrole: null,
+      };
+      mockPrisma.user.create.mockResolvedValue(createdUser);
+
+      const result = await service.register({
+        inviteToken: INVITE_TOKEN,
+        email: 'nova@example.com',
+        name: 'Nova Enfermeira',
+        password: 'Senha@123',
+      } as any);
+
+      expect(result.user.tenantId).toBe('tenant-1');
+      expect(result.user.role).toBe('NURSE');
+      expect(mockPrisma.user.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ tenantId: 'tenant-1', role: 'NURSE' }),
+        })
+      );
+    });
+
+    it('deve lançar UnauthorizedException para token inexistente ou expirado', async () => {
+      mockRedis.get.mockResolvedValueOnce(null);
+
+      await expect(
+        service.register({
+          inviteToken: 'token-inexistente',
+          email: 'x@x.com',
+          name: 'X',
+          password: 'Senha@123',
+        } as any)
+      ).rejects.toThrow(UnauthorizedException);
+
+      expect(mockPrisma.user.create).not.toHaveBeenCalled();
+    });
+
+    it('deve lançar UnauthorizedException para token com JSON malformado', async () => {
+      mockRedis.get.mockResolvedValueOnce('isto-nao-e-json{{{');
+
+      await expect(
+        service.register({
+          inviteToken: INVITE_TOKEN,
+          email: 'x@x.com',
+          name: 'X',
+          password: 'Senha@123',
+        } as any)
+      ).rejects.toThrow(UnauthorizedException);
+
+      expect(mockPrisma.user.create).not.toHaveBeenCalled();
+    });
+
+    it('deve lançar UnauthorizedException e NÃO criar usuário quando email já cadastrado no tenant', async () => {
+      const payload = JSON.stringify({ tenantId: 'tenant-1', role: 'NURSE' });
+      mockRedis.get.mockResolvedValueOnce(payload);
+      mockRedis.del.mockResolvedValue(1);
+      mockPrisma.user.findFirst.mockResolvedValue({ id: 'user-existente' }); // email duplicado
+
+      await expect(
+        service.register({
+          inviteToken: INVITE_TOKEN,
+          email: 'duplicado@example.com',
+          name: 'Duplicado',
+          password: 'Senha@123',
+        } as any)
+      ).rejects.toThrow(UnauthorizedException);
+
+      expect(mockPrisma.user.create).not.toHaveBeenCalled();
+    });
+
+    it('deve invalidar o token (del) ANTES de criar o usuário (anti-replay)', async () => {
+      const callOrder: string[] = [];
+      const payload = JSON.stringify({ tenantId: 'tenant-1', role: 'COORDINATOR' });
+
+      mockRedis.get.mockResolvedValueOnce(payload);
+      mockRedis.del.mockImplementation(async () => {
+        callOrder.push('del');
+        return 1;
+      });
+      mockPrisma.user.findFirst.mockResolvedValue(null);
+      mockPrisma.user.create.mockImplementation(async () => {
+        callOrder.push('create');
+        return {
+          id: 'user-new',
+          email: 'u@u.com',
+          name: 'U',
+          role: 'COORDINATOR',
+          tenantId: 'tenant-1',
+          tenant: { id: 'tenant-1', name: 'H' },
+          clinicalSubrole: null,
+        };
+      });
+
+      await service.register({
+        inviteToken: INVITE_TOKEN,
+        email: 'u@u.com',
+        name: 'U',
+        password: 'Senha@123',
+      } as any);
+
+      const delIdx = callOrder.indexOf('del');
+      const createIdx = callOrder.indexOf('create');
+      expect(delIdx).toBeGreaterThanOrEqual(0);
+      expect(createIdx).toBeGreaterThan(delIdx);
+    });
+
+    it('deve verificar o token com a chave correta inv:<token>', async () => {
+      const payload = JSON.stringify({ tenantId: 'tenant-1', role: 'NURSE' });
+      mockRedis.get.mockResolvedValueOnce(payload);
+      mockRedis.del.mockResolvedValue(1);
+      mockPrisma.user.findFirst.mockResolvedValue(null);
+      mockPrisma.user.create.mockResolvedValue({
+        id: 'u1',
+        email: 'a@b.com',
+        name: 'A',
+        role: 'NURSE',
+        tenantId: 'tenant-1',
+        tenant: { id: 'tenant-1', name: 'H' },
+        clinicalSubrole: null,
+      });
+
+      await service.register({
+        inviteToken: INVITE_TOKEN,
+        email: 'a@b.com',
+        name: 'A',
+        password: 'Senha@123',
+      } as any);
+
+      expect(mockRedis.get).toHaveBeenCalledWith(INVITE_KEY);
+    });
+  });
+
+  // ─── createInvite ───────────────────────────────────────────────────────────
+
+  describe('createInvite', () => {
+    it('deve armazenar payload JSON correto no Redis com chave inv:<token> e TTL 48h', async () => {
+      mockPrisma.tenant.findUnique.mockResolvedValue({ id: 'tenant-1', name: 'Hospital Teste' });
+      mockRedis.set.mockResolvedValue('OK');
+
+      const result = await service.createInvite('tenant-1', 'NURSE' as any, 'admin-user-1');
+
+      expect(result).toMatchObject({ inviteToken: expect.any(String), expiresIn: '48h' });
+      expect(mockRedis.set).toHaveBeenCalledWith(
+        expect.stringMatching(/^inv:/),
+        expect.stringContaining('"tenantId":"tenant-1"'),
+        48 * 60 * 60
+      );
+      // verifica que o payload serializado contém a role correta
+      const setCall = (mockRedis.set as jest.Mock).mock.calls[0];
+      const storedPayload = JSON.parse(setCall[1]);
+      expect(storedPayload).toEqual({ tenantId: 'tenant-1', role: 'NURSE' });
+    });
+
+    it('deve lançar UnauthorizedException para tenant inexistente', async () => {
+      mockPrisma.tenant.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.createInvite('tenant-inexistente', 'NURSE' as any, 'admin-1')
+      ).rejects.toThrow(UnauthorizedException);
+
+      expect(mockRedis.set).not.toHaveBeenCalled();
+    });
+  });
+
   describe('updateProfile', () => {
     it('deve incluir tenantId no where do user.update para evitar cross-tenant', async () => {
       const hashedPassword = await bcrypt.hash('currentPass', 10);
