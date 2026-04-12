@@ -209,7 +209,22 @@ Branch principal: `main`. Nunca commitar diretamente em `main`.
 
 ---
 
-## 8. O Que NUNCA Fazer
+## 8. Branch ideal e PR já mergeado (obrigatório antes de commit)
+
+Antes de **qualquer** commit ou push, o fluxo do `github-organizer` deve:
+
+1. **`git fetch origin`** e identificar a branch atual.
+2. **Proibir commit em `main`** — criar `feat/*`, `fix/*`, etc. a partir de `origin/main`.
+3. **Verificar PR mergeado com o mesmo nome de branch** — `gh pr list --head <branch> --state merged`. Se existir pelo menos um PR mergeado com esse head, **não** continuar a commitar nessa branch para trabalho novo: criar **nova branch** a partir de `origin/main` com nome novo e aplicar alterações (stash, cherry-pick dos commits locais ainda não integrados, ou refazer ficheiros).
+4. **Avaliar se a branch é ideal** para o conjunto de alterações: nome alinhado ao escopo; base efetiva em `origin/main` sem histórico alheio; se não for ideal, nova branch derivada de `origin/main` e mover o trabalho.
+
+Objetivo: **histórico de commits limpo** e PRs fáceis de rever — nunca empilhar trabalho novo sobre branch já integrada ou poluída.
+
+Comandos de referência estão em `.cursor/agents/github-organizer.md` (passo **0**).
+
+---
+
+## 9. O Que NUNCA Fazer
 
 - **Nunca** commitar diretamente — sempre via `github-organizer`.
 - **Nunca** usar `git add -A` sem revisar o que está sendo adicionado.
@@ -221,3 +236,4 @@ Branch principal: `main`. Nunca commitar diretamente em `main`.
 - **Nunca** usar types de commit em maiúsculo (`Feat`, `Fix`).
 - **Nunca** criar PR sem test plan preenchido.
 - **Nunca** fazer force push em branches compartilhadas.
+- **Nunca** continuar a commitar numa branch cujo PR já foi **mergeado** em `main` sem criar antes uma **nova branch** a partir de `origin/main` (ver secção 8).
