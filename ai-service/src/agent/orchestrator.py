@@ -53,6 +53,9 @@ class AgentOrchestrator:
         conversation_history = request.get("conversation_history", [])
         agent_state = request.get("agent_state", {})
         agent_config = request.get("agent_config") or {}
+        # Uma resolução por request — has_any_llm_key relê .env a cada chamada
+        has_llm_keys = llm_provider.has_any_llm_key(agent_config)
+        has_anthropic = llm_provider.has_anthropic_key(agent_config)
 
         patient_id = request.get("patient_id", "")
         tenant_id = request.get("tenant_id", "")
@@ -62,6 +65,8 @@ class AgentOrchestrator:
             result = await self._process_with_trace(
                 trace, message, clinical_context, protocol,
                 conversation_history, agent_state, agent_config,
+                has_llm_keys=has_llm_keys,
+                has_anthropic=has_anthropic,
             )
         except Exception as exc:
             tracer.finish_trace(trace, error=str(exc))
@@ -79,20 +84,26 @@ class AgentOrchestrator:
         conversation_history: List[Dict[str, str]],
         agent_state: Dict[str, Any],
         agent_config: Dict[str, Any],
+        *,
+        has_llm_keys: bool,
+        has_anthropic: bool,
     ) -> Dict[str, Any]:
         """Inner implementation of process(), called with an active trace."""
 
         # 1. Check if we're in a questionnaire flow
         if agent_state.get("active_questionnaire"):
             trace.pipeline_path = "questionnaire"
-            return await self._process_questionnaire_answer({
-                "message": message,
-                "clinical_context": clinical_context,
-                "protocol": protocol,
-                "conversation_history": conversation_history,
-                "agent_state": agent_state,
-                "agent_config": agent_config,
-            })
+            return await self._process_questionnaire_answer(
+                {
+                    "message": message,
+                    "clinical_context": clinical_context,
+                    "protocol": protocol,
+                    "conversation_history": conversation_history,
+                    "agent_state": agent_state,
+                    "agent_config": agent_config,
+                },
+                has_llm_keys=has_llm_keys,
+            )
 
         # 1.5. Classify intent for differentiated handling (with LLM fallback for ambiguous)
         span_intent = tracer.start_span(trace, "intent_classification")
@@ -111,7 +122,6 @@ class AgentOrchestrator:
                 trace.pipeline_path = "emergency"
                 # Run symptom analysis even for emergency path to register the symptom
                 cancer_type = clinical_context.get("patient", {}).get("cancerType")
-                has_llm_keys = llm_provider.has_any_llm_key(agent_config)
                 use_llm_analysis = agent_config.get("use_llm_symptom_analysis", True) and has_llm_keys
                 symptom_analysis = await symptom_analyzer.analyze(
                     message=message,
@@ -137,8 +147,6 @@ class AgentOrchestrator:
         # 2. Analyze symptoms (keyword + optional LLM for nuanced detection)
         cancer_type = clinical_context.get("patient", {}).get("cancerType")
         journey_stage = clinical_context.get("patient", {}).get("currentStage")
-        has_llm_keys = llm_provider.has_any_llm_key(agent_config)
-        has_anthropic = llm_provider.has_anthropic_key(agent_config)
         logger.info(
             "LLM key check: has_any=%s has_anthropic=%s agent_config_keys=%s",
             has_llm_keys, has_anthropic,
@@ -306,7 +314,7 @@ class AgentOrchestrator:
         }
 
     async def _process_questionnaire_answer(
-        self, request: Dict[str, Any]
+        self, request: Dict[str, Any], *, has_llm_keys: bool
     ) -> Dict[str, Any]:
         """Handle a message that's part of an active questionnaire flow."""
         agent_state = request.get("agent_state", {})
@@ -314,7 +322,7 @@ class AgentOrchestrator:
         message = request.get("message", "")
         questionnaire_progress = agent_state.get("active_questionnaire", {})
 
-        use_llm = llm_provider.has_any_llm_key(agent_config)
+        use_llm = has_llm_keys
 
         is_complete, updated_progress, next_content = await questionnaire_engine.process_answer(
             answer_text=message,
