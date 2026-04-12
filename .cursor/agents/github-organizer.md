@@ -54,6 +54,62 @@ chore/<task>
 
 ## Fluxo de Trabalho
 
+### 0. Verificar se a branch é adequada e se já houve PR mergeado (obrigatório antes de commit/push)
+
+**Objetivo:** não acumular commits novos em cima de histórico já integrado em `main`, nem commitar em branch errada (`main`, nome inadequado, base antiga ou poluída).
+
+Sempre executar **antes** de preparar commits:
+
+```bash
+git fetch origin
+CURRENT=$(git branch --show-current)
+```
+
+#### 0.1 Nunca commitar diretamente em `main`
+
+Se `CURRENT` for `main`:
+
+```bash
+git checkout -b <tipo>/<descricao-curta> origin/main
+```
+
+Copiar alterações com `git stash` antes se necessário, aplicar na nova branch.
+
+#### 0.2 Verificar se já existe PR **mergeado** com o nome desta branch
+
+O mesmo nome de branch não deve ser reutilizado para trabalho novo depois que o PR foi integrado (histórico confuso e risco de arrastar commits antigos).
+
+```bash
+gh pr list --head "$CURRENT" --state merged --limit 5
+```
+
+- Se a lista **não estiver vazia** (há PR mergeado com este `HEAD`): **criar branch nova** a partir de `main` atualizada e continuar o trabalho só nela.
+
+```bash
+git fetch origin
+git checkout origin/main
+git pull --ff-only origin main   # se o clone usa main local alinhada
+git checkout -b <tipo>/<nova-descricao> origin/main
+```
+
+- Se tinhas alterações locais não commitadas: `git stash push -m "wip"` antes do checkout, depois `git stash pop` na branch nova.
+- Se precisares de trazer apenas commits locais que ainda **não** estão em `origin/main`, usa `git cherry-pick` ou refaz os ficheiros — **não** assumes que a branch antiga após PR mergeado é base limpa.
+
+#### 0.3 Avaliar se a branch atual é **ideal** para o commit que vais fazer
+
+A branch **não é ideal** se (criar branch nova derivada de `origin/main` e mover o trabalho):
+
+| Situação | Ação |
+|----------|------|
+| Nome fora do padrão (`feat/`, `fix/`, `chore/`, `docs/`, `refactor/`) | `git checkout -b <padrão>/<descricao> origin/main` + levar alterações (stash ou cherry-pick) |
+| A branch foi criada em cima de **outra feature** (merge-base com `origin/main` muito atrás e há commits alheios no log) | Branch limpa desde `origin/main` + cherry-pick só dos teus commits (ver secção «Branch derivada de outra branch») |
+| O trabalho novo **não relaciona** com o tópico do nome da branch (ex.: branch `feat/foo` mas só mudanças em infra) | Nova branch com nome coerente a partir de `origin/main` |
+| `origin/main` avançou e queres histórico linear antes de commitar | `git rebase origin/main` **ou** nova branch de `origin/main` + aplicar mudanças |
+
+Se **todas** as condições forem OK (nome adequado, sem PR mergeado reutilizando o nome, base é `origin/main` ou histórico só com commits desta feature à frente do merge-base limpo), seguir para o passo 1.
+
+> **Resumo:** PR já mergeado neste nome **ou** branch não ideal → **`git checkout -b <nova> origin/main`** e só então commits.
+
 ### 1. Analisar o estado atual
 
 Sempre começar com:
