@@ -184,8 +184,12 @@ model ClinicalNote {
   /// Nota assinada da qual este registro é adendo (nova evolução)
   amendsClinicalNoteId String?
 
+  /// Etapa de navegação correspondente: consulta especializada (MEDICAL) ou consulta de navegação (NURSING)
+  navigationStepId String?
+
   tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  navigationStep NavigationStep? @relation(fields: [navigationStepId], references: [id], onDelete: SetNull)
   createdBy User  @relation("ClinicalNoteCreatedBy", fields: [createdById], references: [id])
   signedBy  User? @relation("ClinicalNoteSignedBy", fields: [signedById], references: [id])
   voidedBy  User? @relation("ClinicalNoteVoidedBy", fields: [voidedById], references: [id])
@@ -199,6 +203,7 @@ model ClinicalNote {
   @@index([tenantId])
   @@index([patientId])
   @@index([tenantId, patientId, createdAt])
+  @@index([navigationStepId])
   @@map("clinical_notes")
 }
 
@@ -383,6 +388,8 @@ model NavigationStep {
   diagnosis  CancerDiagnosis? @relation(fields: [diagnosisId], references: [id], onDelete: Cascade)
 
   files NavigationStepFile[]
+  clinicalNotes ClinicalNote[]
+  questionnaireResponses QuestionnaireResponse[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1143,6 +1150,9 @@ model QuestionnaireResponse {
   conversationId String? // Conversa onde foi aplicado
   appliedBy      ProcessedBy @default(AGENT)
 
+  /// Etapa de navegação à qual o check-in/questionário se refere (opcional)
+  navigationStepId String?
+
   // Scores calculados automaticamente
   scores Json? // Scores calculados (ESAS total, PRO-CTCAE severity grades)
 
@@ -1150,11 +1160,13 @@ model QuestionnaireResponse {
   tenant        Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   patient       Patient       @relation(fields: [patientId], references: [id], onDelete: Cascade)
   questionnaire Questionnaire @relation(fields: [questionnaireId], references: [id], onDelete: Cascade)
+  navigationStep NavigationStep? @relation(fields: [navigationStepId], references: [id], onDelete: SetNull)
 
   @@index([tenantId])
   @@index([patientId])
   @@index([questionnaireId])
   @@index([completedAt])
+  @@index([navigationStepId])
   @@map("questionnaire_responses")
 }
 
