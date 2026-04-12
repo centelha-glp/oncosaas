@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { MessagesService } from './messages.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { MessagesGateway } from '../gateways/messages.gateway';
@@ -31,6 +31,7 @@ describe('MessagesService', () => {
 
   const mockAgent = {
     processIncomingMessage: jest.fn(),
+    sendAssistedReply: jest.fn(),
   };
 
   let service: MessagesService;
@@ -163,5 +164,172 @@ describe('MessagesService', () => {
 
     expect(result).toEqual({ count: 0 });
     expect(mockPrisma.message.updateMany).not.toHaveBeenCalled();
+  });
+
+  // ── updateSuggestion ───────────────────────────────────────────────────────
+
+  describe('updateSuggestion', () => {
+    const TENANT = 'tenant-1';
+    const MSG_ID = 'msg-uuid-1';
+    const USER_ID = 'user-uuid-1';
+    const SUGGESTED = 'Sugestão do agente IA';
+
+    const basePendingMessage = {
+      id: MSG_ID,
+      tenantId: TENANT,
+      patientId: 'patient-uuid-1',
+      conversationId: 'conv-uuid-1',
+      suggestedResponse: SUGGESTED,
+      suggestionStatus: 'PENDING',
+    };
+
+    const buildUpdated = (status: string) => ({
+      ...basePendingMessage,
+      suggestionStatus: status,
+      assumedBy: USER_ID,
+      assumedAt: expect.any(Date),
+      processedBy: 'NURSING',
+      patient: { id: 'patient-uuid-1', name: 'Paciente Teste', phone: null },
+    });
+
+    it('ACCEPT: marca suggestionStatus=ACCEPTED e emite evento WebSocket', async () => {
+      mockPrisma.message.findFirst.mockResolvedValue(basePendingMessage);
+      const updated = buildUpdated('ACCEPTED');
+      mockPrisma.message.update.mockResolvedValue(updated);
+      mockAgent.sendAssistedReply.mockResolvedValue(undefined);
+
+      const result = await service.updateSuggestion(
+        MSG_ID,
+        { action: 'ACCEPT' },
+        TENANT,
+        USER_ID,
+      );
+
+      expect(result.suggestionStatus).toBe('ACCEPTED');
+      expect(mockPrisma.message.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ id: MSG_ID, tenantId: TENANT }),
+          data: expect.objectContaining({ suggestionStatus: 'ACCEPTED' }),
+        }),
+      );
+      expect(mockGateway.emitMessageUpdate).toHaveBeenCalledWith(TENANT, updated);
+    });
+
+    it('ACCEPT: dispara sendAssistedReply com o texto sugerido original', async () => {
+      mockPrisma.message.findFirst.mockResolvedValue(basePendingMessage);
+      mockPrisma.message.update.mockResolvedValue(buildUpdated('ACCEPTED'));
+      mockAgent.sendAssistedReply.mockResolvedValue(undefined);
+
+      await service.updateSuggestion(MSG_ID, { action: 'ACCEPT' }, TENANT, USER_ID);
+      jest.runAllTimers();
+
+      expect(mockAgent.sendAssistedReply).toHaveBeenCalledWith(
+        basePendingMessage.patientId,
+        TENANT,
+        basePendingMessage.conversationId,
+        SUGGESTED,
+      );
+    });
+
+    it('REJECT: marca suggestionStatus=REJECTED e NÃO dispara sendAssistedReply', async () => {
+      mockPrisma.message.findFirst.mockResolvedValue(basePendingMessage);
+      mockPrisma.message.update.mockResolvedValue(buildUpdated('REJECTED'));
+
+      await service.updateSuggestion(MSG_ID, { action: 'REJECT' }, TENANT, USER_ID);
+      jest.runAllTimers();
+
+      expect(mockPrisma.message.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ suggestionStatus: 'REJECTED' }),
+        }),
+      );
+      expect(mockAgent.sendAssistedReply).not.toHaveBeenCalled();
+    });
+
+    it('EDIT: envia editedText e marca suggestionStatus=EDITED', async () => {
+      mockPrisma.message.findFirst.mockResolvedValue(basePendingMessage);
+      mockPrisma.message.update.mockResolvedValue(buildUpdated('EDITED'));
+      mockAgent.sendAssistedReply.mockResolvedValue(undefined);
+
+      await service.updateSuggestion(
+        MSG_ID,
+        { action: 'EDIT', editedText: 'Texto editado pela enfermeira' },
+        TENANT,
+        USER_ID,
+      );
+      jest.runAllTimers();
+
+      expect(mockPrisma.message.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ suggestionStatus: 'EDITED' }),
+        }),
+      );
+      expect(mockAgent.sendAssistedReply).toHaveBeenCalledWith(
+        basePendingMessage.patientId,
+        TENANT,
+        basePendingMessage.conversationId,
+        'Texto editado pela enfermeira',
+      );
+    });
+
+    it('EDIT sem editedText lança BadRequestException', async () => {
+      mockPrisma.message.findFirst.mockResolvedValue(basePendingMessage);
+
+      await expect(
+        service.updateSuggestion(MSG_ID, { action: 'EDIT', editedText: '   ' }, TENANT, USER_ID),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(mockPrisma.message.update).not.toHaveBeenCalled();
+    });
+
+    it('lança BadRequestException ao reavaliar sugestão já processada', async () => {
+      mockPrisma.message.findFirst.mockResolvedValue({
+        ...basePendingMessage,
+        suggestionStatus: 'ACCEPTED',
+      });
+
+      await expect(
+        service.updateSuggestion(MSG_ID, { action: 'REJECT' }, TENANT, USER_ID),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(mockPrisma.message.update).not.toHaveBeenCalled();
+    });
+
+    it('lança BadRequestException quando mensagem não tem suggestedResponse', async () => {
+      mockPrisma.message.findFirst.mockResolvedValue({
+        ...basePendingMessage,
+        suggestedResponse: null,
+      });
+
+      await expect(
+        service.updateSuggestion(MSG_ID, { action: 'ACCEPT' }, TENANT, USER_ID),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(mockPrisma.message.update).not.toHaveBeenCalled();
+    });
+
+    it('lança NotFoundException para mensagem de outro tenant', async () => {
+      mockPrisma.message.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.updateSuggestion(MSG_ID, { action: 'ACCEPT' }, 'outro-tenant', USER_ID),
+      ).rejects.toThrow(NotFoundException);
+
+      expect(mockPrisma.message.update).not.toHaveBeenCalled();
+    });
+
+    it('inclui tenantId no where do findFirst e do update', async () => {
+      mockPrisma.message.findFirst.mockResolvedValue(basePendingMessage);
+      mockPrisma.message.update.mockResolvedValue(buildUpdated('ACCEPTED'));
+
+      await service.updateSuggestion(MSG_ID, { action: 'ACCEPT' }, TENANT, USER_ID);
+
+      expect(mockPrisma.message.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ tenantId: TENANT }) }),
+      );
+      expect(mockPrisma.message.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ tenantId: TENANT }) }),
+      );
+    });
   });
 });

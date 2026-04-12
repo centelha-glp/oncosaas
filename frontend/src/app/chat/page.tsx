@@ -34,6 +34,7 @@ import {
   useSendMessage,
   useAssumeMessage,
 } from '@/hooks/useMessages';
+import { useUpdateSuggestion } from '@/hooks/useSuggestion';
 import { usePendingDecisions } from '@/hooks/useConversations';
 import { useReadPatients } from '@/hooks/useReadPatients';
 import { conversationsApi } from '@/lib/api/conversations';
@@ -158,6 +159,7 @@ export default function ChatPage() {
   // Hooks para ações
   const sendMessageMutation = useSendMessage();
   const assumeMessageMutation = useAssumeMessage();
+  const updateSuggestionMutation = useUpdateSuggestion();
 
   // Obter conversationId da primeira mensagem (se existir)
   const conversationId =
@@ -245,6 +247,29 @@ export default function ChatPage() {
       : assumedMessage?.assumedBy
         ? 'Outro usuário'
         : null;
+
+  const handleSuggestionAction = async (payload: {
+    messageId: string;
+    patientId: string;
+    action: 'ACCEPT' | 'REJECT' | 'EDIT';
+    editedText?: string;
+  }) => {
+    try {
+      await updateSuggestionMutation.mutateAsync(payload);
+      if (payload.action === 'REJECT') {
+        toast.info('Sugestão rejeitada');
+      } else {
+        toast.success('Resposta enviada ao paciente');
+      }
+    } catch (error) {
+      toast.error('Erro ao processar sugestão', {
+        description:
+          error instanceof Error
+            ? error.message
+            : 'Tente novamente em alguns instantes.',
+      });
+    }
+  };
 
   const handleSendMessage = async (content: string) => {
     if (!selectedPatient) return;
@@ -674,6 +699,8 @@ export default function ChatPage() {
                         | 'audio'
                         | undefined,
                       audioUrl: msg.audioUrl ?? undefined,
+                      suggestedResponse: msg.suggestedResponse,
+                      suggestionStatus: msg.suggestionStatus,
                     }))}
                     structuredData={latestStructuredData}
                     onSendMessage={handleSendMessage}
@@ -688,6 +715,12 @@ export default function ChatPage() {
                     assumedAt={
                       assumedMessage?.assumedAt
                         ? new Date(assumedMessage.assumedAt)
+                        : null
+                    }
+                    onSuggestionAction={handleSuggestionAction}
+                    suggestionLoadingId={
+                      updateSuggestionMutation.isPending
+                        ? (updateSuggestionMutation.variables as { messageId?: string })?.messageId ?? null
                         : null
                     }
                   />

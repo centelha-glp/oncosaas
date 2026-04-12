@@ -56,6 +56,16 @@ export class ConsentService {
         ipAddress,
         userAgent,
       },
+      select: {
+        id: true,
+        tenantId: true,
+        patientId: true,
+        version: true,
+        consentedAt: true,
+        revokedAt: true,
+        createdAt: true,
+        updatedAt: true,
+      },
     });
 
     this.logger.log(
@@ -98,6 +108,16 @@ export class ConsentService {
     const revoked = await this.prisma.patientConsent.update({
       where: { id: consent.id, tenantId },
       data: { revokedAt: new Date() },
+      select: {
+        id: true,
+        tenantId: true,
+        patientId: true,
+        version: true,
+        consentedAt: true,
+        revokedAt: true,
+        createdAt: true,
+        updatedAt: true,
+      },
     });
 
     this.logger.log(
@@ -121,6 +141,16 @@ export class ConsentService {
     const consents = await this.prisma.patientConsent.findMany({
       where: { patientId, tenantId },
       orderBy: { consentedAt: 'desc' },
+      select: {
+        id: true,
+        tenantId: true,
+        patientId: true,
+        version: true,
+        consentedAt: true,
+        revokedAt: true,
+        createdAt: true,
+        updatedAt: true,
+      },
     });
 
     const activeConsents = consents.filter((c) => c.revokedAt === null);
