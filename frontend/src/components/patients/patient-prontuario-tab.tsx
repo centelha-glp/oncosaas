@@ -28,6 +28,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
+import { AutoResizeTextarea } from '@/components/ui/auto-resize-textarea';
 import { Textarea } from '@/components/ui/textarea';
 import {
   AlertDialog,
@@ -678,7 +679,7 @@ export function PatientProntuarioTab({
                 {CLINICAL_NOTE_SECTION_KEYS.map((key) => (
                   <div key={key} className="space-y-1">
                     <Label htmlFor={`sec-${key}`}>{SECTION_LABELS[key]}</Label>
-                    <Textarea
+                    <AutoResizeTextarea
                       id={`sec-${key}`}
                       value={draftSections[key] ?? ''}
                       readOnly={
@@ -691,7 +692,7 @@ export function PatientProntuarioTab({
                           [key]: e.target.value,
                         }))
                       }
-                      rows={3}
+                      minRows={3}
                       className="text-sm"
                     />
                   </div>

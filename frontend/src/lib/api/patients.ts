@@ -607,9 +607,22 @@ function unwrapPatientDetailPayload(raw: unknown): PatientDetail {
   return raw as PatientDetail;
 }
 
+export type PatientsListParams = {
+  limit?: number;
+  offset?: number;
+};
+
 export const patientsApi = {
-  async getAll(): Promise<Patient[]> {
-    const data = await apiClient.get<Patient[] | null>('/patients');
+  async getAll(params?: PatientsListParams): Promise<Patient[]> {
+    const data = await apiClient.get<Patient[] | null>('/patients', {
+      params:
+        params?.limit != null || params?.offset != null
+          ? {
+              ...(params.limit != null ? { limit: params.limit } : {}),
+              ...(params.offset != null ? { offset: params.offset } : {}),
+            }
+          : undefined,
+    });
     return data ?? [];
   },
 

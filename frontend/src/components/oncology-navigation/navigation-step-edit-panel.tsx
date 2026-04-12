@@ -21,7 +21,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
+import { AutoResizeTextarea } from '@/components/ui/auto-resize-textarea';
 import {
   Select,
   SelectContent,
@@ -385,12 +385,11 @@ export function NavigationStepEditPanel({
                 return (
                   <div key={field.key} className="space-y-2">
                     <Label htmlFor={fid}>{field.label}</Label>
-                    <Textarea
+                    <AutoResizeTextarea
                       id={fid}
                       value={stepDetail[field.key] ?? ''}
                       onChange={(e) => onStepDetailFieldChange(field.key, e.target.value)}
-                      rows={field.rows ?? 3}
-                      className="min-h-[72px] resize-y"
+                      minRows={field.rows ?? 3}
                     />
                     {field.helper ? (
                       <p className="text-xs text-muted-foreground">{field.helper}</p>
@@ -417,7 +416,7 @@ export function NavigationStepEditPanel({
                 ? 'Observações complementares (opcional)'
                 : 'Observações'}
             </Label>
-            <Textarea
+            <AutoResizeTextarea
               id={notesId}
               value={notes}
               onChange={(e) => onNotesChange(e.target.value)}
@@ -426,8 +425,7 @@ export function NavigationStepEditPanel({
                   ? 'Notas administrativas ou detalhes que não couberam nos campos da evolução…'
                   : 'Contexto clínico, próximos passos, orientações ao paciente…'
               }
-              rows={4}
-              className="min-h-[100px] resize-y"
+              minRows={4}
             />
           </div>
 

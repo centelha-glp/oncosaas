@@ -158,6 +158,8 @@ model Patient {
 
   @@index([tenantId])
   @@index([priorityScore])
+  /// Listagem por tenant ordenada por prioridade e data (findAll)
+  @@index([tenantId, priorityScore, createdAt])
   @@index([currentStage])
   @@index([status])
   @@index([ehrPatientId])

@@ -12,6 +12,7 @@ import {
   UploadedFile,
   BadRequestException,
   ParseUUIDPipe,
+  Query,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { PatientsService } from './patients.service';
@@ -21,6 +22,7 @@ import { UpdatePriorityDto } from './dto/update-priority.dto';
 import { CreateCancerDiagnosisDto } from './dto/create-cancer-diagnosis.dto';
 import { UpdateCancerDiagnosisDto } from './dto/update-cancer-diagnosis.dto';
 import { ImportSpreadsheetDto } from './dto/import-spreadsheet.dto';
+import { QueryPatientsDto } from './dto/query-patients.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { TenantGuard } from '../auth/guards/tenant.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -49,8 +51,11 @@ export class PatientsController {
     UserRole.NURSE,
     UserRole.COORDINATOR
   )
-  findAll(@CurrentUser() user: any) {
-    return this.patientsService.findAll(user.tenantId);
+  findAll(@CurrentUser() user: any, @Query() query: QueryPatientsDto) {
+    return this.patientsService.findAll(user.tenantId, {
+      limit: query.limit,
+      offset: query.offset,
+    });
   }
 
   @Get('by-phone/:phone')

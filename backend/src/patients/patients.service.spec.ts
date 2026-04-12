@@ -131,14 +131,14 @@ describe('PatientsService', () => {
       expect((result[0] as any).pendingAlertsCount).toBe(3);
     });
 
-    it('deve respeitar o limite máximo de 500', async () => {
+    it('deve respeitar o limite máximo de 100', async () => {
       mockPrisma.patient.findMany.mockResolvedValue([]);
       mockPrisma.alert.groupBy.mockResolvedValue([]);
 
       await service.findAll(TENANT, { limit: 9999 });
 
       expect(mockPrisma.patient.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({ take: 500 })
+        expect.objectContaining({ take: 100 })
       );
     });
   });

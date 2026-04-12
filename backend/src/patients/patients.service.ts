@@ -86,9 +86,9 @@ export class PatientsService {
     tenantId: string,
     options?: { limit?: number; offset?: number }
   ): Promise<Patient[]> {
-    // Limite padrão de 200 pacientes para evitar problemas de performance
+    // Cap 100 por página (performance); default 100
     const limit =
-      options?.limit && options.limit > 0 ? Math.min(options.limit, 500) : 200;
+      options?.limit && options.limit > 0 ? Math.min(options.limit, 100) : 100;
     const offset = options?.offset && options.offset > 0 ? options.offset : 0;
 
     const patients = await this.prisma.patient.findMany({

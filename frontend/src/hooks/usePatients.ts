@@ -5,12 +5,13 @@ import {
   Patient,
   CreatePatientDto,
   UpdatePatientDto,
+  type PatientsListParams,
 } from '@/lib/api/patients';
 
-export const usePatients = () => {
+export const usePatients = (listParams?: PatientsListParams) => {
   return useQuery({
-    queryKey: ['patients'],
-    queryFn: () => patientsApi.getAll(),
+    queryKey: ['patients', listParams ?? {}],
+    queryFn: () => patientsApi.getAll(listParams),
     staleTime: 5 * 60 * 1000, // 5 minutos
   });
 };
@@ -20,6 +21,7 @@ export const usePatient = (id: string, options?: { enabled?: boolean }) => {
     queryKey: ['patients', id],
     queryFn: () => patientsApi.getById(id),
     enabled: options?.enabled !== undefined ? options.enabled : !!id,
+    staleTime: 60_000, // 1 min — detalhe de paciente
   });
 };
 
