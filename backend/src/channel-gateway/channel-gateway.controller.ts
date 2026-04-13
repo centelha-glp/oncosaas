@@ -46,16 +46,14 @@ export class ChannelGatewayController {
       'WHATSAPP_WEBHOOK_VERIFY_TOKEN'
     );
 
-    if (isProduction && !verifyToken) {
+    if (!verifyToken) {
       this.logger.error(
-        'WHATSAPP_WEBHOOK_VERIFY_TOKEN must be set in production'
+        'WHATSAPP_WEBHOOK_VERIFY_TOKEN must be set in all environments'
       );
       return res.status(503).send('Service Unavailable');
     }
 
-    const effectiveToken = verifyToken ?? 'onconav-webhook-verify';
-
-    if (mode === 'subscribe' && token === effectiveToken) {
+    if (mode === 'subscribe' && token === verifyToken) {
       this.logger.log('WhatsApp webhook verified successfully');
       return res.status(200).send(challenge);
     }
@@ -78,6 +76,17 @@ export class ChannelGatewayController {
     const isProduction =
       this.configService.get<string>('NODE_ENV') === 'production';
     const signature = req.headers['x-hub-signature-256'] as string | undefined;
+    const appSecret = this.configService.get<string>('META_APP_SECRET')?.trim();
+
+    // [A-04] Header de assinatura sem secret configurado → não verificável; rejeitar.
+    if (signature && !appSecret) {
+      this.logger.warn(
+        'WhatsApp webhook: x-hub-signature-256 present but META_APP_SECRET is not set',
+      );
+      throw new ForbiddenException(
+        'Webhook signature verification not configured',
+      );
+    }
 
     if (isProduction) {
       if (!req.rawBody || !signature) {
@@ -90,12 +99,19 @@ export class ChannelGatewayController {
         this.logger.warn('Invalid WhatsApp webhook signature');
         throw new ForbiddenException('Invalid signature');
       }
-    } else if (signature && req.rawBody) {
+    } else if (appSecret) {
+      // Non-production com META_APP_SECRET: mesma exigência de assinatura válida
+      if (!req.rawBody || !signature) {
+        this.logger.warn(
+          'WhatsApp webhook (non-production): missing raw body or signature',
+        );
+        throw new ForbiddenException('Webhook signature required');
+      }
       if (
         !this.whatsAppChannel.validateWebhookSignature(req.rawBody, signature)
       ) {
-        this.logger.warn('Invalid WhatsApp webhook signature');
-        return { status: 'invalid_signature' };
+        this.logger.warn('Invalid WhatsApp webhook signature (non-production)');
+        throw new ForbiddenException('Invalid signature');
       }
     }
 

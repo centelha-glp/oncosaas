@@ -60,6 +60,7 @@
     "csv-parser": "^3.2.0",
     "dotenv": "^17.3.1",
     "facebook-nodejs-business-sdk": "^24.0.0",
+    "helmet": "^8.1.0",
     "ioredis": "^5.10.0",
     "multer": "^2.0.2",
     "passport": "^0.7.0",

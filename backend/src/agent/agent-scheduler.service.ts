@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { getAiServiceConfig } from '../common/utils/ai-service.util';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { ChannelGatewayService } from '../channel-gateway/channel-gateway.service';
@@ -352,15 +353,13 @@ export class AgentSchedulerService {
         return fallback;
       }
 
-      const aiServiceUrl =
-        this.configService.get<string>('AI_SERVICE_URL') ||
-        'http://localhost:8001';
+      const { aiServiceUrl, headers: aiHeaders } = getAiServiceConfig(this.configService);
 
       const response = await fetch(
         `${aiServiceUrl}/api/v1/agent/checkin-message`,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: aiHeaders,
           body: JSON.stringify({
             patient_id: action.patientId,
             tenant_id: action.tenantId,

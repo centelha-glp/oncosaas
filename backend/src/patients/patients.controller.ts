@@ -66,15 +66,19 @@ export class PatientsController {
     UserRole.COORDINATOR
   )
   async findByPhone(@Param('phone') phone: string, @CurrentUser() user: any) {
+    // [A-08] Validar formato E.164 antes de processar (evita path traversal e enumeração)
+    if (!/^\+[1-9]\d{1,14}$/.test(phone)) {
+      throw new BadRequestException('Phone number must be in E.164 format (e.g. +5511999999999)');
+    }
+
     const patient = await this.patientsService.findByPhone(
       phone,
       user.tenantId
     );
 
     if (!patient) {
-      throw new NotFoundException(
-        `Patient with phone number ${phone} not found`
-      );
+      // [A-08] Nunca expor o número de telefone na mensagem de erro (LGPD / enumeração)
+      throw new NotFoundException('Patient not found');
     }
 
     return { data: patient };

@@ -47,7 +47,8 @@ const baseAlert = {
   resolvedBy: null,
   acknowledgedAt: null,
   acknowledgedBy: null,
-  patient: { id: PATIENT_ID, name: 'Ana Silva', phone: '+5511999999999' },
+  // phone omitido intencionalmente — LGPD: campo sensível não deve aparecer em responses
+  patient: { id: PATIENT_ID, name: 'Ana Silva' },
 };
 
 describe('AlertsService', () => {
@@ -327,6 +328,59 @@ describe('AlertsService', () => {
           data: expect.objectContaining({ status: 'RESOLVED', resolvedBy: 'user-99' }),
         })
       );
+    });
+  });
+
+  // ─── LGPD: phone não exposto em respostas públicas ──────────────────────────
+
+  describe('LGPD — campo phone nao exposto nas respostas', () => {
+    it('findAll nao deve solicitar phone no select de patient', async () => {
+      mockPrisma.alert.findMany.mockResolvedValue([baseAlert]);
+
+      await service.findAll(TENANT);
+
+      const callArgs = mockPrisma.alert.findMany.mock.calls[0][0];
+      const patientSelect = callArgs?.include?.patient?.select ?? {};
+      expect(patientSelect).not.toHaveProperty('phone');
+    });
+
+    it('findOne nao deve solicitar phone no select de patient', async () => {
+      mockPrisma.alert.findFirst.mockResolvedValue(baseAlert);
+
+      await service.findOne(ALERT_ID, TENANT);
+
+      const callArgs = mockPrisma.alert.findFirst.mock.calls[0][0];
+      const patientSelect = callArgs?.include?.patient?.select ?? {};
+      expect(patientSelect).not.toHaveProperty('phone');
+    });
+
+    it('create nao deve solicitar phone no select de patient', async () => {
+      const dto = {
+        patientId: PATIENT_ID,
+        type: 'NO_RESPONSE' as any,
+        severity: 'HIGH' as any,
+        message: 'No response',
+      };
+      mockPrisma.patient.findFirst.mockResolvedValue({ id: PATIENT_ID });
+      mockPrisma.alert.findFirst.mockResolvedValue(null);
+      mockPrisma.alert.create.mockResolvedValue(baseAlert);
+      mockPrisma.alert.count.mockResolvedValue(1);
+
+      await service.create(dto, TENANT);
+
+      const createCall = mockPrisma.alert.create.mock.calls[0][0];
+      const patientSelect = createCall?.include?.patient?.select ?? {};
+      expect(patientSelect).not.toHaveProperty('phone');
+    });
+
+    it('getCriticalAlerts nao deve solicitar phone no select de patient', async () => {
+      mockPrisma.alert.findMany.mockResolvedValue([baseAlert]);
+
+      await service.getCriticalAlerts(TENANT);
+
+      const callArgs = mockPrisma.alert.findMany.mock.calls[0][0];
+      const patientSelect = callArgs?.include?.patient?.select ?? {};
+      expect(patientSelect).not.toHaveProperty('phone');
     });
   });
 

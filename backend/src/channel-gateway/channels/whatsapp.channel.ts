@@ -104,20 +104,20 @@ export class WhatsAppChannel implements IChannel {
    */
   validateWebhookSignature(payload: Buffer, signature: string): boolean {
     const appSecret = this.configService.get<string>('META_APP_SECRET');
-    const isProduction =
-      this.configService.get<string>('NODE_ENV') === 'production';
+    const isDevelopment =
+      this.configService.get<string>('NODE_ENV') === 'development';
 
     if (!appSecret) {
-      if (isProduction) {
-        this.logger.error(
-          'META_APP_SECRET not configured; rejecting webhook in production'
+      if (isDevelopment) {
+        this.logger.warn(
+          'META_APP_SECRET not configured, skipping signature validation (development only)'
         );
-        return false;
+        return true;
       }
-      this.logger.warn(
-        'META_APP_SECRET not configured, skipping signature validation (development only)'
+      this.logger.error(
+        'META_APP_SECRET not configured; rejecting webhook (staging/production)'
       );
-      return true;
+      return false;
     }
 
     const expectedSignature =
@@ -161,16 +161,13 @@ export class WhatsAppChannel implements IChannel {
       this.configService.get<string>('NODE_ENV') === 'production';
 
     if (!configuredKey) {
-      if (isProduction) {
-        this.logger.error(
-          'ENCRYPTION_KEY not configured; cannot decrypt WhatsApp tokens'
-        );
-        return null;
-      }
+      this.logger.error(
+        'ENCRYPTION_KEY not configured; cannot decrypt WhatsApp tokens'
+      );
+      return null;
     }
 
-    const encryptionKey =
-      configuredKey || 'default-dev-key-32-bytes-long!!';
+    const encryptionKey = configuredKey;
 
     if (connection.oauthAccessToken) {
       try {

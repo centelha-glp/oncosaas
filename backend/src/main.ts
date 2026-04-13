@@ -8,6 +8,7 @@ import { existsSync, mkdirSync, readFileSync } from 'fs';
 import { HttpExceptionFilter } from '@/common/filters/http-exception.filter';
 import { PrismaExceptionFilter } from '@/common/filters/prisma-exception.filter';
 import cookieParser = require('cookie-parser');
+import helmet from 'helmet';
 
 const logger = new Logger('Bootstrap');
 
@@ -18,7 +19,14 @@ function validateEnv(): void {
     return;
   }
 
-  const required = ['DATABASE_URL', 'JWT_SECRET', 'ENCRYPTION_KEY', 'REDIS_URL', 'FRONTEND_URL'];
+  const required = [
+    'DATABASE_URL',
+    'JWT_SECRET',
+    'ENCRYPTION_KEY',
+    'REDIS_URL',
+    'FRONTEND_URL',
+    'BACKEND_SERVICE_TOKEN',
+  ];
   const missing = required.filter((key) => !process.env[key]);
   if (missing.length > 0) {
     throw new Error(
@@ -66,6 +74,36 @@ async function bootstrap(): Promise<void> {
     }
   );
   app.enableShutdownHooks();
+
+  // [A-01] Configurar trust proxy: 1 nível (nginx/ALB na frente do Node).
+  // Garante que request.ip e X-Forwarded-For reflitam o IP real do cliente
+  // no ThrottleGuard e AuditLogInterceptor, prevenindo spoofing.
+  app.set('trust proxy', 1);
+
+  // [C-04] Security headers HTTP (OWASP / HIPAA best practices).
+  // Adiciona X-Frame-Options, X-Content-Type-Options, Referrer-Policy,
+  // Strict-Transport-Security e Content-Security-Policy padrão.
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        directives: {
+          defaultSrc: ["'self'"],
+          scriptSrc: ["'self'"],
+          styleSrc: ["'self'", "'unsafe-inline'"],
+          imgSrc: ["'self'", 'data:'],
+          connectSrc: ["'self'"],
+          fontSrc: ["'self'"],
+          objectSrc: ["'none'"],
+          frameSrc: ["'none'"],
+        },
+      },
+      hsts: {
+        maxAge: 31536000, // 1 ano
+        includeSubDomains: true,
+        preload: true,
+      },
+    })
+  );
 
   app.use(cookieParser());
 

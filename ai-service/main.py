@@ -119,8 +119,9 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    # [A-05] Restringir métodos e headers — ai-service é internal API, não público
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Tenant-Id", "X-Request-Id"],
 )
 
 # Incluir rotas

@@ -54,5 +54,10 @@ COPY --from=builder /venv /venv
 COPY main.py .
 COPY src/ ./src/
 
+# [M-02] Executar como usuário não-root (princípio do menor privilégio)
+RUN useradd -r -u 1001 -g root aiuser \
+    && chown -R aiuser:root /app
+USER aiuser
+
 EXPOSE 8001
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8001"]

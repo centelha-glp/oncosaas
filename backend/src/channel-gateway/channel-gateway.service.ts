@@ -17,18 +17,40 @@ import {
 } from '../common/utils/phone.util';
 import { OutgoingMessage, SendResult } from './interfaces/channel.interface';
 import { AgentService } from '../agent/agent.service';
+import { RedisService } from '../redis/redis.service';
+
+/** [A-06] Janela e limite para webhooks de número sem paciente (anti-flood / enumeração). */
+const UNKNOWN_PHONE_WINDOW_SEC = 120;
+const UNKNOWN_PHONE_MAX_ATTEMPTS = 48;
+
+interface UnknownPhoneRecord {
+  count: number;
+  resetTime: number;
+}
 
 @Injectable()
 export class ChannelGatewayService {
   private readonly logger = new Logger(ChannelGatewayService.name);
+  private readonly unknownPhoneFallback = new Map<string, UnknownPhoneRecord>();
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly messagesGateway: MessagesGateway,
     private readonly whatsAppChannel: WhatsAppChannel,
+    private readonly redisService: RedisService,
     @Inject(forwardRef(() => AgentService))
     private readonly agentService: AgentService
-  ) {}
+  ) {
+    const sweep = setInterval(() => {
+      const now = Date.now();
+      for (const [k, rec] of this.unknownPhoneFallback.entries()) {
+        if (now > rec.resetTime) {
+          this.unknownPhoneFallback.delete(k);
+        }
+      }
+    }, 60_000);
+    sweep.unref();
+  }
 
   /**
    * Process an incoming message from any channel.
@@ -52,11 +74,20 @@ export class ChannelGatewayService {
     const normalizedPhone = normalizePhoneNumber(phone);
     const phoneHash = hashPhoneNumber(phone);
 
+    // [A-06] Se este hash já excedeu o limite de tentativas sem paciente, evita martelar o DB
+    if (await this.isUnknownPhoneFlooded(phoneHash)) {
+      this.logger.warn(
+        'WhatsApp webhook: limite anti-flood atingido para número sem paciente cadastrado'
+      );
+      return null;
+    }
+
     const patient = await this.prisma.patient.findFirst({
       where: { phoneHash },
     });
 
     if (!patient) {
+      await this.recordUnknownPhoneAttempt(phoneHash);
       this.logger.warn(
         `No patient found for phone hash. Normalized: ${normalizedPhone.substring(0, 5)}***`
       );
@@ -124,7 +155,7 @@ export class ChannelGatewayService {
       },
       include: {
         patient: {
-          select: { id: true, name: true, phone: true },
+          select: { id: true, name: true },
         },
       },
     });
@@ -260,7 +291,7 @@ export class ChannelGatewayService {
       },
       include: {
         patient: {
-          select: { id: true, name: true, phone: true },
+          select: { id: true, name: true },
         },
       },
     });
@@ -316,5 +347,41 @@ export class ChannelGatewayService {
         lastMessageAt: new Date(),
       },
     });
+  }
+
+  /** Contagem atual de falhas “sem paciente” nesta janela (Redis ou memória). */
+  private async getUnknownPhoneCount(phoneHash: string): Promise<number> {
+    const key = `wa:unk:${phoneHash}`;
+    if (this.redisService.isConnected()) {
+      const raw = await this.redisService.get(key);
+      return raw ? parseInt(raw, 10) : 0;
+    }
+    const now = Date.now();
+    const rec = this.unknownPhoneFallback.get(key);
+    if (!rec || now > rec.resetTime) {
+      return 0;
+    }
+    return rec.count;
+  }
+
+  private async isUnknownPhoneFlooded(phoneHash: string): Promise<boolean> {
+    const n = await this.getUnknownPhoneCount(phoneHash);
+    return n >= UNKNOWN_PHONE_MAX_ATTEMPTS;
+  }
+
+  private async recordUnknownPhoneAttempt(phoneHash: string): Promise<void> {
+    const key = `wa:unk:${phoneHash}`;
+    if (this.redisService.isConnected()) {
+      await this.redisService.increment(key, UNKNOWN_PHONE_WINDOW_SEC);
+      return;
+    }
+    const now = Date.now();
+    const reset = now + UNKNOWN_PHONE_WINDOW_SEC * 1000;
+    const rec = this.unknownPhoneFallback.get(key);
+    if (!rec || now > rec.resetTime) {
+      this.unknownPhoneFallback.set(key, { count: 1, resetTime: reset });
+      return;
+    }
+    rec.count++;
   }
 }

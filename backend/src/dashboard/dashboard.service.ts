@@ -1875,7 +1875,6 @@ export class DashboardService {
           select: {
             id: true,
             name: true,
-            phone: true,
           },
         },
       },
@@ -1894,7 +1893,6 @@ export class DashboardService {
       patient: {
         id: alert.patient.id,
         name: alert.patient.name,
-        phone: alert.patient.phone,
       },
     }));
   }

@@ -53,7 +53,6 @@ export class AlertsService {
           select: {
             id: true,
             name: true,
-            phone: true,
             priorityScore: true, // Campo correto do schema
           },
         },
@@ -74,7 +73,6 @@ export class AlertsService {
           select: {
             id: true,
             name: true,
-            phone: true,
           },
         },
       },
@@ -115,7 +113,7 @@ export class AlertsService {
       },
       include: {
         patient: {
-          select: { id: true, name: true, phone: true },
+          select: { id: true, name: true },
         },
       },
     });
@@ -135,7 +133,6 @@ export class AlertsService {
           select: {
             id: true,
             name: true,
-            phone: true,
           },
         },
       },
@@ -267,7 +264,6 @@ export class AlertsService {
           select: {
             id: true,
             name: true,
-            phone: true,
             priorityScore: true,
           },
         },

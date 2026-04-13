@@ -53,7 +53,6 @@ export class ConversationService {
           select: {
             id: true,
             name: true,
-            phone: true,
             cancerType: true,
             currentStage: true,
             priorityCategory: true,
@@ -108,8 +107,7 @@ export class ConversationService {
             select: {
               id: true,
               name: true,
-              phone: true,
-              cancerType: true,
+                cancerType: true,
               currentStage: true,
               priorityCategory: true,
             },

@@ -12,6 +12,7 @@ O processo que executa o ai-service deve ter acesso a:
 | `ANTHROPIC_API_KEY` | Uma das duas | Chave da API Anthropic (usada pelo agente quando configurada). |
 | `BACKEND_URL` | Não | URL do backend (default: `http://localhost:3002`). |
 | `BACKEND_SERVICE_TOKEN` | Sim (produção) | Token para autenticação backend → ai-service. |
+| `AI_SERVICE_REQUIRE_SERVICE_TOKEN` | Não | Se definido como verdadeiro, o serviço exige token configurado mesmo em dev (alinhado a produção). |
 
 O backend **não** envia chaves de LLM no `agent_config`; o ai-service usa apenas `os.getenv("OPENAI_API_KEY")` e `os.getenv("ANTHROPIC_API_KEY")`. Garanta que no ambiente onde o ai-service roda (ex.: terminal, systemd, Docker) pelo menos uma dessas chaves esteja definida para respostas geradas por IA.
 Para desenvolvimento local neste serviço, o arquivo carregado é somente `ai-service/.env` (não há fallback para `.env` no diretório pai).

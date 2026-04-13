@@ -11,6 +11,7 @@ import { ConfigService } from '@nestjs/config';
 import { Prisma, UserRole } from '@generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
+import { AuditLogService } from '../audit-log/audit-log.service';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { LoginDto } from './dto/login.dto';
@@ -30,7 +31,8 @@ export class AuthService {
     private prisma: PrismaService,
     private jwtService: JwtService,
     private configService: ConfigService,
-    private redisService: RedisService
+    private redisService: RedisService,
+    private auditLogService: AuditLogService
   ) {}
 
   // ─── Account lockout helpers ────────────────────────────────────────────────
@@ -60,6 +62,15 @@ export class AuthService {
       this.logger.warn(
         `Account locked after ${MAX_FAILED_ATTEMPTS} failed attempts: ${email}`
       );
+      // [A-03] Audit account lockout — PHI-critical event
+      void this.auditLogService.log({
+        tenantId: 'system',
+        userId: undefined,
+        action: 'UPDATE',
+        resourceType: 'UserAuth',
+        resourceId: email,
+        newValues: { event: 'ACCOUNT_LOCKED', reason: `${MAX_FAILED_ATTEMPTS} failed login attempts` },
+      });
     }
   }
 
@@ -68,12 +79,37 @@ export class AuthService {
     await this.redisService.del(this.lockedKey(email));
   }
 
+  /** [A-03] Auditoria de falha de login — sem expor senha; email desconhecido vira hash em resourceId. */
+  private auditLoginFailed(
+    reason: 'unknown_user' | 'invalid_password',
+    email: string,
+    user: { id: string; tenantId: string } | null,
+    ctx?: { ipAddress?: string; userAgent?: string }
+  ): void {
+    const emailNorm = email.toLowerCase().trim();
+    const resourceId =
+      user?.id ??
+      crypto.createHash('sha256').update(emailNorm).digest('hex');
+
+    void this.auditLogService.log({
+      tenantId: user?.tenantId ?? 'system',
+      userId: user?.id,
+      action: 'CREATE',
+      resourceType: 'UserAuth',
+      resourceId,
+      newValues: { event: 'LOGIN_FAILED', reason },
+      ipAddress: ctx?.ipAddress,
+      userAgent: ctx?.userAgent,
+    });
+  }
+
   // ─── Core auth logic ────────────────────────────────────────────────────────
 
   async validateUser(
     email: string,
     password: string,
-    tenantId?: string
+    tenantId?: string,
+    auditContext?: { ipAddress?: string; userAgent?: string }
   ): Promise<any> {
     if (await this.isLocked(email)) {
       throw new ForbiddenException(
@@ -88,6 +124,7 @@ export class AuthService {
 
     if (!user) {
       await this.recordFailedAttempt(email);
+      this.auditLoginFailed('unknown_user', email, null, auditContext);
       throw new UnauthorizedException('Credenciais inválidas');
     }
 
@@ -95,6 +132,12 @@ export class AuthService {
 
     if (!isPasswordValid) {
       await this.recordFailedAttempt(email);
+      this.auditLoginFailed(
+        'invalid_password',
+        email,
+        { id: user.id, tenantId: user.tenantId },
+        auditContext
+      );
       throw new UnauthorizedException('Credenciais inválidas');
     }
 
@@ -111,11 +154,12 @@ export class AuthService {
     return result;
   }
 
-  async login(loginDto: LoginDto, tenantId?: string) {
+  async login(loginDto: LoginDto, tenantId?: string, ipAddress?: string, userAgent?: string) {
     const user = await this.validateUser(
       loginDto.email,
       loginDto.password,
-      tenantId
+      tenantId,
+      { ipAddress, userAgent }
     );
 
     const payload: JwtPayload = {
@@ -127,6 +171,18 @@ export class AuthService {
 
     const accessToken = this.jwtService.sign(payload);
     const refreshToken = await this.generateRefreshToken(user.id);
+
+    // [A-03] Audit successful login
+    void this.auditLogService.log({
+      tenantId: user.tenantId,
+      userId: user.id,
+      action: 'CREATE',
+      resourceType: 'UserSession',
+      resourceId: user.id,
+      newValues: { event: 'LOGIN', role: user.role },
+      ipAddress,
+      userAgent,
+    });
 
     return {
       access_token: accessToken,
@@ -172,15 +228,36 @@ export class AuthService {
       role: user.role,
     };
 
+    // [A-03] Audit token refresh
+    void this.auditLogService.log({
+      tenantId: user.tenantId,
+      userId: user.id,
+      action: 'UPDATE',
+      resourceType: 'UserSession',
+      resourceId: user.id,
+      newValues: { event: 'TOKEN_REFRESH' },
+    });
+
     return {
       access_token: this.jwtService.sign(payload),
       refresh_token: newRefreshToken,
     };
   }
 
-  async logout(refreshToken: string): Promise<void> {
+  async logout(refreshToken: string, userId?: string, tenantId?: string): Promise<void> {
     if (refreshToken) {
       await this.redisService.del(`rt:${refreshToken}`);
+    }
+    // [A-03] Audit logout when caller context is available
+    if (userId && tenantId) {
+      void this.auditLogService.log({
+        tenantId,
+        userId,
+        action: 'DELETE',
+        resourceType: 'UserSession',
+        resourceId: userId,
+        newValues: { event: 'LOGOUT' },
+      });
     }
   }
 
@@ -279,7 +356,7 @@ export class AuthService {
       return this.getProfile(userId);
     }
 
-    await this.prisma.user.update({ where: { id: userId }, data: updateData });
+    await this.prisma.user.update({ where: { id: userId, tenantId: user.tenantId }, data: updateData });
     return this.getProfile(userId);
   }
 
@@ -350,6 +427,16 @@ export class AuthService {
     const ttl = 60 * 60; // 1 hora
     await this.redisService.set(`prt:${token}`, user.id, ttl);
 
+    // [A-03] Auditoria — apenas dev; não registrar o token
+    void this.auditLogService.log({
+      tenantId: user.tenantId,
+      userId: user.id,
+      action: 'CREATE',
+      resourceType: 'UserAuth',
+      resourceId: user.id,
+      newValues: { event: 'PASSWORD_RESET_REQUESTED' },
+    });
+
     this.logger.log(
       `[DEV] Password reset requested for ${email} (token stored in Redis; do not log tokens)`
     );
@@ -363,36 +450,89 @@ export class AuthService {
       throw new UnauthorizedException('Token inválido ou expirado');
     }
 
+    // Fetch user before invalidating token so we have tenantId for the scoped update
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      await this.redisService.del(key);
+      throw new UnauthorizedException('Token inválido ou expirado');
+    }
+
+    // Invalidate token BEFORE updating password to prevent replay on partial failure
+    await this.redisService.del(key);
+
     const hashedPassword = await bcrypt.hash(newPassword, 10);
 
     await this.prisma.user.update({
-      where: { id: userId },
+      where: { id: userId, tenantId: user.tenantId },
       data: { password: hashedPassword },
     });
 
-    // Invalidate token after use
-    await this.redisService.del(key);
-    // Also clear any account lockout
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (user) {
-      await this.clearFailedAttempts(user.email);
-    }
+    // Clear any account lockout
+    await this.clearFailedAttempts(user.email);
+
+    // [A-03] Senha alterada com sucesso (token de uso único já invalidado)
+    void this.auditLogService.log({
+      tenantId: user.tenantId,
+      userId: user.id,
+      action: 'UPDATE',
+      resourceType: 'UserAuth',
+      resourceId: user.id,
+      newValues: { event: 'PASSWORD_RESET_COMPLETED' },
+    });
   }
 
-  async register(registerDto: RegisterDto) {
-    const tenant = await this.prisma.tenant.findUnique({
-      where: { id: registerDto.tenantId },
-    });
+  // ─── Invite System ──────────────────────────────────────────────────────────
 
+  private inviteKey(token: string) {
+    return `inv:${token}`;
+  }
+
+  async createInvite(
+    tenantId: string,
+    role: UserRole,
+    createdByUserId: string
+  ): Promise<{ inviteToken: string; expiresIn: string }> {
+    const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
     if (!tenant) {
       throw new UnauthorizedException('Tenant não encontrado');
     }
 
+    const token = crypto.randomBytes(32).toString('hex');
+    const ttl = 48 * 60 * 60; // 48 horas
+    await this.redisService.set(
+      this.inviteKey(token),
+      JSON.stringify({ tenantId, role }),
+      ttl
+    );
+
+    this.logger.log(
+      `Invite created by user ${createdByUserId} for tenant ${tenantId} with role ${role}`
+    );
+
+    return { inviteToken: token, expiresIn: '48h' };
+  }
+
+  async register(registerDto: RegisterDto) {
+    const inviteRaw = await this.redisService.get(this.inviteKey(registerDto.inviteToken));
+
+    if (!inviteRaw) {
+      throw new UnauthorizedException('Token de convite inválido ou expirado');
+    }
+
+    let invitePayload: { tenantId: string; role: UserRole };
+    try {
+      invitePayload = JSON.parse(inviteRaw) as { tenantId: string; role: UserRole };
+    } catch {
+      throw new UnauthorizedException('Token de convite malformado');
+    }
+
+    const { tenantId, role } = invitePayload;
+
+    // Invalidar o token antes de criar o usuário (evita replay)
+    await this.redisService.del(this.inviteKey(registerDto.inviteToken));
+
     const existingUser = await this.prisma.user.findFirst({
-      where: {
-        tenantId: registerDto.tenantId,
-        email: registerDto.email,
-      },
+      where: { tenantId, email: registerDto.email },
     });
 
     if (existingUser) {
@@ -406,8 +546,8 @@ export class AuthService {
         email: registerDto.email,
         password: hashedPassword,
         name: registerDto.name,
-        role: UserRole.NURSE,
-        tenantId: registerDto.tenantId,
+        role,
+        tenantId,
       },
       include: { tenant: true },
     });

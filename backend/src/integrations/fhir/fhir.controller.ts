@@ -76,7 +76,8 @@ export class FHIRController {
       throw new Error('Integração FHIR não habilitada para este tenant');
     }
 
-    return this.fhirSyncService.syncUnsyncedObservations(config, 100);
+    // [M-03] Mesmo limite que o scheduler horário (50) para evitar timeouts e carga no EHR
+    return this.fhirSyncService.syncUnsyncedObservations(config, 50);
   }
 
   /**

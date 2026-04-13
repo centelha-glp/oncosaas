@@ -22,6 +22,7 @@ import {
   IsOptional,
   IsArray,
   ArrayMinSize,
+  IsEnum,
 } from 'class-validator';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
@@ -30,6 +31,9 @@ import { RegisterInstitutionDto } from './dto/register-institution.dto';
 import { Public } from './decorators/public.decorator';
 import { Roles } from './decorators/roles.decorator';
 import { RolesGuard } from './guards/roles.guard';
+import { TenantGuard } from './guards/tenant.guard';
+import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { CurrentUser, type CurrentUser as CurrentUserType } from './decorators/current-user.decorator';
 import { UserRole } from '@generated/prisma/client';
 import {
   REFRESH_TOKEN_COOKIE,
@@ -69,6 +73,11 @@ class UpdateTenantSettingsDto {
   enabledCancerTypes: string[];
 }
 
+class CreateInviteDto {
+  @IsEnum(UserRole)
+  role: UserRole;
+}
+
 class UpdateProfileDto {
   @IsOptional()
   @IsString()
@@ -98,10 +107,13 @@ export class AuthController {
   async login(
     @Body() loginDto: LoginDto,
     @Headers('x-tenant-id') headerTenantId: string | undefined,
+    @Req() req: ExpressRequest,
     @Res({ passthrough: true }) res: Response
   ) {
     const tenantId = loginDto.tenantId || headerTenantId;
-    const result = await this.authService.login(loginDto, tenantId);
+    const ipAddress = req.ip;
+    const userAgent = req.headers['user-agent'];
+    const result = await this.authService.login(loginDto, tenantId, ipAddress, userAgent);
     setRefreshTokenCookie(res, result.refresh_token);
     setAccessTokenCookie(res, result.access_token);
     return {
@@ -133,11 +145,12 @@ export class AuthController {
   async logout(
     @Req() req: ExpressRequest,
     @Body() body: Partial<RefreshDto>,
+    @CurrentUser() user: CurrentUserType,
     @Res({ passthrough: true }) res: Response
   ) {
     const fromCookie = req.cookies?.[REFRESH_TOKEN_COOKIE] as string | undefined;
     const refreshToken = fromCookie || body.refresh_token || '';
-    await this.authService.logout(refreshToken);
+    await this.authService.logout(refreshToken, user?.id, user?.tenantId);
     clearRefreshTokenCookie(res);
     clearAccessTokenCookie(res);
   }
@@ -198,6 +211,25 @@ export class AuthController {
     );
   }
 
+  /**
+   * Emite token de convite (48h) para um novo usuário.
+   * Apenas ADMIN e COORDINATOR podem convidar.
+   */
+  @Post('invite')
+  @UseGuards(JwtAuthGuard, TenantGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.COORDINATOR)
+  @HttpCode(HttpStatus.CREATED)
+  async createInvite(
+    @Body() dto: CreateInviteDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.authService.createInvite(user.tenantId, dto.role, user.id);
+  }
+
+  /**
+   * Registra um usuário usando um token de convite emitido via POST /auth/invite.
+   * O endpoint permanece público mas requer um token válido no body.
+   */
   @Public()
   @Post('register')
   async register(@Body() registerDto: RegisterDto) {

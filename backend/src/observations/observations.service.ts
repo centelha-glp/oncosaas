@@ -72,7 +72,6 @@ export class ObservationsService {
           select: {
             id: true,
             name: true,
-            phone: true,
           },
         },
       },
