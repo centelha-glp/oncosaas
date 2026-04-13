@@ -270,7 +270,10 @@ export class MessagesService {
       });
 
       const updatedMessages = await this.prisma.message.findMany({
-        where: { id: { in: unassumedMessages.map((m) => m.id) } },
+        where: {
+          id: { in: unassumedMessages.map((m) => m.id) },
+          tenantId,
+        },
         include: {
           patient: {
             select: { id: true, name: true },

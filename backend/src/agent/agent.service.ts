@@ -1239,6 +1239,7 @@ export class AgentService {
         method: 'POST',
         headers: aiHeaders,
         body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(120_000),
       });
 
       if (!response.ok) {
@@ -1390,6 +1391,7 @@ export class AgentService {
           method: 'POST',
           headers: aiHeaders,
           body: JSON.stringify(payload),
+          signal: AbortSignal.timeout(120_000),
         },
       );
 
@@ -1454,7 +1456,10 @@ export class AgentService {
         this.configService,
         tenantId,
       );
-      const response = await fetch(url, { headers });
+      const response = await fetch(url, {
+        headers,
+        signal: AbortSignal.timeout(20_000),
+      });
       return response.json();
     } catch (error) {
       this.logger.error(`Failed to fetch observability traces: ${error.message}`);
@@ -1470,7 +1475,10 @@ export class AgentService {
         this.configService,
         tenantId,
       );
-      const response = await fetch(url, { headers });
+      const response = await fetch(url, {
+        headers,
+        signal: AbortSignal.timeout(20_000),
+      });
       return response.json();
     } catch (error) {
       this.logger.error(`Failed to fetch observability stats: ${error.message}`);
@@ -1489,6 +1497,7 @@ export class AgentService {
       const response = await fetch(url, {
         method: 'DELETE',
         headers,
+        signal: AbortSignal.timeout(20_000),
       });
       return response.json();
     } catch (error) {

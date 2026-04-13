@@ -7,6 +7,7 @@ import * as bcrypt from 'bcrypt';
 import { PrismaService } from '@/prisma/prisma.service';
 import { RedisService } from '@/redis/redis.service';
 import { AuditLogService } from '@/audit-log/audit-log.service';
+import { EmailService } from '@/auth/email.service';
 
 // Minimal mocks
 const mockPrisma = {
@@ -40,6 +41,11 @@ const mockAuditLog = {
   log: jest.fn().mockResolvedValue({}),
 };
 
+const mockEmail = {
+  isConfigured: jest.fn().mockReturnValue(false),
+  sendPasswordReset: jest.fn().mockResolvedValue(false),
+};
+
 describe('AuthService', () => {
   let service: AuthService;
 
@@ -54,6 +60,7 @@ describe('AuthService', () => {
         { provide: ConfigService, useValue: mockConfig },
         { provide: RedisService, useValue: mockRedis },
         { provide: AuditLogService, useValue: mockAuditLog },
+        { provide: EmailService, useValue: mockEmail },
       ],
     })
       .overrideProvider('PrismaService')
@@ -70,6 +77,7 @@ describe('AuthService', () => {
     (service as any).configService = mockConfig;
     (service as any).redisService = mockRedis;
     (service as any).auditLogService = mockAuditLog;
+    (service as any).emailService = mockEmail;
   });
 
   describe('validateUser', () => {
@@ -235,30 +243,40 @@ describe('AuthService', () => {
     });
   });
 
-  describe('forgotPassword', () => {
+  describe('forgotPassword (legado — substituídos pelos testes pt-BR abaixo)', () => {
     it('should silently succeed when email is not found (no enumeration)', async () => {
+      mockRedis.get.mockResolvedValue(null); // sem cooldown
+      mockRedis.set.mockResolvedValue('OK');
       mockPrisma.user.findFirst.mockResolvedValue(null);
 
       await expect(
         service.forgotPassword('ghost@example.com')
       ).resolves.not.toThrow();
-      expect(mockRedis.set).not.toHaveBeenCalled();
+      // cooldown é definido mesmo para emails inexistentes (anti-enumeração via timing)
+      expect(mockRedis.set).toHaveBeenCalledWith(
+        expect.stringMatching(/^prt:cooldown:/),
+        '1',
+        expect.any(Number)
+      );
     });
 
     it('should store reset token in Redis when user exists', async () => {
+      mockRedis.get.mockResolvedValue(null); // sem cooldown
       mockPrisma.user.findFirst.mockResolvedValue({
         id: 'user-1',
         email: 'admin@example.com',
       });
       mockRedis.set.mockResolvedValue('OK');
+      mockConfig.get.mockReturnValue('http://localhost:3000');
 
       await service.forgotPassword('admin@example.com');
 
-      expect(mockRedis.set).toHaveBeenCalledWith(
-        expect.stringMatching(/^prt:/),
-        'user-1',
-        3600
+      // Verifica que o token de reset foi armazenado (não o cooldown)
+      const setCalls = (mockRedis.set as jest.Mock).mock.calls;
+      const tokenCall = setCalls.find(
+        ([key, value]: [string, string]) => key.startsWith('prt:') && !key.startsWith('prt:cooldown:') && value === 'user-1'
       );
+      expect(tokenCall).toBeDefined();
     });
   });
 
@@ -508,6 +526,75 @@ describe('AuthService', () => {
       ).rejects.toThrow(UnauthorizedException);
 
       expect(mockRedis.set).not.toHaveBeenCalled();
+    });
+  });
+
+  // ─── forgotPassword ────────────────────────────────────────────────────────
+
+  describe('forgotPassword', () => {
+    it('deve retornar silenciosamente quando email nao existe (sem enumeração)', async () => {
+      mockRedis.get.mockResolvedValue(null); // sem cooldown
+      mockPrisma.user.findFirst.mockResolvedValue(null); // email não encontrado
+
+      // Não deve lançar exceção
+      await expect(service.forgotPassword('inexistente@example.com')).resolves.toBeUndefined();
+      expect(mockEmail.sendPasswordReset).not.toHaveBeenCalled();
+    });
+
+    it('deve retornar silenciosamente quando cooldown ativo (sem enumeração)', async () => {
+      mockRedis.get.mockResolvedValue('1'); // cooldown ativo
+
+      await expect(service.forgotPassword('any@example.com')).resolves.toBeUndefined();
+      // Não deve nem buscar o usuário quando cooldown ativo
+      expect(mockPrisma.user.findFirst).not.toHaveBeenCalled();
+      expect(mockEmail.sendPasswordReset).not.toHaveBeenCalled();
+    });
+
+    it('deve gerar token e chamar sendPasswordReset para email existente', async () => {
+      mockRedis.get.mockResolvedValue(null); // sem cooldown
+      mockRedis.set.mockResolvedValue('OK');
+      mockEmail.sendPasswordReset.mockResolvedValue(true);
+      mockPrisma.user.findFirst.mockResolvedValue({ id: 'user-1', email: 'user@example.com' });
+      mockConfig.get.mockReturnValue('http://localhost:3000');
+
+      await service.forgotPassword('user@example.com');
+
+      expect(mockEmail.sendPasswordReset).toHaveBeenCalledWith(
+        'user@example.com',
+        expect.stringContaining('/reset-password/')
+      );
+      // Token deve ser armazenado no Redis com prefixo prt:
+      expect(mockRedis.set).toHaveBeenCalledWith(
+        expect.stringMatching(/^prt:/),
+        'user-1',
+        expect.any(Number)
+      );
+    });
+
+    it('deve definir cooldown independentemente de o email existir ou nao', async () => {
+      mockRedis.get.mockResolvedValue(null);
+      mockRedis.set.mockResolvedValue('OK');
+      mockPrisma.user.findFirst.mockResolvedValue(null); // email não existe
+
+      await service.forgotPassword('naoexiste@example.com');
+
+      // O cooldown deve ser definido mesmo quando o email não existe
+      expect(mockRedis.set).toHaveBeenCalledWith(
+        expect.stringMatching(/^prt:cooldown:/),
+        '1',
+        expect.any(Number)
+      );
+    });
+
+    it('deve continuar sem erro quando SMTP nao esta configurado', async () => {
+      mockRedis.get.mockResolvedValue(null);
+      mockRedis.set.mockResolvedValue('OK');
+      mockEmail.sendPasswordReset.mockResolvedValue(false); // SMTP não configurado
+      mockPrisma.user.findFirst.mockResolvedValue({ id: 'user-1', email: 'user@example.com' });
+      mockConfig.get.mockReturnValue('http://localhost:3000');
+
+      // Não deve lançar exceção quando SMTP não configurado
+      await expect(service.forgotPassword('user@example.com')).resolves.toBeUndefined();
     });
   });
 

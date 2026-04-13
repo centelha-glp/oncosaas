@@ -148,6 +148,8 @@ export class OncologyNavigationScheduler {
                 method: 'POST',
                 headers: aiHeaders,
                 body: JSON.stringify({ patients: batch }),
+                // 120s — lote até 50 pacientes; payload pode ser grande
+                signal: AbortSignal.timeout(120_000),
               });
 
               if (!response.ok) {
@@ -319,6 +321,8 @@ export class OncologyNavigationScheduler {
                 method: 'POST',
                 headers: aiHeaders,
                 body: JSON.stringify({ patients: batch }),
+                // 120s — lote de risco preditivo com histórico ESAS/steps por paciente
+                signal: AbortSignal.timeout(120_000),
               });
 
               if (!response.ok) {
