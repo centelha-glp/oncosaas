@@ -15,60 +15,27 @@ function isResetPasswordRoute(pathname: string): boolean {
   return /^\/reset-password\/[^/]+$/.test(pathname);
 }
 
-function decodeBase64Url(value: string): string {
-  const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
-  const padding = '='.repeat((4 - (normalized.length % 4)) % 4);
-  return atob(normalized + padding);
-}
-
-function hasValidAuthTokenLegacy(token: string | undefined): boolean {
-  if (!token) {
-    return false;
-  }
-
-  const parts = token.split('.');
-  if (parts.length !== 3 || !parts[1]) {
-    return false;
-  }
-
-  try {
-    const payload = JSON.parse(decodeBase64Url(parts[1])) as { exp?: number };
-    if (typeof payload.exp !== 'number') {
-      return false;
-    }
-
-    return Date.now() / 1000 < payload.exp - 30;
-  } catch {
-    return false;
-  }
-}
-
 /** Valida assinatura HS256 do JWT usando JWT_SECRET.
- *  [M-01] Em produção JWT_SECRET é obrigatório — sem ele, toda sessão é rejeitada.
- *  Em desenvolvimento sem JWT_SECRET, aceita apenas verificação de expiração (fallback fraco). */
+ *  [M-01] JWT_SECRET é obrigatório em todos os ambientes — sem ele, toda sessão é rejeitada.
+ *  Não existe fallback de expiração: qualquer JWT forjado seria aceito sem verificação de assinatura. */
 async function hasValidAuthToken(token: string | undefined): Promise<boolean> {
   if (!token) {
     return false;
   }
 
   const secret = process.env.JWT_SECRET;
-  if (secret) {
-    try {
-      await jwtVerify(token, new TextEncoder().encode(secret));
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  // [M-01] Em produção sem JWT_SECRET, rejeitar toda sessão (falha segura)
-  if (process.env.NODE_ENV === 'production') {
+  if (!secret) {
+    // Falha segura: sem JWT_SECRET configurado não há como validar assinatura.
+    // Isso rejeita todas as sessões até que JWT_SECRET seja configurado corretamente.
     return false;
   }
 
-  // Desenvolvimento sem JWT_SECRET: fallback com apenas validação de expiração
-  // NUNCA usar em produção — qualquer JWT forjado com exp futuro seria aceito
-  return hasValidAuthTokenLegacy(token);
+  try {
+    await jwtVerify(token, new TextEncoder().encode(secret));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function middleware(request: NextRequest) {
