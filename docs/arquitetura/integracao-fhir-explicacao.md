@@ -396,4 +396,4 @@ this.logger.warn(`Integração não habilitada para tenant ${tenantId}`);
 
 - [FHIR R4 Specification](https://www.hl7.org/fhir/)
 - [LOINC Codes](https://loinc.org/)
-- [Documentação de Integração](./arquitetura/integracao-hl7-fhir.md)
+- [Documentação de Integração](./integracao-hl7-fhir.md)

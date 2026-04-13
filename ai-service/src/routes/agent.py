@@ -72,8 +72,12 @@ async def process_agent_message(request: AgentMessageRequest):
             request.conversation_history,
         )
         return AgentMessageResponse(**result)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao processar mensagem: {str(e)}")
+    except Exception:
+        logger.exception("Erro ao processar mensagem (whatsapp_agent)")
+        raise HTTPException(
+            status_code=500,
+            detail="Erro ao processar mensagem",
+        )
 
 
 @router.post("/agent/process", response_model=AgentProcessResponse)
@@ -102,8 +106,12 @@ async def process_message(request: AgentProcessRequest):
             new_state=result.get("new_state", {}),
             decisions=result.get("decisions", []),
         )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao processar mensagem pelo agente: {str(e)}")
+    except Exception:
+        logger.exception("Erro ao processar mensagem pelo agente (orchestrator)")
+        raise HTTPException(
+            status_code=500,
+            detail="Erro ao processar mensagem pelo agente",
+        )
 
 
 @router.post("/agent/build-context", response_model=ClinicalContextResponse)
@@ -124,8 +132,12 @@ async def build_clinical_context(request: BuildContextRequest):
         )
 
         return ClinicalContextResponse(context=context_str, patient_summary=patient_summary)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao montar contexto clínico: {str(e)}")
+    except Exception:
+        logger.exception("Erro ao montar contexto clínico")
+        raise HTTPException(
+            status_code=500,
+            detail="Erro ao montar contexto clínico",
+        )
 
 
 @router.post("/agent/analyze-symptoms", response_model=SymptomAnalysisResponse)
@@ -155,8 +167,12 @@ async def analyze_symptoms(request: SymptomAnalysisRequest):
             structured_data=result.get("structuredData", {}),
             escalation_reason=result.get("escalationReason"),
         )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao analisar sintomas: {str(e)}")
+    except Exception:
+        logger.exception("Erro ao analisar sintomas")
+        raise HTTPException(
+            status_code=500,
+            detail="Erro ao analisar sintomas",
+        )
 
 
 @router.post("/agent/score-questionnaire", response_model=QuestionnaireScoreResponse)
@@ -173,8 +189,12 @@ async def score_questionnaire(request: QuestionnaireScoreRequest):
             interpretation=scores.get("interpretation", ""),
             alerts=scores.get("alerts", []),
         )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao calcular score do questionário: {str(e)}")
+    except Exception:
+        logger.exception("Erro ao calcular score do questionário")
+        raise HTTPException(
+            status_code=500,
+            detail="Erro ao calcular score do questionário",
+        )
 
 
 @router.post("/agent/evaluate-protocol", response_model=ProtocolEvaluateResponse)
@@ -194,8 +214,12 @@ async def evaluate_protocol(request: ProtocolEvaluateRequest):
                 request.cancer_type or "", request.journey_stage or ""
             ),
         )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao avaliar protocolo: {str(e)}")
+    except Exception:
+        logger.exception("Erro ao avaliar protocolo")
+        raise HTTPException(
+            status_code=500,
+            detail="Erro ao avaliar protocolo",
+        )
 
 
 @router.post("/agent/checkin-message", response_model=CheckInMessageResponse)

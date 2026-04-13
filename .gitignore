@@ -91,6 +91,8 @@ backend/data/ans/exam-catalog-import.json
 .playwright-mcp/
 
 # Other
+# Relatório HTML gerado localmente (não versionar / não enviar ao remoto)
+report.html
 *.pem
 *.pub
 *.sh

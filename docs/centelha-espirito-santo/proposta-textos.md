@@ -46,7 +46,7 @@ A versão escolhida enfatiza mais o problema de saúde pública e acesso, alinha
 
 ### Texto Final (998 caracteres)
 
-Plataforma SaaS multi-tenant integrando IA e WhatsApp Business API para transformar o cuidado oncológico. Três pilares: (1) Navegação Inteligente - dashboard rastreando pacientes em tempo real; (2) Priorização com IA - scoring automático (XGBoost) identificando casos críticos; (3) Agente de IA Conversacional - coleta dados via WhatsApp, detecta sintomas críticos e alerta equipe.
+Plataforma SaaS multi-tenant integrando IA e WhatsApp Business API para transformar o cuidado oncológico. Três pilares: (1) Navegação Inteligente - dashboard rastreando pacientes em tempo real; (2) Priorização com IA - scoring automático (LightGBM) identificando casos críticos; (3) Agente de IA Conversacional - coleta dados via WhatsApp, detecta sintomas críticos e alerta equipe.
 
 Viabilidade técnica: Stack validado (Next.js, NestJS, Python FastAPI, PostgreSQL), integração HL7/FHIR, arquitetura multi-tenant escalável. Validação: 10+ entrevistas com oncologistas/enfermeiros confirmaram dores e necessidade da solução. Pilotos em planejamento com instituições pioneiras.
 
@@ -75,7 +75,7 @@ A versão atualizada inclui todos os elementos solicitados pela orientação do 
 
 ### Texto Final (998 caracteres)
 
-Diferenciais tecnológicos únicos: (1) WhatsApp nativo - única solução oncológica usando canal preferido, sem app; (2) Agente IA especializado - LLM com RAG em conhecimento médico oncológico (guidelines NCCN, ASCO), processa texto/áudio, detecta sintomas críticos; (3) Priorização IA específica - XGBoost treinado com dados oncológicos, único no Brasil.
+Diferenciais tecnológicos únicos: (1) WhatsApp nativo - única solução oncológica usando canal preferido, sem app; (2) Agente IA especializado - LLM com RAG em conhecimento médico oncológico (guidelines NCCN, ASCO), processa texto/áudio, detecta sintomas críticos; (3) Priorização IA específica - LightGBM treinado com dados oncológicos, único no Brasil.
 
 Pesquisa mercado: soluções existentes fragmentadas (navegação manual, EHRs genéricos, telemedicina não-especializada). Nenhuma oferece combinação integrada navegação + priorização IA + WhatsApp. Gap identificado: mercado carece de solução especializada em oncologia com IA conversacional.
 
@@ -84,7 +84,7 @@ Barreiras replicação: expertise IA médica oncológica, integração HL7/FHIR 
 ### Elementos Incluídos (conforme orientação do formulário)
 
 - ✅ Diferenciais em relação ao mercado (3 diferenciais únicos)
-- ✅ Tecnologias envolvidas (WhatsApp, LLM, XGBoost, RAG, HL7/FHIR)
+- ✅ Tecnologias envolvidas (WhatsApp, LLM, LightGBM, RAG, HL7/FHIR)
 - ✅ Características inovadoras (agente IA especializado, priorização oncológica)
 - ✅ O que agrega valor (acessibilidade, especialização, automação)
 - ✅ O que torna difícil de replicar (expertise, integração, compliance, relacionamento)

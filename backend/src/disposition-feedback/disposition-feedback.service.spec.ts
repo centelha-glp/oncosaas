@@ -1,8 +1,12 @@
+import { NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { DispositionFeedbackService } from './disposition-feedback.service';
 import { PrismaService } from '../prisma/prisma.service';
 
 const mockPrisma = {
+  patient: {
+    findFirst: jest.fn(),
+  },
   clinicalDispositionFeedback: {
     create: jest.fn(),
     findMany: jest.fn(),
@@ -54,6 +58,7 @@ describe('DispositionFeedbackService', () => {
     };
 
     it('deve criar feedback com tenantId e correctedBy corretos', async () => {
+      mockPrisma.patient.findFirst.mockResolvedValue({ id: PATIENT_ID });
       mockPrisma.clinicalDispositionFeedback.create.mockResolvedValue(baseFeedback);
 
       await service.create(dto as any, TENANT, USER_ID);
@@ -69,6 +74,15 @@ describe('DispositionFeedbackService', () => {
           }),
         })
       );
+    });
+
+    it('deve lançar NotFoundException se paciente não pertence ao tenant', async () => {
+      mockPrisma.patient.findFirst.mockResolvedValue(null);
+
+      await expect(service.create(dto as any, TENANT, USER_ID)).rejects.toThrow(
+        NotFoundException
+      );
+      expect(mockPrisma.clinicalDispositionFeedback.create).not.toHaveBeenCalled();
     });
   });
 

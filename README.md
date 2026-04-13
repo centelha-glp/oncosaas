@@ -199,7 +199,11 @@ pytest
 ## Documentação
 
 - [SPECS.md](SPECS.md)
+- [Índice da documentação (`docs/README.md`)](docs/README.md)
 - [docs/](docs/)
+- [Contratos de API (Nest vs AI Service)](docs/api/contratos-api.md)
+- [Índice HL7 / FHIR](docs/fhir/README.md)
+- [Índice IA — priorização e agente](docs/ia-modelo-priorizacao/README.md)
 - [docs/desenvolvimento/setup-e-deploy.md](docs/desenvolvimento/setup-e-deploy.md)
 - [docs/desenvolvimento/comandos-uteis.md](docs/desenvolvimento/comandos-uteis.md)
 

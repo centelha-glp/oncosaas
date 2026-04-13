@@ -164,13 +164,15 @@ df['priority_score'], df['priority_category'] = zip(*df.apply(calculate_priority
 
 ## Modelo de Machine Learning
 
+> **Produção no repositório:** o AI Service usa **LightGBM** para priorização (artefato e features alinhados ao contrato de produto). O texto abaixo descreve um **protótipo exploratório** com ensemble; não confundir com o único caminho de deploy.
+
 ### Abordagem: Ensemble
 
 **Modelos Base**:
 
 1. **Random Forest**: Bom para features categóricas e não-lineares
-2. **XGBoost**: Alta performance, lida bem com dados faltantes
-3. **LightGBM**: Rápido, eficiente em memória
+2. **XGBoost**: Alta performance, lida bem com dados faltantes (alternativa em experimentação)
+3. **LightGBM**: Rápido, eficiente em memória — **alinhado ao modelo em produção**
 
 **Ensemble**:
 

@@ -13,7 +13,7 @@ Você é o especialista em documentação técnica do ONCONAV — plataforma Saa
 - **Plataforma**: SaaS oncológico multi-tenant (hospitais/clínicas)
 - **Pesquisa**: Projeto CEP/EBSERH para câncer de bexiga (HUCAM/UFES) — prazo ~maio 2026
 - **Docs de pesquisa**: `docs/pesquisa/` (11 documentos: TCLE, concordância, orçamento, cronograma, etc.)
-- **API**: NestJS backend em `http://localhost:3002/api/v1`, Swagger em `http://localhost:8001/docs`
+- **API**: NestJS em `http://localhost:3002/api/v1`; OpenAPI (FastAPI / AI Service) em `http://localhost:8001/docs` — ver `docs/api/contratos-api.md`
 
 ## Estrutura de Documentação
 
@@ -31,7 +31,9 @@ OncoNav/
 │   │   ├── infraestrutura.md
 │   │   ├── compromisso-dados.md
 │   │   └── responsabilidade.md
-│   └── api/                     # Documentação de API (a criar)
+│   ├── api/                     # contratos-api.md — mapa Nest vs FastAPI; OpenAPI em :8001/docs
+│   ├── fhir/                    # README — ordem de leitura FHIR (docs em arquitetura/)
+│   └── ia-modelo-priorizacao/   # README — ordem IA priorização/agente
 ├── backend/
 │   └── src/**/*.ts              # JSDoc nos services e controllers
 └── ai-service/

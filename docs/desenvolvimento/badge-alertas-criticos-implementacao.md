@@ -6,7 +6,7 @@ Implementação de um badge visual no header da página de chat que exibe o núm
 
 ## Data de Implementação
 
-2024-01-XX
+2026-04-13
 
 ## Funcionalidades Implementadas
 

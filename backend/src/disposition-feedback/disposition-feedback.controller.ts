@@ -48,16 +48,16 @@ export class DispositionFeedbackController {
   /**
    * Export anonymized training data (feature_snapshot + label) for ML retraining.
    * Used by the data science team to retrain the ordinal classifier.
+   * Sempre escopo do tenant do JWT (sem export cross-tenant via query).
    */
   @Get('export')
   @Roles(UserRole.ADMIN)
   export(
     @CurrentUser() user: { tenantId: string },
-    @Query('all') all?: string,
     @Query('limit') limitStr?: string,
     @Query('offset') offsetStr?: string
   ) {
-    const tenantId = all === 'true' ? undefined : user.tenantId;
+    const tenantId = user.tenantId;
     const parseOpt = (s?: string) => {
       if (s === undefined || s === null || s === '') {
         return undefined;

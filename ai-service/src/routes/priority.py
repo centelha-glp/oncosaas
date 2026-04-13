@@ -216,5 +216,9 @@ async def prioritize_patients_bulk(request: BulkPriorityRequest):
                 )
 
         return BulkPriorityResponse(results=results)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao calcular prioridade em lote: {str(e)}")
+    except Exception:
+        logger.exception("Erro ao calcular prioridade em lote")
+        raise HTTPException(
+            status_code=500,
+            detail="Erro ao calcular prioridade em lote",
+        )

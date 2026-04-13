@@ -2,7 +2,7 @@
 
 ## Status da Instalação
 
-**Data**: 2024-01-XX  
+**Data**: 2026-04-13  
 **Status**: ✅ **CONCLUÍDO**
 
 ---

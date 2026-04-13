@@ -29,6 +29,16 @@
 
 ---
 
+## Sequência de revisão (equipe — antes da submissão)
+
+Recomendação para executar na ordem, **antes** do fluxo institucional abaixo:
+
+1. **Preencher placeholders** — Buscar `[PREENCHER]` em todos os `.md` da pasta e completar dados institucionais e de equipa (sem dados reais de participantes).
+2. **Ordem de leitura técnica** — `01-projeto-detalhado` → `06-instrumentos-coleta` → `04-orcamento` / `05-cronograma` → documentos legais (`02`, `03`, `07`–`09`) → guias (`10`, `11`).
+3. **Alinhamento clínico e dados** — Rever `08-termo-compromisso-dados` e `06-instrumentos-coleta` em conjunto com metodologia e LGPD.
+4. **Revisão final** — Uma passagem única por consistência de datas, nomes e versão entre documentos.
+5. **PDF e numeração** — Gerar PDFs com a mesma numeração da tabela [Status dos Documentos](#status-dos-documentos) para upload.
+
 ## Fluxo de Submissao
 
 ```

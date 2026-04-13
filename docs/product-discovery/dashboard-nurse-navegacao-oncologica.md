@@ -2,7 +2,7 @@
 
 ## Análise com Equipe de Navegação Oncológica
 
-**Data:** 2024-01-XX  
+**Data:** 2026-04-13  
 **Status:** 📋 Proposta  
 **Prioridade:** 🔴 ALTA
 

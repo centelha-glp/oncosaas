@@ -35,9 +35,9 @@ Set in your `.env` file:
 ENCRYPTION_KEY=<32-character string>
 ```
 
-### NEXTAUTH_SECRET
+### NEXTAUTH_SECRET (opcional)
 
-Used for NextAuth.js session signing.
+O produto ONCONAV usa **JWT emitido pelo Nest** em cookies HttpOnly (ver [`README.md`](../../README.md)). **NextAuth.js não é o fluxo principal.** Só defina `NEXTAUTH_SECRET` (e variáveis NextAuth) se existir rota/handler NextAuth ativo no frontend.
 
 ```bash
 openssl rand -base64 48

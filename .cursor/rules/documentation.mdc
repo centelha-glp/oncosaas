@@ -18,6 +18,7 @@ Rules derivadas da estrutura real em `docs/` e dos padrões de documentação do
 
 ```
 docs/
+├── api/                  ← mapa de contratos (Nest vs AI Service), OpenAPI/Swagger
 ├── arquitetura/          ← diagramas, decisões de design, stack tecnológico
 ├── banco-dados/          ← ERD, estrutura PostgreSQL, quick reference
 ├── analise-dashboard/    ← specs de UI/UX do dashboard
@@ -26,6 +27,7 @@ docs/
 ├── compliance-legal/     ← LGPD, HIPAA, documentos regulatórios
 ├── dados/                ← gestão de dados, exportação, retreino ML
 ├── dashboard-enfermagem/ ← especificações do dashboard de enfermagem
+├── fhir/                 ← índice HL7/FHIR (detalhe em arquitetura/)
 ├── desenvolvimento/      ← guias para desenvolvedores
 ├── ia-modelo-priorizacao/ ← documentação do modelo LightGBM
 ├── pesquisa/             ← documentos CEP/EBSERH, metodologia
@@ -42,7 +44,8 @@ Novos documentos sempre entram no diretório temático correto — nunca na raiz
 |------|-------------|-------------|
 | Decisão arquitetural (ADR) | `docs/arquitetura/` | Decisão irreversível ou com trade-offs significativos |
 | Guia de integração | `docs/desenvolvimento/` | Nova integração externa (FHIR, WhatsApp, etc.) |
-| Especificação de API | `docs/desenvolvimento/` | Endpoint sem Swagger/OpenAPI |
+| Mapa de serviços / OpenAPI | `docs/api/` | Onde está cada base URL e o `/docs` do FastAPI |
+| Especificação de API (endpoints) | `docs/desenvolvimento/` | Endpoint sem Swagger/OpenAPI no Nest |
 | Runbook operacional | `docs/producao/` | Procedimento de emergência ou deploy |
 | Metodologia ML | `docs/ia-modelo-priorizacao/` | Mudança no modelo ou features |
 | Documento CEP/EBSERH | `docs/pesquisa/` | Submissão para aprovação ética |
@@ -121,9 +124,9 @@ comando exato aqui
 
 ## 4. Documentação de API
 
-### Status atual: sem Swagger/OpenAPI decorators
+### Status atual: sem Swagger/OpenAPI decorators no Nest
 
-O projeto não usa `@ApiTags()`, `@ApiOperation()` ou `@ApiResponse()` nos controllers. A documentação de API é feita em Markdown em `docs/desenvolvimento/`.
+O projeto não usa `@ApiTags()`, `@ApiOperation()` ou `@ApiResponse()` nos controllers. O **mapa conceptual** (Nest vs AI Service, porta do OpenAPI) está em **`docs/api/contratos-api.md`**. Exemplos de chamadas ao Nest: `docs/desenvolvimento/` (ex.: `testar-endpoints.md`). O **FastAPI** expõe OpenAPI em `http://localhost:8001/docs`.
 
 ### Quando adicionar Swagger
 
@@ -232,7 +235,7 @@ Diagramas de arquitetura complexos podem usar ferramentas externas (Draw.io, Exc
 
 | Mudança | Documento a atualizar |
 |---------|----------------------|
-| Novo endpoint de API | `docs/desenvolvimento/api-*.md` |
+| Novo endpoint de API (Nest) | `docs/desenvolvimento/testar-endpoints.md`; mapa de serviços em `docs/api/contratos-api.md` |
 | Mudança em regra clínica | `docs/arquitetura/` + commentário em `clinical_rules.py` |
 | Nova decision arquitetural | `docs/arquitetura/adr-{n}-*.md` |
 | Mudança de schema Prisma | `docs/banco-dados/diagrama-erd-visual.md` |

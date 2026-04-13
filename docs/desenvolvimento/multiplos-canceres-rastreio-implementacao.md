@@ -1,6 +1,6 @@
 # Implementação: Suporte a Múltiplos Tipos de Câncer e Rastreio
 
-**Data:** 2024-01-XX  
+**Data:** 2026-04-13  
 **Status:** ✅ Schema e Frontend Implementados | ⏳ Migration Pendente  
 **Prioridade:** 🔴 ALTA (Requisito Clínico Essencial)
 
@@ -354,4 +354,4 @@ psql -U postgres -d ONCONAV -f backend/prisma/migrations/add_cancer_diagnosis/mi
 
 ---
 
-**Última atualização:** 2024-01-XX
+**Última atualização:** 2026-04-13

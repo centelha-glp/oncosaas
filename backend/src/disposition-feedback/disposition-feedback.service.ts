@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateDispositionFeedbackDto } from './dto/create-feedback.dto';
@@ -14,6 +14,14 @@ export class DispositionFeedbackService {
     tenantId: string,
     correctedBy: string
   ) {
+    const patient = await this.prisma.patient.findFirst({
+      where: { id: dto.patientId, tenantId },
+      select: { id: true },
+    });
+    if (!patient) {
+      throw new NotFoundException('Patient not found');
+    }
+
     this.logger.log(
       `Feedback: patient ${dto.patientId} predicted=${dto.predictedDisposition} corrected=${dto.correctedDisposition} by ${correctedBy}`
     );
@@ -50,10 +58,10 @@ export class DispositionFeedbackService {
    * No patient IDs or names included.
    */
   async exportTrainingData(
-    tenantId?: string,
+    tenantId: string,
     options?: { limit?: number; offset?: number }
   ) {
-    const where = tenantId ? { tenantId } : {};
+    const where = { tenantId };
     const take =
       options?.limit && options.limit > 0
         ? Math.min(options.limit, 50_000)

@@ -6,7 +6,7 @@ Implementação de scroll automático para rolar até o card do paciente na list
 
 ## Data de Implementação
 
-2024-01-XX
+2026-04-13
 
 ## Funcionalidades Implementadas
 

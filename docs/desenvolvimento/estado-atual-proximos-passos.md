@@ -1,6 +1,17 @@
 # Estado Atual e Próximos Passos
 
-**Última atualização**: 2025-01-12
+> **Última atualização:** 2026-04-13  
+> **Nota:** Este ficheiro descreve sobretudo o estado **até início de 2025** (checklist de dashboard/chat). Para entregas **recentes** (navegação oncológica, paridade clínica, PRs de 2026), ver [`resumo-entregas-chats-abr-2026.md`](./resumo-entregas-chats-abr-2026.md) e o [`README.md`](../../README.md).
+
+**Última revisão estrutural (metadados):** 2026-04-13 — alinhamento com documentação e rotas atuais do repositório.
+
+---
+
+## Atualização abril/2026 (resumo)
+
+- **Navegação oncológica** e fluxos associados no frontend (`/oncology-navigation`, etc.) e backend.  
+- **Páginas de paciente** existem (ex.: `/patients/[id]`, edição) — o item “criar página de detalhes” abaixo está **desatualizado** em relação ao código atual.  
+- **Priorização / scores:** integração contínua entre backend e AI Service; detalhes em `docs/ia-modelo-priorizacao/` e serviços de domínio (não depende de um único “PriorityScoresModule” isolado como na lista legada).  
 
 ---
 
@@ -100,7 +111,7 @@
 
 ### 5. Páginas e Funcionalidades Avançadas (🟢 BAIXA PRIORIDADE)
 
-- [ ] Criar página de detalhes do paciente
+- [x] **Página de detalhes do paciente** — existe rota `/patients/[id]` (verificar escopo UX vs este doc legado)
 - [ ] Timeline completa de interações
 - [ ] Métricas e KPIs no dashboard
 
@@ -114,11 +125,12 @@
 
 ### 3. Módulo de Priorização (Média Prioridade)
 
-- [ ] Criar PriorityScoresModule no backend
-- [ ] Implementar cálculo de score de prioridade
-- [ ] Integrar com AI Service para priorização inteligente
-- [ ] Criar endpoint para atualizar scores
-- [ ] Adicionar histórico de scores
+> **2026:** Parte disto já existe de forma distribuída (`ai-service`, serviços de navegação/prioridade no Nest). Tratar como lista de evolução, não como backlog literal.
+
+- [ ] Consolidar documentação e contrato único de score (produto + API)
+- [ ] Garantir paridade entre features do dashboard e modelo em todos os ambientes
+- [ ] Endpoints e recálculo alinhados ao AI Service (ver `PriorityRecalculationService` / domínio de navegação)
+- [ ] Histórico de scores onde for requisito de produto
 
 ### 4. Melhorias no Backend (Baixa Prioridade)
 
@@ -148,9 +160,8 @@
 
 ### Frontend
 
-- **Páginas Criadas**: 3 (Home, Login, Dashboard)
-- **Componentes**: 5+ conectados ao backend
-- **Hooks Customizados**: 6
+- **Páginas:** além de Home/Login/Dashboard, existem rotas como pacientes (`/patients`, `/patients/[id]`), navegação oncológica, chat, etc. — o número “3 páginas” acima é **legado 2025**.
+- **Componentes / hooks:** evoluíram desde esta contagem; ver código em `frontend/src/`.
 - **Porta**: 3000
 
 ### Banco de Dados
@@ -181,8 +192,8 @@
 
 ## 🎯 Objetivo Atual
 
-**Fase Atual**: MVP Funcional
+**Fase:** plataforma em evolução contínua (além do MVP descrito acima).
 
-- Backend completo e testado ✅
-- Frontend básico conectado ✅
-- Próximo: Melhorar UX e implementar funcionalidades avançadas
+- Backend e AI Service integrados ao produto em desenvolvimento ativo ✅  
+- Frontend com múltiplos fluxos clínicos e operacionais ✅  
+- Próximo foco: ver roadmap em `docs/planejamento/` e entregas em [`resumo-entregas-chats-abr-2026.md`](./resumo-entregas-chats-abr-2026.md)

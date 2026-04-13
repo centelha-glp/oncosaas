@@ -1,5 +1,20 @@
 # Como Testar os Endpoints da API
 
+> **Contratos entre serviços:** antes de integrar, leia o mapa canônico em [`../api/contratos-api.md`](../api/contratos-api.md) (Nest `3002/api/v1` vs AI Service `8001` e OpenAPI em `http://localhost:8001/docs`).
+
+## Endpoints críticos (Nest — `http://localhost:3002/api/v1`)
+
+| Área | Métodos / rotas (resumo) | Detalhe abaixo |
+|------|---------------------------|----------------|
+| Sessão | `POST /auth/login`, `POST /auth/register` | [Autenticação](#-autenticação) |
+| Pacientes | `GET/POST /patients`, `GET /patients/:id` | [Pacientes](#-pacientes) |
+| Mensagens | `GET /messages`, contagem não assumidas | [Mensagens](#-mensagens) |
+| Alertas | `GET/POST /alerts` | [Alertas](#-alertas) |
+| FHIR | `GET/POST/PUT /fhir/config`, `POST /fhir/...` | [FHIR](#fhir-integração) |
+| Auditoria / ML | `GET /audit-logs`, `GET /disposition-feedback/export` | [Auditoria e export ML](#-auditoria-e-export-ml-papéis-restritos) |
+
+Para outras rotas (navegação oncológica, agente, WhatsApp), consulte os controllers em `backend/src/**` e o índice em [`../api/contratos-api.md`](../api/contratos-api.md). Índice FHIR: [`../fhir/README.md`](../fhir/README.md).
+
 ## 🔐 Autenticação
 
 ### 1. Login
@@ -33,7 +48,7 @@
 }
 ```
 
-Para chamadas seguintes com **curl**, use `-c`/`-b` com um ficheiro de cookies após o login, ou `Authorization: Bearer <jwt>` com o valor do cookie `access_token`.
+Para chamadas seguintes com **curl**, use `-c`/`-b` com um arquivo de cookies após o login, ou `Authorization: Bearer <jwt>` com o valor do cookie `access_token`.
 
 ### 2. Register
 
@@ -144,6 +159,66 @@ X-Tenant-Id: {tenant-id}
 
 ---
 
+## FHIR (integração)
+
+Requer integração FHIR **habilitada** para o tenant (`enabled: true` na configuração). Documentação conceitual: [`../fhir/README.md`](../fhir/README.md).
+
+**Headers** (igual aos demais endpoints autenticados):
+
+```
+Authorization: Bearer {access_token}
+X-Tenant-Id: {tenant-id}
+```
+
+### Configuração (`/fhir/config`) — apenas **ADMIN**
+
+| Método | Rota | Descrição |
+|--------|------|-----------|
+| GET | `/api/v1/fhir/config` | Lê configuração do tenant (credenciais mascaradas na resposta) |
+| POST | `/api/v1/fhir/config` | Cria ou substitui configuração (upsert) |
+| PUT | `/api/v1/fhir/config` | Atualiza configuração existente |
+
+### Sincronização (`/fhir/*`) — papéis: ADMIN, ONCOLOGIST, DOCTOR, NURSE_CHIEF, NURSE, COORDINATOR
+
+| Método | Rota | Descrição |
+|--------|------|-----------|
+| POST | `/api/v1/fhir/observations/{observationId}/sync` | Envia uma observação ao EHR |
+| POST | `/api/v1/fhir/patients/{patientId}/sync` | Envia/atualiza paciente no EHR |
+| POST | `/api/v1/fhir/observations/sync-all` | Sincroniza lote (limite interno 50) |
+| POST | `/api/v1/fhir/patients/{patientId}/pull` | Puxa observações do EHR para o paciente |
+
+Se a integração não estiver habilitada, o serviço responde com erro indicando que o FHIR não está ativo para o tenant.
+
+### Exemplos com cURL
+
+Substitua `OBSERVATION_UUID`, `PATIENT_UUID`, `TENANT_UUID` e o token.
+
+**Ler config (ADMIN):**
+
+```bash
+curl -s -X GET "http://localhost:3002/api/v1/fhir/config" \
+  -H "Authorization: Bearer {access_token}" \
+  -H "X-Tenant-Id: {tenant-id}"
+```
+
+**Sincronizar uma observação:**
+
+```bash
+curl -s -X POST "http://localhost:3002/api/v1/fhir/observations/OBSERVATION_UUID/sync" \
+  -H "Authorization: Bearer {access_token}" \
+  -H "X-Tenant-Id: {tenant-id}"
+```
+
+**Pull de observações do EHR para um paciente:**
+
+```bash
+curl -s -X POST "http://localhost:3002/api/v1/fhir/patients/PATIENT_UUID/pull" \
+  -H "Authorization: Bearer {access_token}" \
+  -H "X-Tenant-Id: {tenant-id}"
+```
+
+---
+
 ## 📋 Auditoria e export ML (papéis restritos)
 
 ### Logs de auditoria
@@ -205,6 +280,12 @@ curl -X GET http://localhost:3002/api/v1/patients \
 - **Insomnia**: Similar ao Postman
 - **Thunder Client** (VSCode): Extensão para testar APIs diretamente no editor
 - **cURL**: Linha de comando
+
+---
+
+## AI Service (FastAPI — porta `8001`)
+
+Este guia foca no **Nest** (`3002`). O AI Service expõe **`/api/v1/...`** em `http://localhost:8001`, com **OpenAPI interativo** em **`http://localhost:8001/docs`** (testar `agent/process`, priorização, etc.). Contrato e separação de responsabilidades: [`../api/contratos-api.md`](../api/contratos-api.md). Variáveis: [`../../ai-service/README.md`](../../ai-service/README.md).
 
 ---
 

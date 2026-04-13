@@ -159,4 +159,4 @@ ls -la backend/node_modules/.prisma/client/
 
 ---
 
-**Última atualização:** 2024-01-XX
+**Última atualização:** 2026-04-13

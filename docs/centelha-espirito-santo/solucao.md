@@ -4,7 +4,7 @@
 
 **Descrição da Solução:**
 
-Plataforma SaaS multi-tenant inovadora que integra Inteligência Artificial e WhatsApp Business API para transformar o cuidado oncológico. A solução possui três pilares tecnológicos: (1) Navegação Inteligente - dashboard centralizado que rastreia cada paciente em tempo real, desde rastreio até seguimento, com visibilidade completa da jornada; (2) Priorização com IA - sistema de scoring automático (0-100) usando XGBoost que identifica casos críticos instantaneamente, com explicabilidade da priorização; (3) Agente de IA Conversacional no WhatsApp - coleta dados clínicos remotos via conversa natural, processa texto e áudio, detecta sintomas críticos e alerta equipe em tempo real.
+Plataforma SaaS multi-tenant inovadora que integra Inteligência Artificial e WhatsApp Business API para transformar o cuidado oncológico. A solução possui três pilares tecnológicos: (1) Navegação Inteligente - dashboard centralizado que rastreia cada paciente em tempo real, desde rastreio até seguimento, com visibilidade completa da jornada; (2) Priorização com IA - sistema de scoring automático (0-100) usando LightGBM que identifica casos críticos instantaneamente, com explicabilidade da priorização; (3) Agente de IA Conversacional no WhatsApp - coleta dados clínicos remotos via conversa natural, processa texto e áudio, detecta sintomas críticos e alerta equipe em tempo real.
 
 Diferenciais tecnológicos: WhatsApp (sem necessidade de app, acessível a qualquer paciente), LLM (GPT-4/Claude) para conversação natural, integração HL7/FHIR com sistemas existentes (EHR/PMS), e arquitetura multi-tenant segura com criptografia AES-256 e compliance LGPD nativo.
 
@@ -18,7 +18,7 @@ A plataforma resolve os problemas identificados: coordenação automática entre
 
 **Descrição da Solução:**
 
-Plataforma SaaS inovadora que integra IA e WhatsApp Business API para transformar o cuidado oncológico. Três pilares: (1) Navegação Inteligente - dashboard centralizado rastreando cada paciente em tempo real; (2) Priorização com IA - scoring automático (0-100) usando XGBoost identificando casos críticos; (3) Agente de IA Conversacional no WhatsApp - coleta dados clínicos via conversa natural, detecta sintomas críticos e alerta equipe.
+Plataforma SaaS inovadora que integra IA e WhatsApp Business API para transformar o cuidado oncológico. Três pilares: (1) Navegação Inteligente - dashboard centralizado rastreando cada paciente em tempo real; (2) Priorização com IA - scoring automático (0-100) usando LightGBM identificando casos críticos; (3) Agente de IA Conversacional no WhatsApp - coleta dados clínicos via conversa natural, detecta sintomas críticos e alerta equipe.
 
 Diferenciais: WhatsApp (sem app, acessível), LLM (GPT-4/Claude) para conversação, integração HL7/FHIR com sistemas existentes, arquitetura multi-tenant segura com criptografia e compliance LGPD.
 
@@ -32,9 +32,9 @@ Resolve: coordenação automática, priorização inteligente, redução de 40% 
 
 **Descrição da Solução:**
 
-Plataforma SaaS multi-tenant com três componentes inovadores: (1) Navegação Inteligente - dashboard centralizado com rastreamento em tempo real da jornada oncológica completa; (2) Priorização com IA - modelo XGBoost gerando score automático (0-100) com explicabilidade, identificando casos críticos; (3) Agente de IA Conversacional - integração com WhatsApp Business API usando LLM (OpenAi/Claude) para coleta de dados clínicos via conversa natural, processamento de texto/áudio e detecção automática de sintomas críticos.
+Plataforma SaaS multi-tenant com três componentes inovadores: (1) Navegação Inteligente - dashboard centralizado com rastreamento em tempo real da jornada oncológica completa; (2) Priorização com IA - modelo LightGBM gerando score automático (0-100) com explicabilidade, identificando casos críticos; (3) Agente de IA Conversacional - integração com WhatsApp Business API usando LLM (OpenAi/Claude) para coleta de dados clínicos via conversa natural, processamento de texto/áudio e detecção automática de sintomas críticos.
 
-Stack tecnológico: Next.js 14 (frontend), NestJS (backend), Python FastAPI (IA/ML), PostgreSQL multi-tenant, integração HL7/FHIR bidirecional. Segurança: criptografia AES-256, compliance LGPD nativo, isolamento por tenant.
+Stack tecnológico: Next.js 15 (frontend), NestJS (backend), Python FastAPI (IA/ML), PostgreSQL multi-tenant, integração HL7/FHIR bidirecional. Segurança: criptografia AES-256, compliance LGPD nativo, isolamento por tenant.
 
 Diferenciais: WhatsApp (sem necessidade de app), IA conversacional (coleta natural), priorização automática (não manual), integração com EHRs existentes. Resultados: coordenação automática, redução de 40% em ligações, detecção precoce e dados estruturados.
 
@@ -46,7 +46,7 @@ Diferenciais: WhatsApp (sem necessidade de app), IA conversacional (coleta natur
 
 **Descrição da Solução:**
 
-Plataforma SaaS multi-tenant integrando IA e WhatsApp Business API para transformar o cuidado oncológico. Três pilares: (1) Navegação Inteligente - dashboard rastreando pacientes em tempo real; (2) Priorização com IA - scoring automático (XGBoost) identificando casos críticos; (3) Agente de IA Conversacional - coleta dados via WhatsApp, detecta sintomas críticos e alerta equipe.
+Plataforma SaaS multi-tenant integrando IA e WhatsApp Business API para transformar o cuidado oncológico. Três pilares: (1) Navegação Inteligente - dashboard rastreando pacientes em tempo real; (2) Priorização com IA - scoring automático (LightGBM) identificando casos críticos; (3) Agente de IA Conversacional - coleta dados via WhatsApp, detecta sintomas críticos e alerta equipe.
 
 Viabilidade técnica: Stack validado (Next.js, NestJS, Python FastAPI, PostgreSQL), integração HL7/FHIR, arquitetura multi-tenant escalável. Validação: 10+ entrevistas com oncologistas/enfermeiros confirmaram dores e necessidade da solução. Pilotos em planejamento com instituições pioneiras.
 

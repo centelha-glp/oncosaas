@@ -106,14 +106,14 @@
 
 ### Stack Tecnológico
 
-**Frontend**: Next.js 14 (React + TypeScript)
+**Frontend**: Next.js 15 (React 19 + TypeScript)
 
 **Backend**: NestJS (Node.js + TypeScript)
 
 **IA/ML**:
 
 - LLM: GPT-4 ou Claude (agente conversacional)
-- ML: XGBoost (priorização de casos)
+- ML: LightGBM (priorização de casos)
 - RAG: Base de conhecimento médico (guidelines NCCN, ASCO)
 - STT: Google Cloud Speech-to-Text (áudios WhatsApp)
 

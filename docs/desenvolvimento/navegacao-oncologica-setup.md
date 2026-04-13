@@ -76,4 +76,4 @@ GET /api/v1/oncology-navigation/patients/{patientId}/steps
 
 ---
 
-**Última atualização:** 2024-01-XX
+**Última atualização:** 2026-04-13

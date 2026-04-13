@@ -1,283 +1,102 @@
-# Stack Tecnológico - Plataforma de Otimização Oncológica
+# Stack tecnológico — ONCONAV
 
-## Visão Geral
+> **Status:** Em revisão  
+> **Versão:** 2.0  
+> **Última atualização:** 2026-04-13  
+> **Nota:** Portas, comandos e variáveis de ambiente atualizados estão no [`README.md`](../../README.md) na raiz do repositório.
 
-SaaS multi-tenant para otimização de processos oncológicos com agente de IA conversacional no WhatsApp.
+## Sumário
 
-## Stack Definido
+- [Visão do repositório](#visão-do-repositório)
+- [Frontend](#frontend)
+- [Backend](#backend)
+- [AI Service](#ai-service)
+- [Dados e multi-tenant](#dados-e-multi-tenant)
+- [Integrações](#integrações)
+- [Infraestrutura e operações](#infraestrutura-e-operações)
 
-### Frontend
+## Visão do repositório
 
-**Framework**: Next.js 14 (App Router)
+Monorepo com **três aplicações** que conversam por HTTP/WebSocket:
 
-- **Linguagem**: TypeScript
-- **UI Library**: React 18+
-- **Styling**: Tailwind CSS + shadcn/ui (componentes acessíveis)
-- **State Management**: Zustand ou React Query
-- **Formulários**: React Hook Form + Zod (validação)
-- **Gráficos**: Recharts ou Chart.js
-- **Autenticação Client**: NextAuth.js
+| Pasta | Tecnologia | Função |
+|--------|------------|--------|
+| `frontend/` | Next.js (App Router) | Dashboard, chat, navegação oncológica, proxy opcional de `/api/v1` |
+| `backend/` | NestJS | API REST `/api/v1`, Prisma, auth JWT em cookie HttpOnly, Socket.io |
+| `ai-service/` | FastAPI | Agente conversacional, priorização (LightGBM), RAG (FAISS) |
 
-**Justificativa**:
+Portas de desenvolvimento habituais: frontend **3000**, backend **3002**, AI Service **8001** (ver `README.md`).
 
-- Next.js oferece SSR/SSG para performance
-- TypeScript para type safety
-- Tailwind para desenvolvimento rápido
-- shadcn/ui para componentes acessíveis prontos
+## Frontend
 
-### Backend
+- **Framework:** Next.js **15** (App Router), React **19**, TypeScript  
+- **UI:** Tailwind CSS, componentes Radix/shadcn  
+- **Dados no cliente:** TanStack React Query; estado global com Zustand quando necessário  
+- **Formulários:** React Hook Form + Zod  
+- **Gráficos:** Recharts (onde aplicável)  
+- **Autenticação:** **Não** usa NextAuth como fluxo principal. Sessão via **JWT emitido pelo Nest** em cookies **HttpOnly**; com `NEXT_PUBLIC_USE_RELATIVE_API=true` o browser envia cookies na mesma origem. Detalhes em [`README.md`](../../README.md) (secção “Autenticação e sessão”).  
+- **Testes:** Vitest; E2E com Playwright  
 
-**Framework**: NestJS (Node.js)
+## Backend
 
-- **Linguagem**: TypeScript
-- **ORM**: Prisma
-- **Validação**: class-validator, class-transformer
-- **Autenticação**: JWT + OAuth 2.0
-- **API**: REST + WebSocket (Socket.io)
-- **Tempo Real**: Socket.io para alertas, conversas e atualizações
+- **Framework:** NestJS **11** (estrutura modular por domínio)  
+- **ORM:** Prisma + PostgreSQL  
+- **Validação:** `class-validator` / `class-transformer`  
+- **Auth:** JWT (access/refresh), guards de tenant e papéis  
+- **Tempo real:** Socket.io (alertas, mensagens, etc.)  
+- **Cache / filas:** Redis e RabbitMQ conforme `docker-compose` (uso evolutivo por feature)  
 
-**Justificativa**:
+## AI Service
 
-- NestJS oferece estrutura modular e escalável
-- TypeScript em todo o stack
-- Prisma para type-safe database queries
-- JWT para autenticação stateless
+- **Runtime:** Python 3.11+  
+- **API:** FastAPI, Pydantic v2  
+- **Priorização:** LightGBM (artefato joblib), features alinhadas ao contrato de produto  
+- **RAG:** FAISS + embeddings (ex.: fastembed), corpus oncológico  
+- **LLM:** OpenAI e/ou Anthropic (configurável por ambiente)  
 
-### Banco de Dados
+Dependências pinadas em `ai-service/requirements.txt`.
 
-**Principal**: PostgreSQL 15+
+## Dados e multi-tenant
 
-- **Multi-tenant**: Schema por tenant (isolamento de dados)
-- **Backup**: Automático diário com georedundância
-- **Migrations**: Prisma Migrate
-- **Cache**: Redis (sessões, cache de queries frequentes)
+- **SGBD:** PostgreSQL (15+ em ambientes típicos).  
+- **Isolamento multi-tenant:** coluna **`tenantId`** em modelos de domínio e **filtro obrigatório** nas queries; não há “um schema PostgreSQL por tenant” no schema atual — ver comentários em `backend/prisma/schema.prisma`.  
+- **Migrations:** Prisma Migrate (`backend/prisma/`).  
 
-**Justificativa**:
+## Integrações
 
-- PostgreSQL: robusto, ACID, suporte a JSON
-- Schema por tenant: isolamento de dados crítico para saúde
-- Redis: cache de alta performance
+- **WhatsApp:** canal preparado para WhatsApp Business API / fluxos de mensagem (detalhes em `docs/desenvolvimento/` e módulos do backend).  
+- **HL7/FHIR:** documentação de integração em `docs/arquitetura/integracao-hl7-fhir.md` e ficheiros relacionados; evolução por fases.  
 
-### IA e Machine Learning
+## Infraestrutura e operações
 
-**Framework**: Python 3.11+
+- **Local:** Docker Compose (`docker-compose.dev.yml`, `compose.infra.yml`, `compose.app.yml`).  
+- **Produção:** alvo típico em nuvem (ex.: AWS) com TLS, segredos geridos e observabilidade — ver [`docs/producao/INFRA.md`](../producao/INFRA.md) e runbooks quando existirem.  
+- **CI:** GitHub Actions (pipelines no repositório).  
 
-- **API**: FastAPI
-- **ML**: scikit-learn, XGBoost
-- **NLP**: spaCy, transformers (Hugging Face)
-- **LLM**: OpenAI API (GPT-4) ou Anthropic API (Claude)
-- **Embeddings**: sentence-transformers (para RAG)
-- **STT**: Google Cloud Speech-to-Text ou AWS Transcribe
+## Diagrama simplificado
 
-**Justificativa**:
-
-- Python: ecossistema rico para ML/NLP
-- FastAPI: alta performance, async
-- XGBoost: modelos de priorização eficientes
-- GPT-4/Claude: LLMs de estado da arte
-
-### Integração WhatsApp
-
-**API**: WhatsApp Business API
-
-- **Provider**: Evolution API ou integração direta com Meta
-- **Mensageria**: RabbitMQ ou Redis Queue (para filas de mensagens)
-- **Webhook**: Endpoint seguro para receber mensagens
-- **Rate Limiting**: Respeitar limites do WhatsApp
-
-**Justificativa**:
-
-- WhatsApp Business API: oficial, confiável
-- Evolution API: facilita integração, mas pode considerar direto
-- RabbitMQ: robusto para filas de mensagens
-
-### Integração HL7/FHIR
-
-**HL7 v2**: MLLP (Minimum Lower Layer Protocol)
-
-- **Biblioteca**: node-hl7 (Node.js) ou Python HL7
-- **FHIR**: REST API
-- **Biblioteca**: fhir-py (Python) ou fhir.js (Node.js)
-- **Transformação**: Serviço dedicado para conversão HL7 v2 ↔ FHIR
-
-**Justificativa**:
-
-- HL7 v2: ainda muito usado em sistemas legados
-- FHIR: padrão moderno, JSON/REST
-- Serviço de transformação: isolamento de complexidade
-
-### Infraestrutura
-
-**Cloud Provider**: AWS (preferencial) ou GCP
-
-- **Compute**: EC2 (backend) ou ECS/EKS (containers)
-- **Database**: RDS PostgreSQL (managed)
-- **Storage**: S3 (conversas, logs, backups)
-- **Cache**: ElastiCache Redis
-- **CDN**: CloudFront (frontend estático)
-- **Load Balancer**: ALB/NLB
-- **Monitoring**: CloudWatch + Datadog/New Relic
-
-**CI/CD**:
-
-- **Git**: GitHub
-- **CI**: GitHub Actions
-- **CD**: Deploy automático para staging/production
-- **Containerização**: Docker + Docker Compose (desenvolvimento)
-
-**Justificativa**:
-
-- AWS: robusto, escalável, compliance (HIPAA-ready)
-- Managed services: reduz operacional overhead
-- CI/CD: deploy rápido e seguro
-
-### Segurança e Compliance
-
-**Criptografia**:
-
-- **Trânsito**: TLS 1.3 (HTTPS obrigatório)
-- **Repouso**: AES-256 (banco de dados)
-- **Secrets**: AWS Secrets Manager ou HashiCorp Vault
-
-**Autenticação**:
-
-- **Método**: OAuth 2.0 + JWT
-- **MFA**: Obrigatório para profissionais de saúde
-- **Sessions**: Redis (stateless JWT)
-
-**Auditoria**:
-
-- **Logs**: CloudWatch Logs (imutáveis)
-- **Retenção**: 5 anos (LGPD)
-- **Tracking**: Log de todas as ações (quem, quando, o quê)
-
-**Justificativa**:
-
-- TLS 1.3: criptografia moderna
-- AES-256: padrão para dados sensíveis
-- MFA obrigatório: segurança adicional para dados de saúde
-
-## Arquitetura de Microserviços
-
-### Serviços Principais
-
-1. **API Gateway** (NestJS)
-   - Roteamento de requisições
-   - Autenticação/autorização
-   - Rate limiting
-   - Logging
-
-2. **Serviço de Pacientes** (NestJS)
-   - CRUD de pacientes
-   - Navegação de pacientes
-   - Integração com EHR
-
-3. **Serviço de Priorização** (Python/FastAPI)
-   - Modelo de ML para priorização
-   - Cálculo de scores
-   - API REST para consultas
-
-4. **Serviço de Agente WhatsApp** (Python/FastAPI)
-   - Processamento de mensagens
-   - LLM para conversas
-   - RAG para conhecimento médico
-   - Detecção de sintomas críticos
-
-5. **Serviço de Integração** (NestJS)
-   - HL7 v2 MLLP
-   - FHIR REST
-   - Transformação de dados
-   - Sincronização bidirecional
-
-6. **Serviço de Notificações** (NestJS)
-   - Alertas em tempo real
-   - Push notifications
-   - Email/SMS (opcional)
-
-### Comunicação Entre Serviços
-
-- **Síncrono**: HTTP REST (API Gateway ↔ Serviços)
-- **Assíncrono**: RabbitMQ ou AWS SQS (eventos, filas)
-- **Cache compartilhado**: Redis
-
-## Diagrama de Arquitetura
-
-```
-[Frontend Next.js]
-    ↓ HTTPS
-[API Gateway (NestJS)]
-    ↓
-    ├─→ [Serviço Pacientes] ←→ [PostgreSQL]
-    ├─→ [Serviço Priorização] ←→ [PostgreSQL]
-    ├─→ [Serviço Agente WhatsApp] ←→ [Redis Queue] ←→ [WhatsApp API]
-    ├─→ [Serviço Integração] ←→ [HL7/FHIR] ←→ [EHR External]
-    └─→ [Serviço Notificações] ←→ [Redis]
-
-[Agente WhatsApp Service]
-    ↓
-    ├─→ [LLM API (GPT-4/Claude)]
-    ├─→ [RAG Vector DB] ←→ [Embeddings]
-    └─→ [STT API (Google/AWS)]
+```text
+[Browser]
+   │ HTTPS
+   ▼
+[Next.js — frontend :3000]
+   │  /api/v1 (proxy opcional)     WebSocket / API direta
+   ├──────────────────────────────────────► [NestJS — backend :3002]
+   │                                              │
+   │                                              ├── PostgreSQL
+   │                                              ├── Redis
+   │                                              └── RabbitMQ
+   └──────────────────────────────────────► [FastAPI — ai-service :8001]
 ```
 
-## Estrutura de Dados Multi-Tenant
+## Decisões em vigor
 
-### Schema por Tenant
+- **Monorepo modular:** um processo Nest por domínio **dentro** do mesmo `backend/`, não dezenas de repositórios separados no MVP.  
+- **LLM via API** gerida no AI Service; chaves só no servidor.  
+- **Segurança de sessão:** cookies HttpOnly e CORS com credenciais conforme documentação raiz.  
 
-**Abordagem**: Schema isolation (um schema PostgreSQL por tenant)
+## Referências
 
-**Estrutura**:
-
-```
-database: ONCONAV_production
-├─ schema: tenant_hospital_1
-│  ├─ patients
-│  ├─ conversations
-│  ├─ alerts
-│  └─ ...
-├─ schema: tenant_hospital_2
-│  ├─ patients
-│  ├─ conversations
-│  └─ ...
-└─ schema: shared
-   ├─ tenants (metadados)
-   └─ users (cross-tenant, apenas para auth)
-```
-
-**Justificativa**:
-
-- Isolamento completo de dados (LGPD crítico)
-- Backup/restore por tenant
-- Compliance facilitado
-- Escalabilidade (pode mover schemas para outros DBs)
-
-## Decisões de Arquitetura
-
-### Monolito vs Microserviços
-
-- **Decisão**: Começar com monolito modular (NestJS), evoluir para microserviços
-- **Justificativa**: MVP mais rápido, menos complexidade operacional inicial
-
-### Banco de Dados
-
-- **Decisão**: PostgreSQL (schema por tenant)
-- **Alternativas consideradas**: MongoDB (rejeitado: menos robusto para dados estruturados críticos)
-
-### Cache
-
-- **Decisão**: Redis
-- **Uso**: Sessões, cache de queries frequentes, filas de mensagens WhatsApp
-
-### LLM
-
-- **Decisão**: GPT-4 ou Claude (via API)
-- **Alternativas**: Modelos open-source (Llama, Mistral) - considerar para custos
-- **Estratégia**: Começar com API, avaliar open-source depois
-
-## Próximos Passos
-
-1. Definir estrutura de diretórios do projeto
-2. Setup inicial do repositório (Next.js + NestJS)
-3. Configurar banco de dados (PostgreSQL + Prisma)
-4. Setup de CI/CD (GitHub Actions)
-5. Configurar ambiente de desenvolvimento (Docker Compose)
+- [`README.md`](../../README.md) — stack, env, auth, Docker  
+- [`docs/desenvolvimento/setup-e-deploy.md`](../desenvolvimento/setup-e-deploy.md) — setup operacional  
+- [`docs/desenvolvimento/resumo-entregas-chats-abr-2026.md`](../desenvolvimento/resumo-entregas-chats-abr-2026.md) — entregas recentes (2026)  

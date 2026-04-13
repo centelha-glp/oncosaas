@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
@@ -15,6 +16,7 @@ from ..models.schemas import (
     RiskPrediction,
 )
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -103,8 +105,12 @@ async def predict_risk(request: RiskPredictRequest):
                 for f in rules_result.findings
             ],
         )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Risk prediction failed: {str(e)}")
+    except Exception:
+        logger.exception("Risk prediction failed")
+        raise HTTPException(
+            status_code=500,
+            detail="Risk prediction failed",
+        )
 
 
 def _is_overdue(due_date_str: str) -> bool:
@@ -286,8 +292,12 @@ async def predict_agent_risk(request: PredictRiskRequest):
             risks=risks,
             highest_severity=_highest_severity(risks),
         )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao predizer risco: {str(e)}")
+    except Exception:
+        logger.exception("Erro ao predizer risco (predict_agent_risk)")
+        raise HTTPException(
+            status_code=500,
+            detail="Erro ao predizer risco",
+        )
 
 
 @router.post("/agent/predict-risk-bulk", response_model=BulkPredictRiskResponse)
@@ -304,5 +314,9 @@ async def predict_risk_bulk(request: BulkPredictRiskRequest):
                 )
             )
         return BulkPredictRiskResponse(results=results)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao predizer riscos em lote: {str(e)}")
+    except Exception:
+        logger.exception("Erro ao predizer riscos em lote")
+        raise HTTPException(
+            status_code=500,
+            detail="Erro ao predizer riscos em lote",
+        )

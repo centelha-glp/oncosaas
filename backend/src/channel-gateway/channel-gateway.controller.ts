@@ -113,6 +113,16 @@ export class ChannelGatewayController {
         this.logger.warn('Invalid WhatsApp webhook signature (non-production)');
         throw new ForbiddenException('Invalid signature');
       }
+    } else {
+      // Sem META_APP_SECRET fora de development: URL pública não pode aceitar POST arbitrário
+      const nodeEnv =
+        this.configService.get<string>('NODE_ENV') ?? 'development';
+      if (nodeEnv !== 'development') {
+        this.logger.warn(
+          'WhatsApp webhook: META_APP_SECRET not set outside development; rejecting',
+        );
+        throw new ForbiddenException('Webhook signature verification required');
+      }
     }
 
     const messages = this.whatsAppChannel.parseWebhookPayload(body);

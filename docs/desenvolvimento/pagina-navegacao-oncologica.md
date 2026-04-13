@@ -115,4 +115,4 @@ Ao clicar, navega para `/oncology-navigation`.
 
 ---
 
-**Última atualização**: 2024-01-XX
+**Última atualização**: 2026-04-13

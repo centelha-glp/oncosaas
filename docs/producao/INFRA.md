@@ -1,5 +1,7 @@
 # INFRA Hardening Runbook
 
+> **Path:** `docs/producao/INFRA.md` (moved from `docs/INFRA.md` on 2026-04-13). Shortcut at repo: [`docs/INFRA.md`](../INFRA.md).
+
 This document tracks the last successful infrastructure implementation steps for the EC2+Compose hardening initiative.
 
 ## Infra repo provisions

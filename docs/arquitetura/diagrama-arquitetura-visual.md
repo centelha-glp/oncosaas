@@ -9,7 +9,7 @@ graph TD
     end
 
     subgraph "Level 2: Mid-level - Sistemas Principais"
-        FE_SYS[Frontend System<br/>Next.js 14 + React]
+        FE_SYS[Frontend System<br/>Next.js 15 + React 19]
         BE_SYS[Backend System<br/>NestJS API]
         AI_SYS[AI System<br/>FastAPI]
         DB_SYS[Database System<br/>PostgreSQL]
@@ -38,7 +38,7 @@ graph TD
         end
 
         subgraph "AI Services"
-            AI_PRIORITY[Priority Model<br/>XGBoost ML]
+            AI_PRIORITY[Priority Model<br/>LightGBM ML]
             AI_AGENT[WhatsApp Agent<br/>LLM Conversation]
             AI_RAG[RAG System<br/>Medical Knowledge]
             AI_STT[Speech-to-Text<br/>Whisper]
@@ -190,7 +190,7 @@ sequenceDiagram
     Note over BE,DB: 6. Atualização de Priorização
 
     BE->>AI: POST /api/v1/priority/calculate<br/>{patientId, symptoms}
-    AI->>AI: XGBoost Model<br/>Calcula score
+    AI->>AI: LightGBM Model<br/>Calcula score
     AI-->>BE: {score: 75, category: "HIGH"}
 
     BE->>DB: UPDATE Patient<br/>SET priorityScore=75,<br/>priorityCategory='HIGH'
@@ -241,7 +241,7 @@ sequenceDiagram
     Note over BE,AI: 3. Cálculo de Priorização Inicial
 
     BE->>AI: POST /api/v1/priority/calculate<br/>{patientId, cancerType, stage}
-    AI->>AI: XGBoost Model<br/>Calcula score
+    AI->>AI: LightGBM Model<br/>Calcula score
     AI-->>BE: {score: 65, category: "HIGH"}
 
     BE->>DB: UPDATE Patient<br/>SET priorityScore=65,<br/>priorityCategory='HIGH'
@@ -287,7 +287,7 @@ graph LR
     subgraph "🤖 AI Layer"
         AI_APP[FastAPI App<br/>Main Application]
         AI_ROUTES[Routes<br/>/priority, /agent]
-        AI_MODELS[ML Models<br/>XGBoost, Embeddings]
+        AI_MODELS[ML Models<br/>LightGBM, Embeddings]
         AI_AGENTS[Agents<br/>WhatsApp Agent, RAG]
     end
 

@@ -64,6 +64,8 @@ Legend:
 
 ## Frontend (`frontend/`)
 
+**Auth no produto:** sessão com **JWT emitido pelo Nest** (cookies HttpOnly); ver [`README.md`](../../README.md). `NEXTAUTH_*` só faz sentido se existir integração NextAuth ativa no código.
+
 ### Variables used by frontend code
 
 | Variable | Build | Run | Type | Notes |

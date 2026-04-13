@@ -752,5 +752,5 @@ module.exports = {
 
 ---
 
-**Última atualização**: 2024-01-XX  
+**Última atualização**: 2026-04-13  
 **Versão**: 1.0.0

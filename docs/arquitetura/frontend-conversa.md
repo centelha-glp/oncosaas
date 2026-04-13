@@ -1,6 +1,6 @@
 # Arquitetura da Conversa no Frontend
 
-**Data:** 2024-01-XX  
+**Data:** 2026-04-13  
 **Componente:** `ConversationView` e integração com backend  
 **Foco:** Fluxo de mensagens, handoff manual, atualizações em tempo real
 

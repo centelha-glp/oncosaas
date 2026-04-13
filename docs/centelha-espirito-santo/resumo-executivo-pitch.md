@@ -11,7 +11,7 @@
 Plataforma SaaS multi-tenant que integra Inteligência Artificial e WhatsApp Business API para transformar o cuidado oncológico, oferecendo:
 
 1. **Navegação Inteligente** - Dashboard centralizado rastreando pacientes em tempo real
-2. **Priorização com IA** - Scoring automático (XGBoost) identificando casos críticos
+2. **Priorização com IA** - Scoring automático (LightGBM) identificando casos críticos
 3. **Agente de IA Conversacional** - Coleta dados via WhatsApp, detecta sintomas críticos e alerta equipe
 
 ## O Problema
@@ -29,7 +29,7 @@ Plataforma inovadora que democratiza o acesso ao cuidado coordenado via WhatsApp
 
 1. **WhatsApp Nativo** - Única solução oncológica usando canal preferido
 2. **Agente IA Especializado** - LLM com RAG em conhecimento médico oncológico
-3. **Priorização IA Específica** - XGBoost treinado com dados oncológicos (único no Brasil)
+3. **Priorização IA Específica** - LightGBM treinado com dados oncológicos (único no Brasil)
 
 ## Impacto Socioambiental
 

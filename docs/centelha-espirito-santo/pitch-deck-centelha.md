@@ -64,7 +64,7 @@ Coordenação automática entre especialidades
 
 2. Priorização com IA
 
-Scoring automático (XGBoost) identificando casos críticos
+Scoring automático (LightGBM) identificando casos críticos
 Explicabilidade do score para equipe médica
 Detecção precoce de complicações
 
@@ -85,7 +85,7 @@ Stack Tecnológico Validado
 
 Frontend:
 
-Next.js 14 (React + TypeScript)
+Next.js 15 (React 19 + TypeScript)
 Dashboard responsivo e intuitivo
 
 Backend:
@@ -96,7 +96,7 @@ Arquitetura multi-tenant escalável
 IA/ML:
 
 LLM: GPT/Claude (agente conversacional)
-ML: XGBoost (priorização de casos)
+ML: LightGBM (priorização de casos)
 RAG: Base de conhecimento médico (guidelines NCCN, ASCO)
 STT: Google Cloud Speech-to-Text (áudios WhatsApp)
 
@@ -132,7 +132,7 @@ Guidelines NCCN e ASCO integradas
 
 3. Priorização IA Específica
 
-XGBoost treinado com dados oncológicos
+LightGBM treinado com dados oncológicos
 Único no Brasil
 Explicabilidade para equipe médica
 

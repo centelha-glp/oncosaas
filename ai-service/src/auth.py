@@ -34,6 +34,12 @@ def _require_service_token_env() -> bool:
     return v in ("1", "true", "yes", "on")
 
 
+def _deployment_requires_service_token() -> bool:
+    """Staging/produção exigem token mesmo sem flag explícita."""
+    env = os.getenv("ENVIRONMENT", os.getenv("NODE_ENV", "development")).strip().lower()
+    return env in ("production", "staging")
+
+
 def require_service_token(
     credentials: HTTPAuthorizationCredentials | None = Security(_bearer),
 ) -> None:
@@ -46,12 +52,11 @@ def require_service_token(
     expected = _get_service_token()
 
     if not expected:
-        # Token não configurado → bloquear em produção ou com AI_SERVICE_REQUIRE_SERVICE_TOKEN
-        env = os.getenv("ENVIRONMENT", os.getenv("NODE_ENV", "development"))
-        if env == "production" or _require_service_token_env():
+        # Token não configurado → bloquear em produção/staging ou com AI_SERVICE_REQUIRE_SERVICE_TOKEN
+        if _deployment_requires_service_token() or _require_service_token_env():
             logger.error(
                 "BACKEND_SERVICE_TOKEN não configurado. Bloqueando requisição "
-                "(produção ou AI_SERVICE_REQUIRE_SERVICE_TOKEN)."
+                "(produção/staging ou AI_SERVICE_REQUIRE_SERVICE_TOKEN)."
             )
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

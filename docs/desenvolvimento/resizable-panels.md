@@ -1,6 +1,6 @@
 # Painéis Redimensionáveis no Chat
 
-**Data:** 2024-01-XX  
+**Data:** 2026-04-13  
 **Componente:** `ResizablePanel`  
 **Foco:** Permitir que usuários ajustem a largura das abas laterais e área de conversa
 
@@ -242,5 +242,5 @@ useEffect(() => {
 
 ---
 
-**Última atualização:** 2024-01-XX  
+**Última atualização:** 2026-04-13  
 **Versão:** 1.0.0

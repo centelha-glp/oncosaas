@@ -32,7 +32,7 @@ O Brasil tem 704 mil novos casos de câncer por ano, com tempo médio de diagnó
 ### Solução (1–2 frases)
 
 ```
-Plataforma SaaS que integra IA e WhatsApp para navegação oncológica: dashboard em tempo real, priorização automática de casos com IA (XGBoost) e agente conversacional que coleta dados pelo WhatsApp, detecta sintomas críticos e alerta a equipe.
+Plataforma SaaS que integra IA e WhatsApp para navegação oncológica: dashboard em tempo real, priorização automática de casos com IA (LightGBM) e agente conversacional que coleta dados pelo WhatsApp, detecta sintomas críticos e alerta a equipe.
 ```
 
 ### Diferencial (1 frase)
@@ -74,7 +74,7 @@ Nossa solução inovadora democratiza o acesso ao cuidado coordenado via WhatsAp
 ### Solução – resumo (≤1000 caracteres)
 
 ```
-Plataforma SaaS multi-tenant integrando IA e WhatsApp Business API para transformar o cuidado oncológico. Três pilares: (1) Navegação Inteligente - dashboard rastreando pacientes em tempo real; (2) Priorização com IA - scoring automático (XGBoost) identificando casos críticos; (3) Agente de IA Conversacional - coleta dados via WhatsApp, detecta sintomas críticos e alerta equipe.
+Plataforma SaaS multi-tenant integrando IA e WhatsApp Business API para transformar o cuidado oncológico. Três pilares: (1) Navegação Inteligente - dashboard rastreando pacientes em tempo real; (2) Priorização com IA - scoring automático (LightGBM) identificando casos críticos; (3) Agente de IA Conversacional - coleta dados via WhatsApp, detecta sintomas críticos e alerta equipe.
 
 Viabilidade técnica: Stack validado (Next.js, NestJS, Python FastAPI, PostgreSQL), integração HL7/FHIR, arquitetura multi-tenant escalável. Validação: 10+ entrevistas com oncologistas/enfermeiros confirmaram dores e necessidade da solução. Pilotos em planejamento com instituições pioneiras.
 

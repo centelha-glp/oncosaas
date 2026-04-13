@@ -90,7 +90,7 @@ AI Service estará disponível em: http://localhost:8001
 
 ```
 ONCONAV/
-├── frontend/              # Next.js 14
+├── frontend/              # Next.js 15
 │   ├── src/
 │   │   ├── app/          # App Router
 │   │   ├── components/   # Componentes React

@@ -6,7 +6,7 @@ Implementação de melhorias visuais e de usabilidade na lista de pacientes: bad
 
 ## Data de Implementação
 
-2024-01-XX
+2026-04-13
 
 ## Funcionalidades Implementadas
 
