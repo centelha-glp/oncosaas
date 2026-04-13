@@ -131,6 +131,8 @@ cp .env.example backend/.env
 cp .env.example frontend/.env
 ```
 
+**Monorepo .env rule:** Each service reads its OWN `.env` file — `backend/.env`, `frontend/.env`, `ai-service/.env`. The root `.env` is NOT read by Next.js or FastAPI. When debugging missing env vars, always check the service-specific file, not just the root.
+
 Key variables:
 
 - `DATABASE_URL` - PostgreSQL connection string
