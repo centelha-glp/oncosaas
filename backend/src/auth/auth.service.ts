@@ -3,7 +3,6 @@ import {
   UnauthorizedException,
   ForbiddenException,
   ConflictException,
-  NotImplementedException,
   Logger,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
@@ -18,10 +17,13 @@ import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { RegisterInstitutionDto } from './dto/register-institution.dto';
 import { JwtPayload } from './strategies/jwt.strategy';
+import { EmailService } from './email.service';
 
 const MAX_FAILED_ATTEMPTS = 5;
 const LOCKOUT_TTL_SECONDS = 15 * 60; // 15 minutos
 const REFRESH_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 dias
+const PASSWORD_RESET_TTL_SECONDS = 60 * 60; // 1 hora
+const PASSWORD_RESET_COOLDOWN_SECONDS = 5 * 60; // 5 minutos entre pedidos
 
 @Injectable()
 export class AuthService {
@@ -32,7 +34,8 @@ export class AuthService {
     private jwtService: JwtService,
     private configService: ConfigService,
     private redisService: RedisService,
-    private auditLogService: AuditLogService
+    private auditLogService: AuditLogService,
+    private emailService: EmailService
   ) {}
 
   // ─── Account lockout helpers ────────────────────────────────────────────────
@@ -407,27 +410,47 @@ export class AuthService {
   // ─── Password Reset ──────────────────────────────────────────────────────────
 
   async forgotPassword(email: string): Promise<void> {
-    const isProduction = this.configService.get<string>('NODE_ENV') === 'production';
+    const emailNorm = email.toLowerCase().trim();
 
-    if (isProduction) {
-      // Email service not yet implemented — fail explicitly rather than silently
-      throw new NotImplementedException(
-        'Password reset via email is not yet available. Please contact your system administrator.'
-      );
+    // Anti-abuse: allow at most one reset request per email every 5 minutes
+    const cooldownKey = `prt:cooldown:${emailNorm}`;
+    const onCooldown = await this.redisService.get(cooldownKey);
+    if (onCooldown) {
+      // Return silently — do not reveal whether the email exists or is on cooldown
+      return;
     }
 
-    const user = await this.prisma.user.findFirst({ where: { email } });
+    const user = await this.prisma.user.findFirst({ where: { email: emailNorm } });
 
-    // Always return success to avoid user enumeration
+    // Always return success to avoid user enumeration — set cooldown regardless
+    await this.redisService.set(cooldownKey, '1', PASSWORD_RESET_COOLDOWN_SECONDS);
+
     if (!user) {
       return;
     }
 
     const token = crypto.randomBytes(32).toString('hex');
-    const ttl = 60 * 60; // 1 hora
-    await this.redisService.set(`prt:${token}`, user.id, ttl);
+    await this.redisService.set(`prt:${token}`, user.id, PASSWORD_RESET_TTL_SECONDS);
 
-    // [A-03] Auditoria — apenas dev; não registrar o token
+    const frontendUrl =
+      this.configService.get<string>('FRONTEND_URL') ?? 'http://localhost:3000';
+    const resetLink = `${frontendUrl}/reset-password/${token}`;
+
+    // Attempt email delivery — log warning if SMTP not configured
+    const sent = await this.emailService.sendPasswordReset(emailNorm, resetLink).catch(
+      (err: Error) => {
+        this.logger.error(`Failed to send password reset email: ${err.message}`);
+        return false;
+      }
+    );
+
+    if (!sent) {
+      this.logger.warn(
+        `SMTP not configured — password reset token created but email not delivered for user ${user.id}`
+      );
+    }
+
+    // [A-03] Auditoria — não registrar o token em si
     void this.auditLogService.log({
       tenantId: user.tenantId,
       userId: user.id,
@@ -436,10 +459,6 @@ export class AuthService {
       resourceId: user.id,
       newValues: { event: 'PASSWORD_RESET_REQUESTED' },
     });
-
-    this.logger.log(
-      `[DEV] Password reset requested for ${email} (token stored in Redis; do not log tokens)`
-    );
   }
 
   async resetPassword(token: string, newPassword: string): Promise<void> {

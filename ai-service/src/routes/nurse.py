@@ -1,7 +1,8 @@
 import logging
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
+from ..auth import require_service_token
 from ..models.schemas import NurseAssistRequest, NurseAssistResponse, SuggestedAction, SuggestedReply
 
 logger = logging.getLogger(__name__)
@@ -142,7 +143,10 @@ def _build_nurse_assist_fallback(request: NurseAssistRequest) -> NurseAssistResp
 
 
 @router.post("/agent/nurse-assist", response_model=NurseAssistResponse)
-async def nurse_assist(request: NurseAssistRequest):
+async def nurse_assist(
+    request: NurseAssistRequest,
+    _: None = Depends(require_service_token),
+):
     import json
 
     from ..agent.llm_provider import llm_provider

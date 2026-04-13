@@ -138,6 +138,8 @@ export class PriorityRecalculationService {
         method: 'POST',
         headers: aiHeaders,
         body: JSON.stringify(payload),
+        // 60s — inferência de priorização por paciente (evita hang se o AI Service estiver lento/indisponível)
+        signal: AbortSignal.timeout(60_000),
       });
 
       if (!response.ok) {

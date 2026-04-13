@@ -79,6 +79,15 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/post-tool-prisma-validate.sh"
           }
         ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/post-tool-typecheck.sh"
+          }
+        ]
       }
     ]
   }

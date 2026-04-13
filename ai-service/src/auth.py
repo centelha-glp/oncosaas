@@ -8,11 +8,13 @@ O token é comparado via secrets.compare_digest (tempo constante)
 para evitar timing attacks.
 """
 
+import hashlib
+import hmac
 import logging
 import os
 import secrets
 
-from fastapi import HTTPException, Security, status
+from fastapi import Header, HTTPException, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 logger = logging.getLogger(__name__)
@@ -80,6 +82,38 @@ def require_service_token(
     if not secrets.compare_digest(provided.encode(), expected.encode()):
         logger.warning("Tentativa de acesso com token inválido ao ai-service")
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
+            status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token inválido",
+            headers={"WWW-Authenticate": "Bearer"},
         )
+
+
+def observability_bound_tenant_id(
+    x_tenant_id: str = Header(..., alias="X-Tenant-Id"),
+    x_tenant_auth: str | None = Header(None, alias="X-Tenant-Auth"),
+) -> str:
+    """
+    SEC-002: com BACKEND_SERVICE_TOKEN configurado, exige X-Tenant-Auth =
+    HMAC-SHA256(key=token, message=tenant_id) em hex — mesmo algoritmo do NestJS
+    (`buildTenantServiceProof`). Em dev sem token, não aplica (paridade com require_service_token).
+    """
+    expected = _get_service_token()
+    if not expected:
+        return x_tenant_id
+    if not x_tenant_auth:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="X-Tenant-Auth obrigatório para observabilidade",
+        )
+    digest = hmac.new(
+        expected.encode("utf-8"),
+        x_tenant_id.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    if not hmac.compare_digest(digest, x_tenant_auth.strip()):
+        logger.warning("X-Tenant-Auth não confere com o tenant informado")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Verificação de tenant inválida",
+        )
+    return x_tenant_id

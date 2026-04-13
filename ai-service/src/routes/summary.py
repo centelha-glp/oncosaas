@@ -2,8 +2,9 @@ import json
 import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
+from ..auth import require_service_token
 from ..models.schemas import (
     PatientSummaryRequest,
     PatientSummaryResponse,
@@ -165,7 +166,10 @@ def _build_patient_summary_fallback(request: PatientSummaryRequest) -> PatientSu
 
 
 @router.post("/agent/patient-summary", response_model=PatientSummaryResponse)
-async def patient_summary(request: PatientSummaryRequest):
+async def patient_summary(
+    request: PatientSummaryRequest,
+    _: None = Depends(require_service_token),
+):
     from ..agent.llm_provider import llm_provider
 
     steps_desc = []

@@ -12,10 +12,12 @@ import helmet from 'helmet';
 
 const logger = new Logger('Bootstrap');
 
-/** Crash loudly in production when required env vars are missing. */
+/** Crash loudly in production/staging when required env vars are missing. */
 function validateEnv(): void {
-  const isProduction = process.env.NODE_ENV === 'production';
-  if (!isProduction) {
+  const nodeEnv = process.env.NODE_ENV || 'development';
+  const isStrict =
+    nodeEnv === 'production' || nodeEnv === 'staging';
+  if (!isStrict) {
     return;
   }
 

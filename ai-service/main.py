@@ -121,7 +121,13 @@ app.add_middleware(
     allow_credentials=True,
     # [A-05] Restringir métodos e headers — ai-service é internal API, não público
     allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-Tenant-Id", "X-Request-Id"],
+    allow_headers=[
+        "Authorization",
+        "Content-Type",
+        "X-Tenant-Id",
+        "X-Tenant-Auth",
+        "X-Request-Id",
+    ],
 )
 
 # Incluir rotas

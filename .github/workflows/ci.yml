@@ -235,7 +235,10 @@ jobs:
 
       - name: Prepare ai-service env (with CI overrides)
         run: |
+          set -euo pipefail
           cp .env.example .env
+          # Evita duas linhas BACKEND_SERVICE_TOKEN= no .env (dotenv / ordem de parse).
+          grep -v '^BACKEND_SERVICE_TOKEN=' .env > .env.ci && mv .env.ci .env
           {
             echo "BACKEND_URL=${{ vars.CI_BACKEND_URL || 'http://localhost:3002' }}"
             echo "BACKEND_SERVICE_TOKEN=${{ secrets.CI_BACKEND_SERVICE_TOKEN || 'ci-backend-service-token' }}"
@@ -260,6 +263,9 @@ jobs:
         run: ruff check .
 
       - name: Test
+        env:
+          # Garante token no processo do pytest (além do .env) — testes SEC-002 observabilidade.
+          BACKEND_SERVICE_TOKEN: ${{ secrets.CI_BACKEND_SERVICE_TOKEN || 'ci-backend-service-token' }}
         run: pytest tests/ -v --tb=short
 
       - name: Security audit

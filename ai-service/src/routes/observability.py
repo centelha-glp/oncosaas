@@ -1,5 +1,6 @@
-from fastapi import APIRouter, Header
+from fastapi import APIRouter, Depends
 
+from ..auth import observability_bound_tenant_id
 from ..agent.tracer import tracer
 from ..models.priority_model import priority_model
 
@@ -27,18 +28,22 @@ async def health():
 @router.get("/observability/traces")
 async def get_traces(
     limit: int = 50,
-    x_tenant_id: str = Header(..., alias="X-Tenant-Id"),
+    tenant_id: str = Depends(observability_bound_tenant_id),
 ):
     limit = max(1, min(limit, 500))
-    return {"traces": tracer.get_traces(limit=limit, tenant_id=x_tenant_id)}
+    return {"traces": tracer.get_traces(limit=limit, tenant_id=tenant_id)}
 
 
 @router.get("/observability/stats")
-async def get_stats(x_tenant_id: str = Header(..., alias="X-Tenant-Id")):
-    return tracer.get_stats(tenant_id=x_tenant_id)
+async def get_stats(
+    tenant_id: str = Depends(observability_bound_tenant_id),
+):
+    return tracer.get_stats(tenant_id=tenant_id)
 
 
 @router.delete("/observability/traces")
-async def clear_traces(x_tenant_id: str = Header(..., alias="X-Tenant-Id")):
-    removed = tracer.clear_by_tenant(x_tenant_id)
+async def clear_traces(
+    tenant_id: str = Depends(observability_bound_tenant_id),
+):
+    removed = tracer.clear_by_tenant(tenant_id)
     return {"cleared": True, "removed": removed}

@@ -2,9 +2,10 @@ import logging
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from ..auth import require_service_token
 from ..agent.clinical_rules import _SEVERITY_ORDER, REMOTE_NURSING, clinical_rules_engine
 from ..agent.clinical_scores import clinical_scores
 from ..models.priority_model import extract_features, priority_model
@@ -48,7 +49,10 @@ _DISPOSITION_LABELS = {
 
 
 @router.post("/risk/predict", response_model=RiskPredictResult)
-async def predict_risk(request: RiskPredictRequest):
+async def predict_risk(
+    request: RiskPredictRequest,
+    _: None = Depends(require_service_token),
+):
     try:
         rules_result = clinical_rules_engine.evaluate(
             symptom_analysis=request.symptom_analysis,
@@ -284,7 +288,10 @@ def _highest_severity(risks: List[RiskPrediction]) -> str:
 
 
 @router.post("/agent/predict-risk", response_model=PredictRiskResponse)
-async def predict_agent_risk(request: PredictRiskRequest):
+async def predict_agent_risk(
+    request: PredictRiskRequest,
+    _: None = Depends(require_service_token),
+):
     try:
         risks = _analyze_patient_risk(request)
         return PredictRiskResponse(
@@ -301,7 +308,10 @@ async def predict_agent_risk(request: PredictRiskRequest):
 
 
 @router.post("/agent/predict-risk-bulk", response_model=BulkPredictRiskResponse)
-async def predict_risk_bulk(request: BulkPredictRiskRequest):
+async def predict_risk_bulk(
+    request: BulkPredictRiskRequest,
+    _: None = Depends(require_service_token),
+):
     try:
         results: List[PredictRiskResponse] = []
         for patient in request.patients:

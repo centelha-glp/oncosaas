@@ -20,7 +20,7 @@ const buildJwt = (exp: number) => {
   return `${header}.${payload}.signature`;
 };
 
-describe('middleware auth gating (legacy, sem JWT_SECRET)', () => {
+describe('middleware auth gating (sem JWT_SECRET — falha segura)', () => {
   beforeEach(() => {
     vi.stubEnv('JWT_SECRET', '');
   });
@@ -41,12 +41,13 @@ describe('middleware auth gating (legacy, sem JWT_SECRET)', () => {
     expect(location).toContain('redirect=%2Fdashboard');
   });
 
-  it('allows protected pages when session cookie is active', async () => {
+  it('rejeita páginas protegidas mesmo com cookie quando JWT_SECRET está ausente', async () => {
     const validToken = buildJwt(Math.floor(Date.now() / 1000) + 60 * 5);
     const response = await middleware(
       buildRequest('/dashboard', `auth_token=${validToken}`)
     );
-    expect(response.headers.get('location')).toBeNull();
+    const location = response.headers.get('location');
+    expect(location).toContain('/login');
   });
 
   it('rejects invalid token cookie values', async () => {

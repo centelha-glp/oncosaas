@@ -2,10 +2,11 @@ import logging
 import os
 from typing import Dict, List
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
+from ..auth import require_service_token
 from ..agent.context_builder import context_builder
 from ..agent.orchestrator import orchestrator
 from ..agent.protocol_engine import protocol_engine
@@ -63,7 +64,10 @@ async def debug_llm_status():
 
 
 @router.post("/agent/message", response_model=AgentMessageResponse)
-async def process_agent_message(request: AgentMessageRequest):
+async def process_agent_message(
+    request: AgentMessageRequest,
+    _: None = Depends(require_service_token),
+):
     try:
         result = await run_in_threadpool(
             whatsapp_agent.process_message,
@@ -81,7 +85,10 @@ async def process_agent_message(request: AgentMessageRequest):
 
 
 @router.post("/agent/process", response_model=AgentProcessResponse)
-async def process_message(request: AgentProcessRequest):
+async def process_message(
+    request: AgentProcessRequest,
+    _: None = Depends(require_service_token),
+):
     try:
         result = await orchestrator.process(
             {
@@ -115,7 +122,10 @@ async def process_message(request: AgentProcessRequest):
 
 
 @router.post("/agent/build-context", response_model=ClinicalContextResponse)
-async def build_clinical_context(request: BuildContextRequest):
+async def build_clinical_context(
+    request: BuildContextRequest,
+    _: None = Depends(require_service_token),
+):
     try:
         context_str = context_builder.build(
             clinical_context=request.clinical_context,
@@ -141,7 +151,10 @@ async def build_clinical_context(request: BuildContextRequest):
 
 
 @router.post("/agent/analyze-symptoms", response_model=SymptomAnalysisResponse)
-async def analyze_symptoms(request: SymptomAnalysisRequest):
+async def analyze_symptoms(
+    request: SymptomAnalysisRequest,
+    _: None = Depends(require_service_token),
+):
     try:
         result = await symptom_analyzer.analyze(
             message=request.message,
@@ -176,7 +189,10 @@ async def analyze_symptoms(request: SymptomAnalysisRequest):
 
 
 @router.post("/agent/score-questionnaire", response_model=QuestionnaireScoreResponse)
-async def score_questionnaire(request: QuestionnaireScoreRequest):
+async def score_questionnaire(
+    request: QuestionnaireScoreRequest,
+    _: None = Depends(require_service_token),
+):
     try:
         scores = questionnaire_engine.score_responses(
             questionnaire_type=request.questionnaire_type,
@@ -198,7 +214,10 @@ async def score_questionnaire(request: QuestionnaireScoreRequest):
 
 
 @router.post("/agent/evaluate-protocol", response_model=ProtocolEvaluateResponse)
-async def evaluate_protocol(request: ProtocolEvaluateRequest):
+async def evaluate_protocol(
+    request: ProtocolEvaluateRequest,
+    _: None = Depends(require_service_token),
+):
     try:
         actions = protocol_engine.evaluate(
             cancer_type=request.cancer_type,
@@ -223,7 +242,10 @@ async def evaluate_protocol(request: ProtocolEvaluateRequest):
 
 
 @router.post("/agent/checkin-message", response_model=CheckInMessageResponse)
-async def generate_checkin_message(request: CheckInMessageRequest):
+async def generate_checkin_message(
+    request: CheckInMessageRequest,
+    _: None = Depends(require_service_token),
+):
     from ..agent.llm_provider import llm_provider
 
     patient = request.clinical_context.get("patient", {})
