@@ -20,16 +20,21 @@ export function IsPlainText(validationOptions?: ValidationOptions) {
       propertyName,
       options: validationOptions,
       validator: {
-        validate(value: unknown) {
-          if (value == null) return true; // @IsOptional controla ausência
-          if (typeof value !== 'string') return false;
+        validate(value: unknown): boolean {
+          // @IsOptional controla ausência.
+          if (value === null || value === undefined) {
+            return true;
+          }
+          if (typeof value !== 'string') {
+            return false;
+          }
 
           // Detecta início de tag: "<" seguido de letra (com espaços opcionais) e/ou "</".
           // Ex.: "<b>", "</div>", "<img", "<svg onload=...>"
           const looksLikeHtmlTag = /<\s*\/?\s*[a-z]/i.test(value);
           return !looksLikeHtmlTag;
         },
-        defaultMessage(args: ValidationArguments) {
+        defaultMessage(args: ValidationArguments): string {
           return `${args.property} deve ser texto puro (HTML não é permitido)`;
         },
       },
