@@ -59,6 +59,42 @@ function forwardHeaders(h: Headers): Headers {
   return out;
 }
 
+/**
+ * Repassa a resposta do Nest para o browser preservando **todos** os `Set-Cookie`.
+ * Um `return fetch(backend)` direto costuma perder cookies múltiplos (access + refresh):
+ * o middleware Next não recebe `access_token` HttpOnly e o utilizador fica preso no /login.
+ */
+function forwardBackendResponse(backendRes: Response): NextResponse {
+  const nextRes = new NextResponse(backendRes.body, {
+    status: backendRes.status,
+    statusText: backendRes.statusText,
+  });
+
+  backendRes.headers.forEach((value, key) => {
+    if (key.toLowerCase() === 'set-cookie') {
+      return;
+    }
+    nextRes.headers.append(key, value);
+  });
+
+  const withSetCookie = backendRes.headers as Headers & {
+    getSetCookie?: () => string[];
+  };
+  const cookies = withSetCookie.getSetCookie?.() ?? [];
+  for (const cookie of cookies) {
+    nextRes.headers.append('Set-Cookie', cookie);
+  }
+
+  if (cookies.length === 0) {
+    const fallback = backendRes.headers.get('set-cookie');
+    if (fallback) {
+      nextRes.headers.append('Set-Cookie', fallback);
+    }
+  }
+
+  return nextRes;
+}
+
 async function proxy(
   req: NextRequest,
   context: { params: Promise<{ path?: string[] }> }
@@ -87,7 +123,8 @@ async function proxy(
     init.duplex = 'half';
   }
 
-  return fetch(url, init as RequestInit);
+  const backendRes = await fetch(url, init as RequestInit);
+  return forwardBackendResponse(backendRes);
 }
 
 export async function GET(req: NextRequest, ctx: { params: Promise<{ path?: string[] }> }) {
