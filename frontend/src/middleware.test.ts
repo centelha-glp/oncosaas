@@ -1,7 +1,7 @@
 import { middleware } from './middleware';
 
-function buildRequest(pathname: string, cookie?: string) {
-  const url = `https://onconav.local${pathname}`;
+function buildRequest(pathname: string, cookie?: string, protocol: 'http' | 'https' = 'https') {
+  const url = `${protocol}://onconav.local${pathname}`;
   const headers = new Headers(cookie ? { cookie } : {});
 
   const request = {
@@ -49,9 +49,17 @@ describe('middleware auth gating (probe no backend)', () => {
     const [calledUrl, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     // Probe usa URL interna (loopback) — não o hostname externo da requisição original.
     // Isso evita roundtrip HTTPS externo no Docker de produção.
-    expect(calledUrl).toBe('http://localhost:3000/api/v1/auth/profile');
+    expect(calledUrl).toBe('https://localhost:3000/api/v1/auth/profile');
     expect(init?.method).toBe('GET');
     expect((init?.headers as Record<string, string>)?.cookie).toContain('access_token=token');
+  });
+
+  it('usa o protocolo da requisição (http) ao montar URL interna padrão', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ id: 'u1' }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    await middleware(buildRequest('/dashboard', 'access_token=token', 'http'));
+    const [calledUrl] = fetchMock.mock.calls[0] as unknown as [string];
+    expect(calledUrl).toBe('http://localhost:3000/api/v1/auth/profile');
   });
 
   it('usa INTERNAL_APP_URL quando hostname é .internal (permitido)', async () => {
