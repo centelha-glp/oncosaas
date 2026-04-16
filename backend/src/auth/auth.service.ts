@@ -3,6 +3,7 @@ import {
   UnauthorizedException,
   ForbiddenException,
   ConflictException,
+  ServiceUnavailableException,
   Logger,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
@@ -204,7 +205,16 @@ export class AuthService {
 
   async refresh(refreshToken: string) {
     const key = `rt:${refreshToken}`;
-    const userId = await this.redisService.get(key);
+    let userId: string | null = null;
+    try {
+      userId = await this.redisService.get(key);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`Redis error while reading refresh token: ${message}`);
+      throw new ServiceUnavailableException(
+        'Serviço de sessão indisponível. Tente novamente em instantes.'
+      );
+    }
 
     if (!userId) {
       throw new UnauthorizedException('Refresh token inválido ou expirado');
@@ -221,7 +231,16 @@ export class AuthService {
     }
 
     // Rotate refresh token (invalidate old, issue new)
-    await this.redisService.del(key);
+    try {
+      await this.redisService.del(key);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`Redis error while invalidating refresh token: ${message}`);
+      throw new ServiceUnavailableException(
+        'Serviço de sessão indisponível. Tente novamente em instantes.'
+      );
+    }
+
     const newRefreshToken = await this.generateRefreshToken(user.id);
 
     const payload: JwtPayload = {
@@ -249,7 +268,15 @@ export class AuthService {
 
   async logout(refreshToken: string, userId?: string, tenantId?: string): Promise<void> {
     if (refreshToken) {
-      await this.redisService.del(`rt:${refreshToken}`);
+      try {
+        await this.redisService.del(`rt:${refreshToken}`);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        this.logger.warn(`Redis error while deleting refresh token on logout: ${message}`);
+        throw new ServiceUnavailableException(
+          'Serviço de sessão indisponível. Tente novamente em instantes.'
+        );
+      }
     }
     // [A-03] Audit logout when caller context is available
     if (userId && tenantId) {
@@ -273,11 +300,15 @@ export class AuthService {
 
   private async generateRefreshToken(userId: string): Promise<string> {
     const token = crypto.randomBytes(40).toString('hex');
-    await this.redisService.set(
-      `rt:${token}`,
-      userId,
-      REFRESH_TOKEN_TTL_SECONDS
-    );
+    try {
+      await this.redisService.set(`rt:${token}`, userId, REFRESH_TOKEN_TTL_SECONDS);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`Redis error while issuing refresh token: ${message}`);
+      throw new ServiceUnavailableException(
+        'Serviço de sessão indisponível. Tente novamente em instantes.'
+      );
+    }
     return token;
   }
 

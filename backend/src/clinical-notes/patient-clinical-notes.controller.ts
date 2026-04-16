@@ -123,13 +123,26 @@ export class PatientClinicalNotesController {
     @Param('patientId', ParseUUIDPipe) patientId: string,
     @CurrentUser() user: CurrentUserType,
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
-    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number
+    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number,
+    @Query('navigationStepId') navigationStepId: string | undefined
   ) {
+    const uuidRe =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (
+      navigationStepId !== undefined &&
+      navigationStepId !== '' &&
+      !uuidRe.test(navigationStepId)
+    ) {
+      throw new BadRequestException('navigationStepId inválido');
+    }
+    const stepFilter =
+      navigationStepId && navigationStepId !== '' ? navigationStepId : undefined;
     return this.clinicalNotesService.findAllForPatient(
       patientId,
       user.tenantId,
       page,
-      limit
+      limit,
+      stepFilter
     );
   }
 }

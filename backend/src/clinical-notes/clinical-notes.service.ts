@@ -306,7 +306,8 @@ export class ClinicalNotesService {
     patientId: string,
     tenantId: string,
     page = 1,
-    limit = 20
+    limit = 20,
+    navigationStepId?: string
   ) {
     const take = Math.min(Math.max(limit, 1), 100);
     const skip = (Math.max(page, 1) - 1) * take;
@@ -323,6 +324,7 @@ export class ClinicalNotesService {
       tenantId,
       patientId,
       status: { not: ClinicalNoteStatus.VOIDED },
+      ...(navigationStepId ? { navigationStepId } : {}),
     };
 
     const [items, total] = await Promise.all([

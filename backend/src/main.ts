@@ -139,6 +139,9 @@ async function bootstrap(): Promise<void> {
     'https://127.0.0.1:3000',
     'http://frontend:3000',
     'https://frontend:3000',
+    // Playwright E2E webServer (default in frontend/playwright.config.ts)
+    'http://127.0.0.1:3330',
+    'http://localhost:3330',
     frontendUrl,
     ...extraOrigins,
   ];
