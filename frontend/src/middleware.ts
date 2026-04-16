@@ -33,7 +33,10 @@ function internalProbeUrl(): string {
   const ALLOWED = new Set(['localhost', '127.0.0.1', '::1']);
   if (!ALLOWED.has(parsed.hostname) && !parsed.hostname.endsWith('.internal')) {
     // Falha segura: hostname não permitido → usa loopback padrão.
-    return new URL(SESSION_PROBE_PATH, `http://localhost:${process.env.PORT ?? 3000}`).toString();
+    return new URL(
+      SESSION_PROBE_PATH,
+      `http://localhost:${process.env.PORT ?? 3000}`
+    ).toString();
   }
   return new URL(SESSION_PROBE_PATH, raw).toString();
 }

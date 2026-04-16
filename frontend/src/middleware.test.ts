@@ -53,7 +53,6 @@ describe('middleware auth gating (probe no backend)', () => {
     expect(init?.method).toBe('GET');
     expect((init?.headers as Record<string, string>)?.cookie).toContain('access_token=token');
   });
-
   it('usa INTERNAL_APP_URL quando hostname é .internal (permitido)', async () => {
     process.env.INTERNAL_APP_URL = 'http://app.internal:4000';
     const fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
