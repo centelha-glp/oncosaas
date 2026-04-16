@@ -25,17 +25,17 @@ const SESSION_PROBE_TIMEOUT_MS = 2000;
  * Quando INTERNAL_APP_URL está definido, o hostname é validado para prevenir
  * SSRF interno: somente loopback e sufixo `.internal` são permitidos.
  */
-function internalProbeUrl(request: NextRequest): string {
+function internalProbeUrl(): string {
   const raw =
     process.env.INTERNAL_APP_URL ??
-    `${request.nextUrl.protocol}//localhost:${process.env.PORT ?? 3000}`;
+    `http://localhost:${process.env.PORT ?? 3000}`;
   const parsed = new URL(raw); // lança se malformada
   const ALLOWED = new Set(['localhost', '127.0.0.1', '::1']);
   if (!ALLOWED.has(parsed.hostname) && !parsed.hostname.endsWith('.internal')) {
     // Falha segura: hostname não permitido → usa loopback padrão.
     return new URL(
       SESSION_PROBE_PATH,
-      `${request.nextUrl.protocol}//localhost:${process.env.PORT ?? 3000}`
+      `http://localhost:${process.env.PORT ?? 3000}`
     ).toString();
   }
   return new URL(SESSION_PROBE_PATH, raw).toString();
@@ -46,7 +46,7 @@ async function hasActiveSession(request: NextRequest): Promise<boolean> {
   const timeout = setTimeout(() => controller.abort(), SESSION_PROBE_TIMEOUT_MS);
 
   try {
-    const url = internalProbeUrl(request);
+    const url = internalProbeUrl();
     const res = await fetch(url, {
       method: 'GET',
       headers: {
