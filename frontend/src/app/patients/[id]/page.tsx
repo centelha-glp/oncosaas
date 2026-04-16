@@ -1,6 +1,6 @@
 'use client';
 
-import { use, useEffect } from 'react';
+import { use, useEffect, Suspense } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/auth-store';
 import { NavigationBar } from '@/components/shared/navigation-bar';
@@ -41,7 +41,15 @@ export default function PatientDetailRoute(props: { params: Params }) {
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <NavigationBar />
       <div className="flex-1">
-        <PatientDetailPage patientId={params.id} />
+        <Suspense
+          fallback={
+            <div className="p-6 text-center text-muted-foreground">
+              Carregando…
+            </div>
+          }
+        >
+          <PatientDetailPage patientId={params.id} />
+        </Suspense>
       </div>
     </div>
   );

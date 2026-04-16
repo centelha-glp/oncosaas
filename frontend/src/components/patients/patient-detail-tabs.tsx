@@ -10,15 +10,29 @@ import { PatientTreatmentTab } from './patient-treatment-tab';
 import { PatientNavigationTab } from './patient-navigation-tab';
 import { PatientProntuarioTab } from './patient-prontuario-tab';
 
+const TAB_VALUES = [
+  'overview',
+  'clinical',
+  'oncology',
+  'treatment',
+  'navigation',
+  'chart',
+] as const;
+
 interface PatientDetailTabsProps {
   patient: PatientDetail;
+  /** Ex.: `chart` quando a URL traz `?tab=chart` (link da navegação oncológica → prontuário). */
+  defaultTab?: (typeof TAB_VALUES)[number];
 }
 
 export function PatientDetailTabs({
   patient,
+  defaultTab = 'overview',
 }: PatientDetailTabsProps): React.ReactElement {
+  const initial =
+    defaultTab && TAB_VALUES.includes(defaultTab) ? defaultTab : 'overview';
   return (
-    <Tabs defaultValue="overview" className="w-full">
+    <Tabs defaultValue={initial} className="w-full">
       <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-1 h-auto">
         <TabsTrigger value="overview">Visão Geral</TabsTrigger>
         <TabsTrigger value="clinical">Dados Clínicos</TabsTrigger>

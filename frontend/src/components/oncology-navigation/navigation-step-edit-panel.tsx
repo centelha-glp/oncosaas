@@ -53,6 +53,11 @@ export interface NavigationStepEditPanelProps {
   stepKey: string;
   /** Define quais campos específicos são exibidos (consulta = SOAP, imagem, patologia, etc.) */
   variant: NavStepFormVariant;
+  /**
+   * Quando definido (ex.: consultas com evolução no prontuário), substitui o bloco SOAP/metadata
+   * da variante — evita modelo clínico duplicado.
+   */
+  variantSectionReplacement?: React.ReactNode;
   stepDetail: Record<string, string>;
   onStepDetailFieldChange: (key: string, value: string) => void;
   dueDate: string;
@@ -125,6 +130,7 @@ function variantSectionIcon(v: NavStepFormVariant): React.ElementType {
 export function NavigationStepEditPanel({
   stepKey,
   variant,
+  variantSectionReplacement,
   stepDetail,
   onStepDetailFieldChange,
   dueDate,
@@ -284,7 +290,9 @@ export function NavigationStepEditPanel({
 
         <Separator />
 
-        {variant === 'generic' ? (
+        {variantSectionReplacement != null ? (
+          <div className="space-y-3">{variantSectionReplacement}</div>
+        ) : variant === 'generic' ? (
           <section
             className="space-y-3 rounded-md border border-border/80 bg-muted/30 p-3"
             aria-labelledby={`${idPrefix}-sec-result`}
@@ -414,7 +422,9 @@ export function NavigationStepEditPanel({
           <div className="space-y-2">
             <Label htmlFor={notesId}>
               {variant === 'clinical_consultation'
-                ? 'Observações complementares (opcional)'
+                ? variantSectionReplacement != null
+                  ? 'Notas operacionais (opcional)'
+                  : 'Observações complementares (opcional)'
                 : 'Observações'}
             </Label>
             <AutoResizeTextarea
@@ -423,7 +433,9 @@ export function NavigationStepEditPanel({
               onChange={(e) => onNotesChange(e.target.value)}
               placeholder={
                 variant === 'clinical_consultation'
-                  ? 'Notas administrativas ou detalhes que não couberam nos campos da evolução…'
+                  ? variantSectionReplacement != null
+                    ? 'Lembretes internos, logística ou detalhes que não vão no prontuário…'
+                    : 'Notas administrativas ou detalhes que não couberam nos campos da evolução…'
                   : 'Contexto clínico, próximos passos, orientações ao paciente…'
               }
               minRows={4}

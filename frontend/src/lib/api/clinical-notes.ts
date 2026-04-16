@@ -195,7 +195,7 @@ export interface PaginatedClinicalNotes {
 export const clinicalNotesApi = {
   list(
     patientId: string,
-    params?: { page?: number; limit?: number }
+    params?: { page?: number; limit?: number; navigationStepId?: string }
   ): Promise<PaginatedClinicalNotes> {
     return apiClient.get<PaginatedClinicalNotes>(
       `/patients/${patientId}/clinical-notes`,

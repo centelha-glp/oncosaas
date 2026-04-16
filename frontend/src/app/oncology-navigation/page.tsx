@@ -67,11 +67,13 @@ import {
   StageDroppableColumn,
 } from '@/components/patients/navigation-step-dnd';
 import { NavigationStepEditPanel } from '@/components/oncology-navigation/navigation-step-edit-panel';
+import { NavigationStepLinkedEvolutions } from '@/components/oncology-navigation/navigation-step-linked-evolutions';
 import { cn } from '@/lib/utils';
 import {
   getFilledStepDetailEntries,
   getNavStepFormVariant,
   parseStepDetailFromMetadata,
+  usesProntuarioEvolutionModel,
   VARIANT_SECTION_TITLE,
 } from '@/lib/utils/nav-step-form-variants';
 
@@ -869,6 +871,10 @@ function StepCard({ step, apiUrl, dragHandle }: StepCardProps) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
   const variant = useMemo(() => getNavStepFormVariant(step.stepKey), [step.stepKey]);
+  const integratesProntuarioEvolutions = useMemo(
+    () => usesProntuarioEvolutionModel(step.stepKey),
+    [step.stepKey]
+  );
 
   // Novos campos do formulário
   const [institutionName, setInstitutionName] = useState(
@@ -1128,6 +1134,14 @@ function StepCard({ step, apiUrl, dragHandle }: StepCardProps) {
           <NavigationStepEditPanel
             stepKey={step.stepKey}
             variant={variant}
+            variantSectionReplacement={
+              integratesProntuarioEvolutions ? (
+                <NavigationStepLinkedEvolutions
+                  patientId={step.patientId}
+                  navigationStepId={step.id}
+                />
+              ) : undefined
+            }
             stepDetail={stepDetail}
             onStepDetailFieldChange={(key, value) =>
               setStepDetail((prev) => ({ ...prev, [key]: value }))
@@ -1201,18 +1215,26 @@ function StepCard({ step, apiUrl, dragHandle }: StepCardProps) {
               </div>
             )}
 
-            {variant !== 'generic' && detailPreview.length > 0 && (
-              <div className="space-y-3 rounded-md border border-primary/25 bg-primary/5 p-3">
-                <p className="text-sm font-semibold text-foreground">
-                  {VARIANT_SECTION_TITLE[variant]}
-                </p>
-                {detailPreview.map((row, idx) => (
-                  <div key={`${row.label}-${idx}`} className="space-y-0.5">
-                    <p className="text-xs font-medium text-muted-foreground">{row.label}</p>
-                    <p className="text-sm whitespace-pre-wrap text-foreground">{row.value}</p>
-                  </div>
-                ))}
-              </div>
+            {integratesProntuarioEvolutions ? (
+              <NavigationStepLinkedEvolutions
+                patientId={step.patientId}
+                navigationStepId={step.id}
+              />
+            ) : (
+              variant !== 'generic' &&
+              detailPreview.length > 0 && (
+                <div className="space-y-3 rounded-md border border-primary/25 bg-primary/5 p-3">
+                  <p className="text-sm font-semibold text-foreground">
+                    {VARIANT_SECTION_TITLE[variant]}
+                  </p>
+                  {detailPreview.map((row, idx) => (
+                    <div key={`${row.label}-${idx}`} className="space-y-0.5">
+                      <p className="text-xs font-medium text-muted-foreground">{row.label}</p>
+                      <p className="text-sm whitespace-pre-wrap text-foreground">{row.value}</p>
+                    </div>
+                  ))}
+                </div>
+              )
             )}
 
             {/* Resultado */}

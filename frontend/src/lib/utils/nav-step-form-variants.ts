@@ -190,6 +190,15 @@ export function baseStepKey(stepKey: string): string {
   return stepKey.replace(/-\d+$/, '').toLowerCase();
 }
 
+/**
+ * Etapas cuja evolução clínica oficial é o prontuário (ClinicalNote), não o SOAP em metadata da etapa.
+ * Evita modelo duplicado na edição do card de navegação.
+ */
+export function usesProntuarioEvolutionModel(stepKeyRaw: string): boolean {
+  const k = baseStepKey(stepKeyRaw);
+  return k === 'specialist_consultation' || k === 'navigation_consultation';
+}
+
 export function getNavStepFormVariant(stepKeyRaw: string): NavStepFormVariant {
   const k = baseStepKey(stepKeyRaw);
 

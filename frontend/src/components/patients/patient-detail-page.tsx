@@ -4,16 +4,31 @@ import { usePatientDetail } from '@/hooks/use-patient-detail';
 import { PatientDetailTabs } from './patient-detail-tabs';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Edit } from 'lucide-react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Card, CardContent } from '@/components/ui/card';
 
 interface PatientDetailPageProps {
   patientId: string;
 }
 
+const TAB_QUERY_VALUES = [
+  'overview',
+  'clinical',
+  'oncology',
+  'treatment',
+  'navigation',
+  'chart',
+] as const;
+
 export function PatientDetailPage({ patientId }: PatientDetailPageProps) {
   const { data: patient, isLoading, error } = usePatientDetail(patientId);
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const tabParam = searchParams.get('tab');
+  const defaultTab =
+    tabParam && TAB_QUERY_VALUES.includes(tabParam as (typeof TAB_QUERY_VALUES)[number])
+      ? (tabParam as (typeof TAB_QUERY_VALUES)[number])
+      : undefined;
 
   if (isLoading) {
     return (
@@ -75,7 +90,7 @@ export function PatientDetailPage({ patientId }: PatientDetailPageProps) {
       {/* Tabs */}
       <Card>
         <CardContent className="p-6">
-          <PatientDetailTabs patient={patient} />
+          <PatientDetailTabs patient={patient} defaultTab={defaultTab} />
         </CardContent>
       </Card>
     </div>

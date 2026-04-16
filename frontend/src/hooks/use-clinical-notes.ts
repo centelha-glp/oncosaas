@@ -13,6 +13,25 @@ export function useClinicalNotesList(patientId: string | undefined) {
   });
 }
 
+/** Evoluções do prontuário vinculadas a uma etapa de navegação (consulta especializada / navegação). */
+export function useClinicalNotesForNavigationStep(
+  patientId: string | undefined,
+  navigationStepId: string | undefined,
+  enabled: boolean
+) {
+  return useQuery({
+    queryKey: ['clinical-notes', patientId, 'navigation-step', navigationStepId],
+    queryFn: () =>
+      clinicalNotesApi.list(patientId!, {
+        page: 1,
+        limit: 50,
+        navigationStepId,
+      }),
+    enabled: Boolean(patientId && navigationStepId && enabled),
+    staleTime: 15_000,
+  });
+}
+
 export function useClinicalNoteDetail(id: string | undefined) {
   return useQuery({
     queryKey: ['clinical-notes', 'detail', id],
