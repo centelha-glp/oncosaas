@@ -3,6 +3,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useState } from 'react';
 import { ErrorBoundary } from '@/components/error-boundary';
+import { ProductFeedbackFab } from '@/components/feedback/product-feedback-fab';
 import { TooltipProvider } from '@/components/ui/tooltip';
 
 export function Providers({ children }: { children: React.ReactNode }) {
@@ -21,7 +22,10 @@ export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
-        <TooltipProvider delayDuration={300}>{children}</TooltipProvider>
+        <TooltipProvider delayDuration={300}>
+          {children}
+          <ProductFeedbackFab />
+        </TooltipProvider>
       </QueryClientProvider>
     </ErrorBoundary>
   );

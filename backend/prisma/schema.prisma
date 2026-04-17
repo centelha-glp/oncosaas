@@ -33,6 +33,7 @@ model User {
   clinicalNotesSigned        ClinicalNote[]         @relation("ClinicalNoteSignedBy")
   clinicalNotesVoided        ClinicalNote[]         @relation("ClinicalNoteVoidedBy")
   clinicalNoteVersionsAuthored ClinicalNoteVersion[] @relation("ClinicalNoteVersionAuthor")
+  productFeedbacks             ProductFeedback[]
 
   @@unique([tenantId, email])
   @@map("users")
@@ -1313,6 +1314,31 @@ model InternalNote {
   @@map("internal_notes")
 }
 
+/// Feedback de produto (bug / sugestão) enviado por utilizadores autenticados
+enum ProductFeedbackType {
+  BUG
+  FEATURE
+}
+
+model ProductFeedback {
+  id          String              @id @default(uuid())
+  tenantId    String
+  userId      String
+  type        ProductFeedbackType
+  title       String
+  description String              @db.Text
+  pageUrl     String?
+  userAgent   String?             @db.Text
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, createdAt])
+  @@map("product_feedback")
+}
+
 // Exames complementares (laboratoriais, anatomopatológicos, imuno-histoquímicos, imagem)
 enum ComplementaryExamType {
   LABORATORY           // Laboratoriais
@@ -1481,6 +1507,7 @@ model Tenant {
   clinicalNotes               ClinicalNote[]
   clinicalNoteVersions        ClinicalNoteVersion[]
   patientConsents             PatientConsent[]
+  productFeedbacks            ProductFeedback[]
 
   @@map("tenants")
 }

@@ -13,6 +13,7 @@ import {
   Users,
   UserCircle,
   Activity,
+  Bug,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/stores/auth-store';
@@ -91,6 +92,15 @@ const adminNavItems: NavItem[] = [
   },
 ];
 
+/** Listagem de feedbacks de produto — só ADMIN (não confundir com gestão de utilizadores). */
+const adminOnlyNavItems: NavItem[] = [
+  {
+    path: '/dashboard/product-feedback',
+    label: 'Feedbacks',
+    icon: Bug,
+  },
+];
+
 const observabilityNavItem: NavItem = {
   path: '/observability',
   label: 'Observabilidade',
@@ -143,8 +153,11 @@ export function NavigationBar() {
     // Match exato
     if (pathname === itemPath) return true;
 
-    // Caso especial: /dashboard deve ser ativo para /dashboard e subrotas
+    // Caso especial: /dashboard ativo para /dashboard e subrotas (exceto página dedicada de feedback)
     if (itemPath === '/dashboard') {
+      if (pathname?.startsWith('/dashboard/product-feedback')) {
+        return false;
+      }
       return pathname === '/dashboard' || pathname.startsWith('/dashboard/');
     }
 
@@ -234,6 +247,39 @@ export function NavigationBar() {
           {navItems.map((item) => renderMainNavButton(item))}
           {canManageUsers &&
             adminNavItems.map((item) => {
+              const Icon = item.icon;
+              const active = isActive(item.path);
+
+              const button = (
+                <Button
+                  variant={active ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => router.push(item.path)}
+                  aria-label={item.label}
+                  aria-current={active ? 'page' : undefined}
+                  className={cn(
+                    'flex shrink-0 items-center gap-2',
+                    active && 'bg-indigo-600 text-white hover:bg-indigo-700'
+                  )}
+                >
+                  <Icon className="h-4 w-4 shrink-0" aria-hidden />
+                  <span className="hidden lg:inline">{item.label}</span>
+                </Button>
+              );
+
+              if (compactNav) {
+                return (
+                  <Tooltip key={item.path}>
+                    <TooltipTrigger asChild>{button}</TooltipTrigger>
+                    <TooltipContent side="bottom">{item.label}</TooltipContent>
+                  </Tooltip>
+                );
+              }
+
+              return <div key={item.path}>{button}</div>;
+            })}
+          {user?.role === 'ADMIN' &&
+            adminOnlyNavItems.map((item) => {
               const Icon = item.icon;
               const active = isActive(item.path);
 

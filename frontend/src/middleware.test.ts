@@ -18,6 +18,7 @@ describe('middleware auth gating (probe no backend)', () => {
     vi.restoreAllMocks();
     // Garantir que `fetch` e outros globals stubados não vazem entre testes.
     vi.unstubAllGlobals?.();
+    delete process.env.BACKEND_URL;
   });
 
   it('allows public password recovery routes without session cookie', async () => {
@@ -52,6 +53,15 @@ describe('middleware auth gating (probe no backend)', () => {
     expect(calledUrl).toBe('http://localhost:3000/api/v1/auth/profile');
     expect(init?.method).toBe('GET');
     expect((init?.headers as Record<string, string>)?.cookie).toContain('access_token=token');
+  });
+
+  it('usa BACKEND_URL para probe direto ao Nest quando hostname é permitido (ex.: Docker)', async () => {
+    process.env.BACKEND_URL = 'http://backend:3002';
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ id: 'u1' }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    await middleware(buildRequest('/dashboard', 'access_token=token'));
+    const [calledUrl] = fetchMock.mock.calls[0] as unknown as [string];
+    expect(calledUrl).toBe('http://backend:3002/api/v1/auth/profile');
   });
   it('usa INTERNAL_APP_URL quando hostname é .internal (permitido)', async () => {
     process.env.INTERNAL_APP_URL = 'http://app.internal:4000';

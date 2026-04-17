@@ -35,6 +35,7 @@ import { EmergencyReferencesModule } from './emergency-references/emergency-refe
 import { DispositionFeedbackModule } from './disposition-feedback/disposition-feedback.module';
 import { ClinicalNotesModule } from './clinical-notes/clinical-notes.module';
 import { ConsentModule } from './consent/consent.module';
+import { ProductFeedbackModule } from './product-feedback/product-feedback.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { ThrottleGuard } from './common/guards/throttle.guard';
 
@@ -76,6 +77,7 @@ import { ThrottleGuard } from './common/guards/throttle.guard';
     DispositionFeedbackModule,
     ClinicalNotesModule,
     ConsentModule,
+    ProductFeedbackModule,
   ],
   controllers: [AppController],
   providers: [

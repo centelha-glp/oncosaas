@@ -1,8 +1,18 @@
 # ONCONAV — Especificação Técnica Completa
 
-> Versão 1.0 · Data de referência: 2026-03-02
+> **Status:** Em revisão  
+> **Versão:** 1.0  
+> **Última atualização:** 2026-04-16  
+> **Autores:** Equipe ONCONAV (Produto/Engenharia)  
+>
+> **Escopo:** spec master (arquitetura, contratos e invariantes). Detalhes operacionais (setup, env, portas, comandos) vivem no `README.md` (raiz) e no índice `docs/README.md`.
 
 ---
+
+> **Nota de canonicidade (importante):** este documento descreve **arquitetura, contratos e invariantes**. Para **stack/versões**, **portas**, **variáveis de ambiente** e **arranque rápido**, a fonte de verdade é o `README.md` na raiz do repositório (como indexado em `docs/README.md`).
+
+> **Centelha ES (Fase 2):** materiais de submissão (Oportunidade/Solução/Diferenciais/Impacto/Equipe/Cronograma) ficam em `docs/centelha-espirito-santo/`.  
+> **Índice:** `docs/centelha-espirito-santo/versao-formulario.md` • **Fase 2 (copiar/colar):** `docs/centelha-espirito-santo/preenchimento-fase2-centelha-es.md`.
 
 ## Sumário
 
@@ -43,6 +53,8 @@ Equipes de oncologia operam com dados fragmentados em múltiplos sistemas, comun
 ### 1.2 Solução — ONCONAV
 
 Plataforma SaaS multi-tenant que centraliza a navegação oncológica com:
+
+> **Escopo do MVP (produto):** foco inicial em **câncer de bexiga**. Suporte a múltiplos tipos de câncer existe como **roadmap** e deve ser tratado como configuração/expansão posterior (não pressupor protocolos multi-câncer como “v1”).
 
 | Pilar                       | Descrição                                                         |
 | --------------------------- | ----------------------------------------------------------------- |
@@ -121,6 +133,60 @@ Plataforma SaaS multi-tenant que centraliza a navegação oncológica com:
 | FHIR REST             | Integração com EHRs externos               |
 | HL7 v2 MLLP           | Integração com sistemas legados            |
 
+### 2.4 Contratos entre camadas (Frontend ↔ Backend ↔ AI Service)
+
+> Esta seção fixa **invariantes** para eliminar ambiguidade entre camadas. Para detalhes operacionais de setup (stack/portas/env vars), ver `README.md`.
+
+#### 2.4.1 Rotas, base URLs e versionamento
+
+- **Backend (NestJS)**: rotas de produto expostas em **`/api/v1/*`**.
+- **Frontend (Next.js)**: quando em modo relativo, chama **sempre** `'/api/v1/...'` (sem hardcode de host).
+- **AI Service (FastAPI)**: rotas do agente e priorização expostas em **`/api/v1/*`** (exceção deliberada: health).
+
+#### 2.4.2 Auth web (padrão) — cookies HttpOnly
+
+- Backend emite `access_token` e `refresh_token` como **cookies HttpOnly**.
+- Cliente web faz chamadas HTTP com **`withCredentials: true`**.
+- **Padrão do dashboard**: não depender de `Authorization: Bearer`.
+
+**Modo recomendado (API relativa / mesma origem via proxy)**:
+
+- `NEXT_PUBLIC_USE_RELATIVE_API=true`
+- `BACKEND_URL=<url do backend usada pelo proxy do Next>`
+- Frontend chama `/api/v1/*` e o Next proxyia para `BACKEND_URL`, preservando cookies.
+
+**Compatibilidade (não-browser)**:
+
+- `Authorization: Bearer <jwt>` pode ser aceito para Postman/scripts/integrações (quando suportado).
+- Mesmo assim, tenant/roles e checagens de pertencimento seguem idênticas.
+
+#### 2.4.3 Tenant: header vs fonte de verdade
+
+- `X-Tenant-Id` pode existir como header operacional.
+- **Regra de ouro**: o `tenantId` efetivo para autorização/escopo vem da **sessão/token**; `X-Tenant-Id` nunca pode, sozinho, conceder acesso a outro tenant.
+- Toda query/ação de domínio deve ser tenant-scoped e negar acesso em caso de mismatch.
+
+#### 2.4.4 WebSocket (Socket.io) — ticket opaco (sem JWT exposto)
+
+- Cliente chama `POST /api/v1/auth/socket-ticket` autenticado por cookie.
+- Resposta: `{ "ticket": "<opaco, curto prazo/uso único>" }`.
+- Cliente conecta no Socket.io enviando `auth: { ticket }`.
+- Servidor resolve `ticket → userId/tenantId/role` (ex.: Redis) e conecta ao canal do tenant (ex.: room `tenant-${tenantId}`).
+- **Proibição**: não enviar JWT em payload/handshake no cliente web.
+
+#### 2.4.5 Contrato Backend → AI Service (agente)
+
+- Endpoint canônico: `POST <AI_SERVICE_URL>/api/v1/agent/process`.
+- Backend envia contexto já validado (tenant/paciente/estado/inputs).
+- AI Service retorna **`actions[]`** (e conteúdo de resposta).
+- **Execução é no Backend**: o backend valida permissões, executa actions, persiste e audita.
+- AI Service não acessa o banco do backend nem executa mutações de domínio diretamente.
+
+#### 2.4.6 Health / readiness (contrato infra — estável)
+
+- **Backend:** `GET /api/v1/health` → HTTP 200 quando pronto.
+- **AI Service:** `GET /health` → HTTP 200 quando pronto.
+
 ---
 
 ## 3. Stack Tecnológico
@@ -129,14 +195,14 @@ Plataforma SaaS multi-tenant que centraliza a navegação oncológica com:
 
 | Item             | Escolha                             | Versão |
 | ---------------- | ----------------------------------- | ------ |
-| Framework        | Next.js (App Router)                | 14     |
+| Framework        | Next.js (App Router)                | 15     |
 | Linguagem        | TypeScript                          | 5.x    |
 | Styling          | Tailwind CSS + shadcn/ui (Radix UI) | —      |
 | State (servidor) | React Query (TanStack Query)        | v5     |
 | State (cliente)  | Zustand                             | v4     |
 | Formulários      | React Hook Form + Zod               | —      |
 | Gráficos         | Recharts                            | —      |
-| Auth client      | NextAuth.js                         | v5     |
+| Auth client      | Sessão por cookies HttpOnly (backend) | —    |
 | Linting          | ESLint (Next.js config)             | —      |
 | Formatação       | Prettier                            | —      |
 
@@ -144,7 +210,7 @@ Plataforma SaaS multi-tenant que centraliza a navegação oncológica com:
 
 | Item          | Escolha                             | Versão |
 | ------------- | ----------------------------------- | ------ |
-| Framework     | NestJS                              | 10     |
+| Framework     | NestJS                              | 11     |
 | Linguagem     | TypeScript                          | 5.x    |
 | ORM           | Prisma                              | 5.x    |
 | Auth          | JWT (Passport.js) + bcrypt          | —      |
@@ -389,7 +455,10 @@ config/                Configuração de módulos (JWT, ThrottleGT, etc.)
 
 Base URL: `http://localhost:3002/api/v1`
 
-Todas as rotas (exceto auth) exigem header: `Authorization: Bearer <jwt_token>`
+### Autenticação (contrato primário)
+
+- **Web app (padrão)**: autenticação por **cookies HttpOnly** emitidos pelo backend; o cliente web deve usar `withCredentials: true` nas chamadas HTTP.
+- **Header `Authorization: Bearer <token>`**: pode existir como alternativa **para ferramentas e integrações** (quando suportado pelo backend), mas **não** é o modo recomendado para o frontend.
 
 ### 6.1 Autenticação
 
@@ -738,7 +807,7 @@ Responsabilidades:
 | 60–79  | HIGH      |
 | 80–100 | CRITICAL  |
 
-**Algoritmo:** XGBoost (principal) / LightGBM (alternativa). Dataset sintético gerado a partir de distribuições clínicas realistas para treinamento inicial.
+**Algoritmo:** LightGBM (principal). Dataset sintético gerado a partir de distribuições clínicas realistas para treinamento inicial.
 
 ### 10.3 Agente Conversacional
 
@@ -779,9 +848,9 @@ Se `OPENAI_API_KEY` e `ANTHROPIC_API_KEY` não estiverem configuradas, o serviç
 | ------ | -------------------------- | ------------------------------------- |
 | POST   | `/api/v1/prioritize`       | Calcular score de um paciente         |
 | POST   | `/api/v1/batch-prioritize` | Score em lote para lista de pacientes |
-| POST   | `/api/v1/agent/message`    | Processar mensagem do agente          |
+| POST   | `/api/v1/agent/process`    | Processar mensagem do agente (canônico) |
 | POST   | `/api/v1/agent/transcribe` | Transcrever áudio                     |
-| GET    | `/api/v1/health`           | Health check                          |
+| GET    | `/health`                  | Health check                          |
 | GET    | `/docs`                    | Swagger UI (FastAPI auto-gerado)      |
 
 ---
@@ -1114,11 +1183,18 @@ Implementado em `backend/src/gateways/`. Permite:
 
 ### 17.3 Autenticação WebSocket
 
-Conexão WebSocket autenticada via JWT no handshake:
+Conexão WebSocket autenticada via **ticket opaco** (sem expor JWT no handshake), conforme o contrato em **2.4.4**:
 
 ```javascript
+// 1) obter ticket autenticado por cookie
+const { ticket } = await fetch('/api/v1/auth/socket-ticket', {
+  method: 'POST',
+  credentials: 'include',
+}).then((r) => r.json());
+
+// 2) conectar no Socket.io com ticket opaco
 const socket = io('http://localhost:3002', {
-  auth: { token: 'Bearer <jwt>' },
+  auth: { ticket },
 });
 ```
 

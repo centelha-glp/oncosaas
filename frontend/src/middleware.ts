@@ -1,21 +1,44 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-
-const PUBLIC_ROUTES = new Set([
-  '/login',
-  '/register',
-  '/',
-  '/termos',
-  '/privacidade',
-  '/forgot-password',
-]);
-
-function isResetPasswordRoute(pathname: string): boolean {
-  return /^\/reset-password\/[^/]+$/.test(pathname);
-}
+import { isPublicPathname } from './lib/auth/public-paths';
 
 const SESSION_PROBE_PATH = '/api/v1/auth/profile';
 const SESSION_PROBE_TIMEOUT_MS = 2000;
+
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
+
+/**
+ * Hostnames permitidos para probe direto ao Nest (evita depender do BFF e do
+ * gate NEXT_PUBLIC_USE_RELATIVE_API). `backend` é o nome típico no Docker Compose.
+ */
+function isAllowedBackendProbeHostname(hostname: string): boolean {
+  if (LOOPBACK_HOSTS.has(hostname)) {
+    return true;
+  }
+  if (hostname === 'backend') {
+    return true;
+  }
+  return hostname.endsWith('.internal');
+}
+
+/**
+ * Preferir probe HTTP direto ao Nest via BACKEND_URL (runtime no container).
+ * Fallback: URL interna do próprio Next (BFF /api/v1 → Nest).
+ */
+function sessionProbeUrl(): string {
+  const raw = process.env.BACKEND_URL?.trim();
+  if (raw) {
+    try {
+      const base = new URL(raw);
+      if (isAllowedBackendProbeHostname(base.hostname)) {
+        return new URL(SESSION_PROBE_PATH, base).toString();
+      }
+    } catch {
+      // ignora BACKEND_URL inválido
+    }
+  }
+  return internalProbeUrl();
+}
 
 /**
  * URL interna do servidor Next.js para o probe de sessão.
@@ -46,7 +69,7 @@ async function hasActiveSession(request: NextRequest): Promise<boolean> {
   const timeout = setTimeout(() => controller.abort(), SESSION_PROBE_TIMEOUT_MS);
 
   try {
-    const url = internalProbeUrl();
+    const url = sessionProbeUrl();
     const res = await fetch(url, {
       method: 'GET',
       headers: {
@@ -70,7 +93,7 @@ async function hasActiveSession(request: NextRequest): Promise<boolean> {
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  if (PUBLIC_ROUTES.has(pathname) || isResetPasswordRoute(pathname)) {
+  if (isPublicPathname(pathname)) {
     return NextResponse.next();
   }
 

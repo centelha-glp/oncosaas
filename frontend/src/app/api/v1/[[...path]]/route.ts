@@ -95,11 +95,27 @@ function forwardBackendResponse(backendRes: Response): NextResponse {
   return nextRes;
 }
 
+/**
+ * BFF ativo quando explicitamente habilitado ou quando há BACKEND_URL em runtime
+ * (Docker/ECS). Usar só `NEXT_PUBLIC_USE_RELATIVE_API !== 'true'` quebrava o proxy
+ * se o build não embutisse `true` ou se o runtime divergisse — o probe do middleware
+ * recebia 404 e redirecionava para /login.
+ */
+function isBffProxyEnabled(): boolean {
+  if (process.env.NEXT_PUBLIC_USE_RELATIVE_API === 'false') {
+    return false;
+  }
+  if (process.env.NEXT_PUBLIC_USE_RELATIVE_API === 'true') {
+    return true;
+  }
+  return Boolean(process.env.BACKEND_URL?.trim());
+}
+
 async function proxy(
   req: NextRequest,
   context: { params: Promise<{ path?: string[] }> }
 ): Promise<Response> {
-  if (process.env.NEXT_PUBLIC_USE_RELATIVE_API !== 'true') {
+  if (!isBffProxyEnabled()) {
     return NextResponse.json(
       { message: 'API relativa desativada (NEXT_PUBLIC_USE_RELATIVE_API).' },
       { status: 404 }
