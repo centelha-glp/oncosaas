@@ -16,9 +16,9 @@ description: Ativa o subagente database-engineer (Prisma, schema, migrations, í
 - `.cursor/rules/database.mdc`
 - `.cursor/rules/backend-padroes.mdc` (queries com tenant)
 
-## Skill legada
+## Operações relacionadas
 
-- [db](../db/SKILL.md) · [migrar-prisma](../migrar-prisma/SKILL.md)
+- [migrar-prisma](../migrar-prisma/SKILL.md)
 
 ## Ajuda transversal
 

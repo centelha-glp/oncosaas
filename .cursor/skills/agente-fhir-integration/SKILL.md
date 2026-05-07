@@ -15,10 +15,6 @@ description: Ativa o subagente fhir-integration (HL7 FHIR R4, interoperabilidade
 - `.cursor/rules/onconav-core.mdc`
 - `.cursor/rules/fhir-integration.mdc`
 
-## Skill legada
-
-- [fhir](../fhir/SKILL.md)
-
 ## Ajuda transversal
 
 - [agente-onconav](../agente-onconav/SKILL.md)

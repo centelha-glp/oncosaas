@@ -15,10 +15,6 @@ description: Ativa o subagente aws (ECS, RDS, ElastiCache, VPC, IAM, CloudWatch)
 - `.cursor/rules/onconav-core.mdc`
 - `.cursor/rules/aws.mdc`
 
-## Skill legada
-
-- [infra](../infra/SKILL.md) — também cobre `terraform`
-
 ## Ajuda transversal
 
 - [agente-onconav](../agente-onconav/SKILL.md) · [agente-terraform](../agente-terraform/SKILL.md) · [agente-devops](../agente-devops/SKILL.md)

@@ -15,10 +15,6 @@ description: Ativa o subagente rag-engineer (corpus oncológico, FAISS, embeddin
 - `.cursor/rules/onconav-core.mdc`
 - `.cursor/rules/rag-engineer.mdc`
 
-## Skill legada
-
-- [rag](../rag/SKILL.md)
-
 ## Ajuda transversal
 
 - [agente-onconav](../agente-onconav/SKILL.md)

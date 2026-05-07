@@ -15,10 +15,6 @@ description: Ativa o subagente llm-context-engineer (prompts, context_builder, j
 - `.cursor/rules/onconav-core.mdc`
 - `.cursor/rules/llm-context-engineer.mdc`
 
-## Skill legada
-
-- [prompt](../prompt/SKILL.md)
-
 ## Ajuda transversal
 
 - [agente-llm-agent-architect](../agente-llm-agent-architect/SKILL.md) — se o fluxo multi-step mudar · [agente-onconav](../agente-onconav/SKILL.md)

@@ -15,10 +15,6 @@ description: Ativa o subagente terraform (IaC, módulos, state, provisionamento)
 - `.cursor/rules/onconav-core.mdc`
 - `.cursor/rules/terraform.mdc`
 
-## Skill legada
-
-- [infra](../infra/SKILL.md) — também cobre `aws`
-
 ## Ajuda transversal
 
 - [agente-aws](../agente-aws/SKILL.md) · [agente-devops](../agente-devops/SKILL.md) · [agente-onconav](../agente-onconav/SKILL.md)

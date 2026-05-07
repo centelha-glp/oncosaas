@@ -16,10 +16,6 @@ description: Ativa o subagente frontend-nextjs (Next.js, React, React Query, UI)
 - `.cursor/rules/frontend-padroes.mdc`
 - `.cursor/rules/frontend.mdc`
 
-## Skill legada
-
-- [frontend](../frontend/SKILL.md)
-
 ## Ajuda transversal
 
 - [agente-onconav](../agente-onconav/SKILL.md)

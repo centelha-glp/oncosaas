@@ -226,4 +226,4 @@ Ver `.claude/squads.md` para referência completa.
 | Performance, bundle, N+1 | `performance` |
 | Documentação técnica, OpenAPI, docs CEP | `documentation` |
 | Decisões arquiteturais cross-layer | `architect` |
-| Gestão de backlog, milestones, issues | `product-owner` (via `/po`) |
+| Gestão de backlog, milestones, issues | `product-owner` |

@@ -15,9 +15,9 @@ description: Ativa o subagente centelha-es-fase2 (edital Centelha ES, fase 2, pr
 - `.cursor/rules/onconav-core.mdc`
 - `.cursor/rules/captacao-fapes.mdc` — quando aplicável a captação
 
-## Skill legada
+## Conteúdo de apoio
 
-- [edital-centelha-es-fase2](../edital-centelha-es-fase2/SKILL.md)
+- [edital-centelha-es-fase2](../edital-centelha-es-fase2/SKILL.md) — blocos do formulário, limites de caracteres, `reference.md`, `examples.md`
 
 ## Ajuda transversal
 

@@ -16,10 +16,6 @@ description: Ativa o subagente architect para decisões cross-layer, desenho e c
 - `.cursor/rules/architect.mdc`
 - `.cursor/rules/desenvolvimento-modular.mdc`
 
-## Skill legada
-
-- [arquitetura](../arquitetura/SKILL.md)
-
 ## Ajuda transversal
 
 - [agente-onconav](../agente-onconav/SKILL.md)

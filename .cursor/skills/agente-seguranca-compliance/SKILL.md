@@ -15,10 +15,6 @@ description: Ativa o subagente seguranca-compliance (LGPD, multi-tenant, audit, 
 - `.cursor/rules/onconav-core.mdc`
 - `.cursor/rules/security.mdc`
 
-## Skill legada
-
-- [seguranca](../seguranca/SKILL.md)
-
 ## Ajuda transversal
 
 - [agente-onconav](../agente-onconav/SKILL.md) · [processo-gate-commit](../processo-gate-commit/SKILL.md)
