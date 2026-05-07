@@ -1,5 +1,5 @@
 # ---- deps ----
-FROM node:24.14.0-alpine3.23 AS deps
+FROM node:24.14.1-alpine3.23 AS deps
 WORKDIR /app
 
 COPY package*.json ./
@@ -14,7 +14,7 @@ RUN mkdir -p /certs && \
       -o /certs/rds-global-bundle.pem
 
 # ---- dev ----
-FROM node:24.14.0-alpine3.23 AS dev
+FROM node:24.14.1-alpine3.23 AS dev
 WORKDIR /app
 
 ENV NODE_ENV=development
@@ -28,7 +28,7 @@ EXPOSE 3002
 CMD ["npm", "run", "start:dev"]
 
 # ---- builder ----
-FROM node:24.14.0-alpine3.23 AS builder
+FROM node:24.14.1-alpine3.23 AS builder
 WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
@@ -40,7 +40,7 @@ RUN npx prisma generate && \
 RUN npm prune --omit=dev
 
 # ---- production ----
-FROM node:24.14.0-alpine3.23 AS production
+FROM node:24.14.1-alpine3.23 AS production
 WORKDIR /app
 
 ENV NODE_ENV=production
@@ -51,7 +51,7 @@ COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/prisma.config.mjs ./prisma.config.mjs
 COPY --from=rds-ca /certs/rds-global-bundle.pem /app/certs/rds-global-bundle.pem
 
-RUN chown -R node:node /app
+RUN apk update && apk upgrade --no-cache && chown -R node:node /app
 
 USER node
 
