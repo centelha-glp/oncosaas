@@ -5,16 +5,11 @@ import Link from 'next/link';
 import { PatientDetail } from '@/lib/api/patients';
 import {
   CLINICAL_EVOLUTION_NAVIGATION_STEP_KEY,
-  CLINICAL_NOTE_SECTION_KEYS,
-  cloneClinicalNoteSections,
   clinicalNotePrimaryPersonName,
   clinicalNoteTypeLabel,
   clinicalNotesApi,
-  emptyClinicalSections,
-  loadSectionsFromPreviousEvolution,
-  mergeClinicalSectionsWithCadastroSuggestions,
-  serializeClinicalNoteSections,
-  type ClinicalNoteSectionKey,
+  loadContentMarkdownFromPreviousEvolution,
+  mergeMarkdownWithCadastroSuggestion,
   type ClinicalNoteType,
 } from '@/lib/api/clinical-notes';
 import type { NavigationStep } from '@/lib/api/oncology-navigation';
@@ -28,7 +23,6 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
-import { AutoResizeTextarea } from '@/components/ui/auto-resize-textarea';
 import { Textarea } from '@/components/ui/textarea';
 import {
   AlertDialog,
@@ -58,26 +52,10 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { QueryErrorRetry } from '@/components/shared/query-error-retry';
+import { ClinicalNoteMarkdownBody } from '@/components/patients/clinical-note-markdown-body';
 
 /** Tempo sem digitar antes de enviar PATCH (salvamento automático do rascunho) */
 const CLINICAL_NOTE_AUTOSAVE_MS = 1000;
-
-const SECTION_LABELS: Record<ClinicalNoteSectionKey, string> = {
-  identificacao: 'Identificação',
-  hda: 'HDA',
-  hpp: 'HPP',
-  comorbidades: 'Comorbidades',
-  medicacoesEmUso: 'Medicações em uso',
-  alergias: 'Alergias',
-  subjetivo: 'Subjetivo',
-  exameFisico: 'Exame físico',
-  examesComplementares: 'Exames complementares',
-  analise: 'Análise',
-  conduta: 'Conduta',
-  tratamentos: 'Tratamentos',
-  navegacao: 'Navegação oncológica',
-  planos: 'Planos',
-};
 
 interface PatientProntuarioTabProps {
   patient: PatientDetail;
@@ -106,16 +84,13 @@ export function PatientProntuarioTab({
   const { create, update, sign, addendum, voidNote } = useClinicalNoteMutations(
     patient.id
   );
-  const [draftSections, setDraftSections] = useState<Record<string, string>>(
-    {}
-  );
+  const [draftMarkdown, setDraftMarkdown] = useState('');
   const [voidOpen, setVoidOpen] = useState(false);
   const [voidReason, setVoidReason] = useState('');
   const [isResolvingCreateTemplate, setIsResolvingCreateTemplate] =
     useState(false);
   const [evolutionPick, setEvolutionPick] = useState<{
     noteType: ClinicalNoteType;
-    sections: Record<string, string>;
     candidates: NavigationStep[];
     selectedStepId: string;
   } | null>(null);
@@ -167,26 +142,24 @@ export function PatientProntuarioTab({
   }, [detail, role, clinicalSubrole, userId]);
 
   const debouncedDraftPayload = useDebounce(
-    { id: selectedId ?? '', sections: draftSections },
+    { id: selectedId ?? '', contentMarkdown: draftMarkdown },
     CLINICAL_NOTE_AUTOSAVE_MS
   );
 
   const draftBaselineSerialized = React.useRef<string>('');
 
   React.useEffect(() => {
-    setDraftSections(emptyClinicalSections());
+    setDraftMarkdown('');
     draftBaselineSerialized.current = '';
   }, [selectedId]);
 
   React.useEffect(() => {
-    if (!detail?.sections) return;
-    setDraftSections({ ...detail.sections });
+    if (detail?.contentMarkdown === undefined) return;
+    setDraftMarkdown(detail.contentMarkdown);
     if (detail.status === 'DRAFT') {
-      draftBaselineSerialized.current = serializeClinicalNoteSections(
-        detail.sections
-      );
+      draftBaselineSerialized.current = detail.contentMarkdown;
     }
-  }, [detail?.id, detail?.latestVersionNumber, detail?.status]);
+  }, [detail?.id, detail?.latestVersionNumber, detail?.status, detail?.contentMarkdown]);
 
   React.useEffect(() => {
     const noteId = detail?.id;
@@ -201,14 +174,12 @@ export function PatientProntuarioTab({
     if (loadingDetail) return;
     if (debouncedDraftPayload.id !== noteId) return;
 
-    const serialized = serializeClinicalNoteSections(
-      debouncedDraftPayload.sections
-    );
+    const serialized = debouncedDraftPayload.contentMarkdown;
     if (serialized === draftBaselineSerialized.current) return;
     if (update.isPending) return;
 
     update.mutate(
-      { id: noteId, sections: debouncedDraftPayload.sections },
+      { id: noteId, contentMarkdown: debouncedDraftPayload.contentMarkdown },
       {
         onSuccess: () => {
           draftBaselineSerialized.current = serialized;
@@ -230,8 +201,7 @@ export function PatientProntuarioTab({
     detail?.status,
     detailPerms?.canEditDraft,
     loadingDetail,
-    update.isPending,
-    update.mutate,
+    update,
   ]);
 
   const handleSignDraft = async () => {
@@ -244,11 +214,11 @@ export function PatientProntuarioTab({
       return;
     }
     try {
-      const current = serializeClinicalNoteSections(draftSections);
+      const current = draftMarkdown;
       if (current !== draftBaselineSerialized.current) {
         await update.mutateAsync({
           id: detail.id,
-          sections: draftSections,
+          contentMarkdown: draftMarkdown,
         });
         draftBaselineSerialized.current = current;
       }
@@ -277,32 +247,26 @@ export function PatientProntuarioTab({
         return;
       }
 
-      const sections = await loadSectionsFromPreviousEvolution(
+      const base = await loadContentMarkdownFromPreviousEvolution(
         noteType,
         list?.data ?? []
       );
-      let merged = sections;
+      let merged = base;
       try {
-        const suggestions = await clinicalNotesApi.getSectionSuggestions(
-          patient.id,
-          {
+        const { contentMarkdown: suggestionMd } =
+          await clinicalNotesApi.getSectionSuggestions(patient.id, {
             noteType,
             navigationStepId:
               candidates.length === 1 ? candidates[0]!.id : undefined,
-          }
-        );
-        merged = mergeClinicalSectionsWithCadastroSuggestions(
-          sections,
-          suggestions
-        );
+          });
+        merged = mergeMarkdownWithCadastroSuggestion(base, suggestionMd);
       } catch {
-        /* cadastro opcional; evolução segue só com texto da evolução anterior */
+        /* cadastro opcional */
       }
 
       if (candidates.length > 1) {
         setEvolutionPick({
           noteType,
-          sections: merged,
           candidates,
           selectedStepId: candidates[0]!.id,
         });
@@ -311,7 +275,7 @@ export function PatientProntuarioTab({
 
       const res = await create.mutateAsync({
         noteType,
-        sections: merged,
+        contentMarkdown: merged,
         navigationStepId: candidates[0]!.id,
       });
       setSelectedId(res.id);
@@ -332,30 +296,28 @@ export function PatientProntuarioTab({
     if (!evolutionPick) return;
     setIsResolvingCreateTemplate(true);
     try {
-      const base = await loadSectionsFromPreviousEvolution(
+      const base = await loadContentMarkdownFromPreviousEvolution(
         evolutionPick.noteType,
         list?.data ?? []
       );
-      let sections = evolutionPick.sections;
+      let contentMarkdown = base;
       try {
-        const suggestions = await clinicalNotesApi.getSectionSuggestions(
-          patient.id,
-          {
+        const { contentMarkdown: suggestionMd } =
+          await clinicalNotesApi.getSectionSuggestions(patient.id, {
             noteType: evolutionPick.noteType,
             navigationStepId: evolutionPick.selectedStepId,
-          }
-        );
-        sections = mergeClinicalSectionsWithCadastroSuggestions(
+          });
+        contentMarkdown = mergeMarkdownWithCadastroSuggestion(
           base,
-          suggestions
+          suggestionMd
         );
       } catch {
-        sections = evolutionPick.sections;
+        contentMarkdown = base;
       }
 
       const res = await create.mutateAsync({
         noteType: evolutionPick.noteType,
-        sections,
+        contentMarkdown,
         navigationStepId: evolutionPick.selectedStepId,
       });
       setSelectedId(res.id);
@@ -385,7 +347,7 @@ export function PatientProntuarioTab({
     addendum.mutate(
       {
         parentId: detail.id,
-        sections: cloneClinicalNoteSections(detail.sections),
+        contentMarkdown: detail.contentMarkdown,
       },
       {
         onSuccess: (res) => {
@@ -416,6 +378,9 @@ export function PatientProntuarioTab({
     return <Badge variant="secondary">Rascunho</Badge>;
   };
 
+  const isDraftEditable =
+    detail?.status === 'DRAFT' && detailPerms?.canEditDraft;
+
   return (
     <div className="space-y-6">
       <div className="space-y-3">
@@ -423,7 +388,8 @@ export function PatientProntuarioTab({
           <div>
             <h2 className="text-lg font-semibold">Prontuário</h2>
             <p className="text-sm text-muted-foreground">
-              Edição até assinatura; depois use nova evolução (adendo).
+              Evolução em texto livre com Markdown. Edição até assinatura; depois
+              use nova evolução (adendo).
             </p>
           </div>
           <div className="flex flex-wrap gap-2 justify-end min-h-9 items-center">
@@ -602,101 +568,101 @@ export function PatientProntuarioTab({
                 </div>
                 <div className="flex flex-col gap-2 items-stretch sm:items-end">
                   <div className="flex flex-wrap gap-2 justify-end">
-                  {detail.status === 'DRAFT' && detailPerms && (
-                    <>
-                      {detailPerms.canEditDraft && (
-                        <Button
-                          size="sm"
-                          type="button"
-                          disabled={update.isPending}
-                          onClick={() =>
-                            update.mutate(
-                              {
-                                id: detail.id,
-                                sections: draftSections,
-                              },
-                              {
-                                onSuccess: () => {
-                                  draftBaselineSerialized.current =
-                                    serializeClinicalNoteSections(
-                                      draftSections
-                                    );
+                    {detail.status === 'DRAFT' && detailPerms && (
+                      <>
+                        {detailPerms.canEditDraft && (
+                          <Button
+                            size="sm"
+                            type="button"
+                            disabled={update.isPending}
+                            onClick={() =>
+                              update.mutate(
+                                {
+                                  id: detail.id,
+                                  contentMarkdown: draftMarkdown,
                                 },
-                              }
-                            )
-                          }
-                        >
-                          Salvar agora
-                        </Button>
-                      )}
-                      {detailPerms.canSign && (
-                        <Button
-                          size="sm"
-                          type="button"
-                          variant="secondary"
-                          disabled={sign.isPending || update.isPending}
-                          onClick={() => void handleSignDraft()}
-                        >
-                          Assinar
-                        </Button>
-                      )}
-                    </>
-                  )}
-                  {detail.status === 'SIGNED' && detailPerms?.canAddendum && (
-                    <Button
-                      size="sm"
-                      type="button"
-                      variant="secondary"
-                      disabled={addendum.isPending}
-                      onClick={() => void handleAddendum()}
-                    >
-                      Nova evolução (adendo)
-                    </Button>
-                  )}
-                  {detailPerms?.canVoid &&
-                    (detail.status === 'DRAFT' ||
-                      detail.status === 'SIGNED') && (
+                                {
+                                  onSuccess: () => {
+                                    draftBaselineSerialized.current =
+                                      draftMarkdown;
+                                  },
+                                }
+                              )
+                            }
+                          >
+                            Salvar agora
+                          </Button>
+                        )}
+                        {detailPerms.canSign && (
+                          <Button
+                            size="sm"
+                            type="button"
+                            variant="secondary"
+                            disabled={sign.isPending || update.isPending}
+                            onClick={() => void handleSignDraft()}
+                          >
+                            Assinar
+                          </Button>
+                        )}
+                      </>
+                    )}
+                    {detail.status === 'SIGNED' && detailPerms?.canAddendum && (
                       <Button
                         size="sm"
-                        variant="destructive"
-                        onClick={() => setVoidOpen(true)}
+                        type="button"
+                        variant="secondary"
+                        disabled={addendum.isPending}
+                        onClick={() => void handleAddendum()}
                       >
-                        Anular
+                        Nova evolução (adendo)
                       </Button>
                     )}
+                    {detailPerms?.canVoid &&
+                      (detail.status === 'DRAFT' ||
+                        detail.status === 'SIGNED') && (
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          onClick={() => setVoidOpen(true)}
+                        >
+                          Anular
+                        </Button>
+                      )}
                   </div>
                   {detail.status === 'DRAFT' && detailPerms?.canEditDraft && (
                     <p className="text-xs text-muted-foreground text-right max-w-md sm:max-w-lg">
                       {update.isPending
                         ? 'Salvando rascunho…'
-                        : 'Salvamento automático cerca de 1 s após parar de digitar.'}
+                        : 'Salvamento automático cerca de 1 s após parar de digitar. Use Markdown (## títulos, listas, **negrito**).'}
                     </p>
                   )}
                 </div>
               </div>
 
-              <div className="grid gap-4 md:grid-cols-2">
-                {CLINICAL_NOTE_SECTION_KEYS.map((key) => (
-                  <div key={key} className="space-y-1">
-                    <Label htmlFor={`sec-${key}`}>{SECTION_LABELS[key]}</Label>
-                    <AutoResizeTextarea
-                      id={`sec-${key}`}
-                      value={draftSections[key] ?? ''}
-                      readOnly={
-                        detail.status !== 'DRAFT' ||
-                        !detailPerms?.canEditDraft
-                      }
-                      onChange={(e) =>
-                        setDraftSections((prev) => ({
-                          ...prev,
-                          [key]: e.target.value,
-                        }))
-                      }
-                      minRows={3}
-                      className="text-sm"
-                    />
+              <div className="space-y-2">
+                <Label htmlFor="clinical-note-markdown">
+                  {isDraftEditable
+                    ? 'Evolução clínica (Markdown)'
+                    : 'Evolução clínica'}
+                </Label>
+                {isDraftEditable ? (
+                  <Textarea
+                    id="clinical-note-markdown"
+                    value={draftMarkdown}
+                    onChange={(e) => setDraftMarkdown(e.target.value)}
+                    rows={18}
+                    className="font-mono text-sm min-h-[12rem]"
+                    spellCheck
+                  />
+                ) : (
+                  <div
+                    className="rounded-md border bg-muted/30 p-4 max-h-[32rem] overflow-y-auto"
+                    role="region"
+                    aria-label="Conteúdo da evolução"
+                  >
+                    <ClinicalNoteMarkdownBody markdown={draftMarkdown} />
                   </div>
-                ))}
+                )}
               </div>
 
               {detail.status === 'VOIDED' && detail.voidReason && (

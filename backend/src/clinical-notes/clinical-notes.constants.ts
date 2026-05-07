@@ -1,4 +1,4 @@
-/** Chaves estáveis das seções do prontuário (V1) — ordem de exibição no frontend */
+/** Chaves internas das seções (V1) — usadas em scaffolds/sugestões e conversão de legado */
 export const CLINICAL_NOTE_SECTION_KEYS = [
   'identificacao',
   'hda',
@@ -18,8 +18,11 @@ export const CLINICAL_NOTE_SECTION_KEYS = [
 
 export type ClinicalNoteSectionKey = (typeof CLINICAL_NOTE_SECTION_KEYS)[number];
 
-/** Limite por campo (caracteres) para evitar payloads abusivos */
+/** Limite por campo (caracteres) — legado V1 por seção */
 export const CLINICAL_NOTE_SECTION_MAX_LENGTH = 32_000;
+
+/** Limite do corpo Markdown da evolução (V2, texto único cifrado). */
+export const CLINICAL_NOTE_CONTENT_MARKDOWN_MAX_LENGTH = 400_000;
 
 /**
  * Chave da etapa de navegação universal correspondente a cada tipo de evolução.

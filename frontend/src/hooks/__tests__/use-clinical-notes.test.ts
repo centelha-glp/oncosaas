@@ -165,14 +165,14 @@ describe('useClinicalNoteMutations', () => {
     result.current.create.mutate({
       noteType: 'MEDICAL',
       navigationStepId: 'ns-1',
-      sections: { hda: 'teste' },
-    } as never);
+      contentMarkdown: '# Evolução\n\nteste',
+    });
 
     await waitFor(() => expect(result.current.create.isSuccess).toBe(true));
     expect(clinicalNotesApi.create).toHaveBeenCalledWith('patient-1', {
       noteType: 'MEDICAL',
       navigationStepId: 'ns-1',
-      sections: { hda: 'teste' },
+      contentMarkdown: '# Evolução\n\nteste',
     });
   });
 });

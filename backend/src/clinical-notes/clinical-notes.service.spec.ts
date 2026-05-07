@@ -10,7 +10,7 @@ import {
 import { ClinicalNotesService } from './clinical-notes.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
-import { CLINICAL_NOTE_SECTION_KEYS } from './clinical-notes.constants';
+import { CLINICAL_NOTE_CONTENT_MARKDOWN_MAX_LENGTH } from './clinical-notes.constants';
 
 describe('ClinicalNotesService', () => {
   let service: ClinicalNotesService;
@@ -50,22 +50,16 @@ describe('ClinicalNotesService', () => {
     service = module.get(ClinicalNotesService);
   });
 
-  describe('normalizeAndValidateSections', () => {
-    it('fills missing keys with empty string', () => {
-      const out = service.normalizeAndValidateSections({ hda: 'teste' });
-      for (const k of CLINICAL_NOTE_SECTION_KEYS) {
-        if (k === 'hda') {
-          expect(out[k]).toBe('teste');
-        } else {
-          expect(out[k]).toBe('');
-        }
-      }
+  describe('normalizeAndValidateContentMarkdown', () => {
+    it('accepts empty string', () => {
+      expect(service.normalizeAndValidateContentMarkdown('')).toBe('');
     });
 
-    it('rejects unknown keys', () => {
-      expect(() =>
-        service.normalizeAndValidateSections({ hda: 'a', extra: 'b' } as any)
-      ).toThrow(BadRequestException);
+    it('rejects content exceeding max length', () => {
+      const huge = 'x'.repeat(CLINICAL_NOTE_CONTENT_MARKDOWN_MAX_LENGTH + 1);
+      expect(() => service.normalizeAndValidateContentMarkdown(huge)).toThrow(
+        BadRequestException
+      );
     });
   });
 

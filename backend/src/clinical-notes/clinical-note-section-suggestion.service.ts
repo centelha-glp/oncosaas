@@ -6,6 +6,7 @@ import {
   CLINICAL_NOTE_SECTION_KEYS,
   type ClinicalNoteSectionKey,
 } from './clinical-notes.constants';
+import { sectionsRecordToMarkdown } from './clinical-note-legacy-content.util';
 import {
   formatStoredAllergyLine,
   type StoredAllergyEntry,
@@ -87,7 +88,7 @@ export class ClinicalNoteSectionSuggestionService {
     patientId: string,
     tenantId: string,
     options?: SectionSuggestionsOptions
-  ): Promise<Record<ClinicalNoteSectionKey, string>> {
+  ): Promise<{ contentMarkdown: string }> {
     if (options?.navigationStepId) {
       const stepOk = await this.prisma.navigationStep.findFirst({
         where: {
@@ -397,6 +398,6 @@ export class ClinicalNoteSectionSuggestionService {
         : examesComplementaresAppend.trim();
     }
 
-    return out;
+    return { contentMarkdown: sectionsRecordToMarkdown(out) };
   }
 }

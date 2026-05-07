@@ -22,6 +22,7 @@ const SENSITIVE_KEYS = new Set([
   'anthropicApiKey',
   'apiKey',
   'sections',
+  'contentMarkdown',
   'sectionsPayloadEncrypted',
 ]);
 

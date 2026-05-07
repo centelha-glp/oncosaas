@@ -51,12 +51,12 @@ export function useClinicalNoteMutations(patientId: string) {
     mutationFn: (payload: {
       noteType: ClinicalNoteType;
       navigationStepId: string;
-      sections: Record<string, string>;
+      contentMarkdown: string;
     }) =>
       clinicalNotesApi.create(patientId, {
         noteType: payload.noteType,
         navigationStepId: payload.navigationStepId,
-        sections: payload.sections,
+        contentMarkdown: payload.contentMarkdown,
       }),
     onSuccess: () => {
       invalidate();
@@ -66,12 +66,12 @@ export function useClinicalNoteMutations(patientId: string) {
   const update = useMutation({
     mutationFn: (args: {
       id: string;
-      sections: Record<string, string>;
+      contentMarkdown: string;
       changeReason?: string;
       navigationStepId?: string;
     }) =>
       clinicalNotesApi.update(args.id, {
-        sections: args.sections,
+        contentMarkdown: args.contentMarkdown,
         changeReason: args.changeReason,
         navigationStepId: args.navigationStepId,
       }),
@@ -92,11 +92,10 @@ export function useClinicalNoteMutations(patientId: string) {
   });
 
   const addendum = useMutation({
-    mutationFn: (args: {
-      parentId: string;
-      sections: Record<string, string>;
-    }) =>
-      clinicalNotesApi.addendum(args.parentId, { sections: args.sections }),
+    mutationFn: (args: { parentId: string; contentMarkdown?: string }) =>
+      clinicalNotesApi.addendum(args.parentId, {
+        contentMarkdown: args.contentMarkdown,
+      }),
     onSuccess: () => invalidate(),
   });
 
