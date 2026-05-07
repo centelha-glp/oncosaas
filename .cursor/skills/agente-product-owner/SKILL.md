@@ -15,10 +15,6 @@ description: Ativa o subagente product-owner (backlog, milestones, issues GitHub
 - `.cursor/rules/onconav-core.mdc`
 - `.cursor/rules/product-owner.mdc`
 
-## Skill legada
-
-- [po](../po/SKILL.md)
-
 ## Ajuda transversal
 
 - [agente-onconav](../agente-onconav/SKILL.md)

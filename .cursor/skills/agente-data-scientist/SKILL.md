@@ -15,10 +15,6 @@ description: Ativa o subagente data-scientist (treino LightGBM, EDA, métricas, 
 - `.cursor/rules/onconav-core.mdc`
 - `.cursor/rules/ai-service.mdc` (contexto produto; treino pesado é laboratório)
 
-## Skill legada
-
-- [modelo](../modelo/SKILL.md)
-
 ## Ajuda transversal
 
 - [agente-engenheiro-ia-predicao](../agente-engenheiro-ia-predicao/SKILL.md) — contrato em produto · [agente-onconav](../agente-onconav/SKILL.md)

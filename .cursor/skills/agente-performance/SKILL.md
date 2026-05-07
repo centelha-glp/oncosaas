@@ -15,10 +15,6 @@ description: Ativa o subagente performance (bundle Next.js, N+1 Prisma, Redis, C
 - `.cursor/rules/onconav-core.mdc`
 - `.cursor/rules/performance.mdc`
 
-## Skill legada
-
-- [perf](../perf/SKILL.md)
-
 ## Ajuda transversal
 
 - [agente-onconav](../agente-onconav/SKILL.md)

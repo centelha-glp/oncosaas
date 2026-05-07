@@ -15,10 +15,6 @@ description: Ativa o subagente ai-service (FastAPI, orchestrator, agente convers
 - `.cursor/rules/onconav-core.mdc`
 - `.cursor/rules/ai-service.mdc`
 
-## Skill legada
-
-- [ia](../ia/SKILL.md)
-
 ## Ajuda transversal
 
 - [agente-onconav](../agente-onconav/SKILL.md)

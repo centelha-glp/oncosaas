@@ -15,10 +15,6 @@ description: Ativa o subagente documentation (OpenAPI, guias técnicos, docs CEP
 - `.cursor/rules/onconav-core.mdc`
 - `.cursor/rules/documentation.mdc`
 
-## Skill legada
-
-- [docs](../docs/SKILL.md)
-
 ## Ajuda transversal
 
 - [agente-onconav](../agente-onconav/SKILL.md)

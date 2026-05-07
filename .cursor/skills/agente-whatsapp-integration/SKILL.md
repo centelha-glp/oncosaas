@@ -15,10 +15,6 @@ description: Ativa o subagente whatsapp-integration (WhatsApp Business API, webh
 - `.cursor/rules/onconav-core.mdc`
 - `.cursor/rules/whatsapp-integration.mdc`
 
-## Skill legada
-
-- [whatsapp](../whatsapp/SKILL.md)
-
 ## Ajuda transversal
 
 - [agente-onconav](../agente-onconav/SKILL.md)

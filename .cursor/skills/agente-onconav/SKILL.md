@@ -95,6 +95,15 @@ Incluir sempre: pedido do utilizador, **passo k/N**, **modo strict**, paths `@` 
 - **Squad completo e ordem entre squads**: [squad-onconav](../squad-onconav/SKILL.md)
 - **Processos**: [processo-dev-onconav](../processo-dev-onconav/SKILL.md)
 
-## Skills legadas (atalhos)
+## Skills funcionais (executáveis, não delegação)
 
-`backend`, `frontend`, `ia`, `db`, `arquitetura`, `docs`, `po`, `seguranca`, `gerar-testes`, `acessibilidade`, `rag`, `modelo`, `prompt`, `deploy`, `infra`, `perf`, `whatsapp`, `fhir`, `validar-clinico`, `openevidence-pesquisa-casos-clinicos`, `edital-centelha-es-fase2`, etc.
+Operações concretas usadas no dia-a-dia, complementares aos `agente-*`:
+
+- [`cloud-agent-starter`](../cloud-agent-starter/SKILL.md) — runbook mínimo de setup, login, mocks e testes para Cloud agents.
+- [`gerar-testes`](../gerar-testes/SKILL.md) — gate de testes antes de commit.
+- [`migrar-prisma`](../migrar-prisma/SKILL.md) — criar/aplicar migrations Prisma.
+- [`novo-modulo-backend`](../novo-modulo-backend/SKILL.md) — scaffolding de módulo NestJS.
+- [`novo-protocolo-clinico`](../novo-protocolo-clinico/SKILL.md) — novo protocolo clínico no ai-service.
+- [`testar-modulo`](../testar-modulo/SKILL.md) — rodar testes de um módulo específico.
+- [`edital-centelha-es-fase2`](../edital-centelha-es-fase2/SKILL.md) — blocos, `reference.md`, `examples.md` (vinculada ao `agente-centelha-es-fase2`).
+- [`projeto-pesquisa`](../projeto-pesquisa/SKILL.md) — gestão de documentos CEP/EBSERH.

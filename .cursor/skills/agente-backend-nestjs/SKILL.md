@@ -16,9 +16,8 @@ description: Ativa o subagente backend-nestjs (NestJS, Prisma, APIs, guards, ten
 - `.cursor/rules/backend-padroes.mdc`
 - `.cursor/rules/backend.mdc`
 
-## Skill legada
+## Operações relacionadas
 
-- [backend](../backend/SKILL.md) — instruções detalhadas
 - [novo-modulo-backend](../novo-modulo-backend/SKILL.md) — módulo novo
 - [migrar-prisma](../migrar-prisma/SKILL.md) — migrations
 

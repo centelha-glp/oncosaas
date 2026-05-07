@@ -15,10 +15,6 @@ description: Ativa o subagente ux-accessibility (WCAG 2.1 AA, UX para profission
 - `.cursor/rules/onconav-core.mdc`
 - `.cursor/rules/ux-accessibility.mdc`
 
-## Skill legada
-
-- [acessibilidade](../acessibilidade/SKILL.md)
-
 ## Ajuda transversal
 
 - [agente-onconav](../agente-onconav/SKILL.md)

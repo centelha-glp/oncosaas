@@ -16,10 +16,6 @@ description: Ativa o subagente clinical-domain (protocolos, regras de triagem, l
 - `.cursor/rules/clinical-domain.mdc`
 - `.cursor/rules/navegacao-oncologica.mdc`
 
-## Skill legada
-
-- [validar-clinico](../validar-clinico/SKILL.md)
-
 ## Ajuda transversal
 
 - [agente-onconav](../agente-onconav/SKILL.md)

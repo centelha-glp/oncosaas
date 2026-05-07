@@ -15,7 +15,7 @@ description: Ativa o subagente test-generator (testes unitários e E2E alinhados
 - `.cursor/rules/onconav-core.mdc`
 - `.cursor/rules/test-generator.mdc`
 
-## Skill legada
+## Operações relacionadas
 
 - [gerar-testes](../gerar-testes/SKILL.md)
 
