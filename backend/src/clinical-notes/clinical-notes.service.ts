@@ -22,9 +22,9 @@ import {
 } from '../whatsapp-connections/utils/encryption.util';
 import {
   CLINICAL_NOTE_NAVIGATION_STEP_KEY,
-  CLINICAL_NOTE_SECTION_KEYS,
-  CLINICAL_NOTE_SECTION_MAX_LENGTH,
+  CLINICAL_NOTE_CONTENT_MARKDOWN_MAX_LENGTH,
 } from './clinical-notes.constants';
+import { decodeDecryptedClinicalNoteToMarkdown } from './clinical-note-legacy-content.util';
 import {
   CreateClinicalNoteDto,
   UpdateClinicalNoteDto,
@@ -58,40 +58,29 @@ export class ClinicalNotesService {
     return crypto.createHash('sha256').update(plaintext, 'utf8').digest('hex');
   }
 
-  normalizeAndValidateSections(raw: Record<string, string>): Record<string, string> {
-    const out: Record<string, string> = {};
-    for (const key of CLINICAL_NOTE_SECTION_KEYS) {
-      const v = raw[key];
-      const s = v === undefined || v === null ? '' : String(v);
-      if (s.length > CLINICAL_NOTE_SECTION_MAX_LENGTH) {
-        throw new BadRequestException(
-          `Seção "${key}" excede ${CLINICAL_NOTE_SECTION_MAX_LENGTH} caracteres`
-        );
-      }
-      out[key] = s;
+  normalizeAndValidateContentMarkdown(raw: string | null | undefined): string {
+    const s = raw === undefined || raw === null ? '' : String(raw);
+    if (s.length > CLINICAL_NOTE_CONTENT_MARKDOWN_MAX_LENGTH) {
+      throw new BadRequestException(
+        `Conteúdo da evolução excede ${CLINICAL_NOTE_CONTENT_MARKDOWN_MAX_LENGTH} caracteres`
+      );
     }
-    for (const k of Object.keys(raw)) {
-      if (!CLINICAL_NOTE_SECTION_KEYS.includes(k as (typeof CLINICAL_NOTE_SECTION_KEYS)[number])) {
-        throw new BadRequestException(`Chave de seção desconhecida: ${k}`);
-      }
-    }
-    return out;
+    return s;
   }
 
-  private encryptSectionsJson(sections: Record<string, string>): {
+  private encryptClinicalNotePayload(plaintext: string): {
     encrypted: string;
     hash: string;
   } {
-    const plaintext = JSON.stringify(sections);
     const hash = this.hashPlaintext(plaintext);
     const encrypted = encryptSensitiveData(plaintext, this.encryptionKey);
     return { encrypted, hash };
   }
 
-  private decryptSectionsJson(encrypted: string): Record<string, string> {
+  /** Conteúdo Markdown para resposta da API (converte payload legado em JSON se necessário). */
+  decryptClinicalNoteToMarkdown(encrypted: string): string {
     const plaintext = decryptSensitiveData(encrypted, this.encryptionKey);
-    const parsed = JSON.parse(plaintext) as Record<string, string>;
-    return this.normalizeAndValidateSections(parsed);
+    return decodeDecryptedClinicalNoteToMarkdown(plaintext);
   }
 
   /** Garante que a etapa pertence ao paciente/tenant e corresponde ao tipo de evolução. */
@@ -262,8 +251,10 @@ export class ClinicalNotesService {
       dto.noteType
     );
 
-    const sections = this.normalizeAndValidateSections(dto.sections);
-    const { encrypted, hash } = this.encryptSectionsJson(sections);
+    const contentMarkdown = this.normalizeAndValidateContentMarkdown(
+      dto.contentMarkdown
+    );
+    const { encrypted, hash } = this.encryptClinicalNotePayload(contentMarkdown);
 
     const row = await this.prisma.$transaction(async (tx) => {
       const note = await tx.clinicalNote.create({
@@ -427,7 +418,9 @@ export class ClinicalNotesService {
       throw new NotFoundException(`Clinical note ${id} has no versions`);
     }
 
-    const sections = this.decryptSectionsJson(latest.sectionsPayloadEncrypted);
+    const contentMarkdown = this.decryptClinicalNoteToMarkdown(
+      latest.sectionsPayloadEncrypted
+    );
 
     await this.auditLogService.log({
       tenantId,
@@ -464,7 +457,7 @@ export class ClinicalNotesService {
       voidReason: note.voidReason,
       latestVersionNumber: latest.versionNumber,
       sectionsContentHash: latest.sectionsContentHash,
-      sections,
+      contentMarkdown,
     };
   }
 
@@ -540,8 +533,10 @@ export class ClinicalNotesService {
       );
     }
 
-    const sections = this.normalizeAndValidateSections(dto.sections);
-    const { encrypted, hash } = this.encryptSectionsJson(sections);
+    const contentMarkdown = this.normalizeAndValidateContentMarkdown(
+      dto.contentMarkdown
+    );
+    const { encrypted, hash } = this.encryptClinicalNotePayload(contentMarkdown);
     const nextVersion = (note.versions[0]?.versionNumber ?? 0) + 1;
 
     const row = await this.prisma.$transaction(async (tx) => {
@@ -641,13 +636,25 @@ export class ClinicalNotesService {
       );
     }
 
-    const raw = dto.sections ?? {};
-    const sections = this.normalizeAndValidateSections(
-      Object.fromEntries(
-        CLINICAL_NOTE_SECTION_KEYS.map((k) => [k, raw[k] ?? ''])
-      ) as Record<string, string>
+    const parentLatest = await this.prisma.clinicalNoteVersion.findFirst({
+      where: { clinicalNoteId: parent.id, tenantId },
+      orderBy: { versionNumber: 'desc' },
+      select: { sectionsPayloadEncrypted: true },
+    });
+    if (!parentLatest) {
+      throw new NotFoundException(
+        `Clinical note ${signedNoteId} has no versions`
+      );
+    }
+    const parentMarkdown = this.decryptClinicalNoteToMarkdown(
+      parentLatest.sectionsPayloadEncrypted
     );
-    const { encrypted, hash } = this.encryptSectionsJson(sections);
+    const contentMarkdown = this.normalizeAndValidateContentMarkdown(
+      dto.contentMarkdown !== undefined && dto.contentMarkdown !== null
+        ? dto.contentMarkdown
+        : parentMarkdown
+    );
+    const { encrypted, hash } = this.encryptClinicalNotePayload(contentMarkdown);
 
     const row = await this.prisma.$transaction(async (tx) => {
       const note = await tx.clinicalNote.create({

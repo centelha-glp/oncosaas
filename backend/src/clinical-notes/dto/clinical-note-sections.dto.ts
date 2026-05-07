@@ -1,12 +1,13 @@
 import {
   IsEnum,
-  IsObject,
   IsOptional,
   IsString,
   IsUUID,
   MaxLength,
 } from 'class-validator';
 import { ClinicalNoteType } from '@generated/prisma/client';
+import { CLINICAL_NOTE_CONTENT_MARKDOWN_MAX_LENGTH } from '../clinical-notes.constants';
+
 export class CreateClinicalNoteDto {
   @IsEnum(ClinicalNoteType)
   noteType!: ClinicalNoteType;
@@ -15,13 +16,16 @@ export class CreateClinicalNoteDto {
   @IsUUID()
   navigationStepId!: string;
 
-  @IsObject()
-  sections!: Record<string, string>;
+  /** Evolução em Markdown (texto livre). */
+  @IsString()
+  @MaxLength(CLINICAL_NOTE_CONTENT_MARKDOWN_MAX_LENGTH)
+  contentMarkdown!: string;
 }
 
 export class UpdateClinicalNoteDto {
-  @IsObject()
-  sections!: Record<string, string>;
+  @IsString()
+  @MaxLength(CLINICAL_NOTE_CONTENT_MARKDOWN_MAX_LENGTH)
+  contentMarkdown!: string;
 
   @IsOptional()
   @IsUUID()
@@ -35,8 +39,9 @@ export class UpdateClinicalNoteDto {
 
 export class AddendumClinicalNoteDto {
   @IsOptional()
-  @IsObject()
-  sections?: Record<string, string>;
+  @IsString()
+  @MaxLength(CLINICAL_NOTE_CONTENT_MARKDOWN_MAX_LENGTH)
+  contentMarkdown?: string;
 }
 
 export class VoidClinicalNoteDto {

@@ -19,72 +19,19 @@ export type ClinicalNoteNavigationStepRef = {
   journeyStage: string;
 };
 
-export const CLINICAL_NOTE_SECTION_KEYS = [
-  'identificacao',
-  'hda',
-  'hpp',
-  'comorbidades',
-  'medicacoesEmUso',
-  'alergias',
-  'subjetivo',
-  'exameFisico',
-  'examesComplementares',
-  'analise',
-  'conduta',
-  'tratamentos',
-  'navegacao',
-  'planos',
-] as const;
-
-export type ClinicalNoteSectionKey = (typeof CLINICAL_NOTE_SECTION_KEYS)[number];
-
-export function emptyClinicalSections(): Record<ClinicalNoteSectionKey, string> {
-  return Object.fromEntries(
-    CLINICAL_NOTE_SECTION_KEYS.map((k) => [k, ''])
-  ) as Record<ClinicalNoteSectionKey, string>;
-}
-
-/** Comparação estável de conteúdo (ordem fixa de chaves) — autosave e diff */
-export function serializeClinicalNoteSections(
-  sections: Record<string, string>
-): string {
-  const o: Record<string, string> = {};
-  for (const k of CLINICAL_NOTE_SECTION_KEYS) {
-    o[k] = sections[k] ?? '';
-  }
-  return JSON.stringify(o);
-}
-
-/** Cópia segura das seções (para nova evolução / adendo a partir da anterior) */
-export function cloneClinicalNoteSections(
-  sections: Record<string, string> | undefined | null
-): Record<ClinicalNoteSectionKey, string> {
-  const base = emptyClinicalSections();
-  if (!sections) return base;
-  for (const k of CLINICAL_NOTE_SECTION_KEYS) {
-    const v = sections[k];
-    if (typeof v === 'string') base[k] = v;
-  }
-  return base;
-}
-
 /**
- * Preenche apenas chaves vazias do rascunho com texto sugerido a partir do cadastro
- * (idade em SP, HPP, comorbidades, exames, tratamentos, navegação).
+ * Combina texto da evolução anterior com o Markdown sugerido a partir do cadastro.
+ * Se só um lado tiver conteúdo, devolve esse; se ambos, concatena com separador.
  */
-export function mergeClinicalSectionsWithCadastroSuggestions(
-  previous: Record<ClinicalNoteSectionKey, string>,
-  suggestions: Record<ClinicalNoteSectionKey, string>
-): Record<ClinicalNoteSectionKey, string> {
-  const base = cloneClinicalNoteSections(previous);
-  for (const k of CLINICAL_NOTE_SECTION_KEYS) {
-    const prev = (base[k] ?? '').trim();
-    const sug = (suggestions[k] ?? '').trim();
-    if (!prev && sug) {
-      base[k] = suggestions[k] ?? '';
-    }
-  }
-  return base;
+export function mergeMarkdownWithCadastroSuggestion(
+  previousMarkdown: string,
+  suggestionMarkdown: string
+): string {
+  const prev = previousMarkdown.trim();
+  const sug = suggestionMarkdown.trim();
+  if (!prev) return suggestionMarkdown;
+  if (!sug) return previousMarkdown;
+  return `${previousMarkdown.trimEnd()}\n\n---\n\n${sug}`;
 }
 
 export type ClinicalNoteUserRef = {
@@ -170,7 +117,7 @@ export interface ClinicalNoteDetail {
   voidReason: string | null;
   latestVersionNumber: number;
   sectionsContentHash: string;
-  sections: Record<string, string>;
+  contentMarkdown: string;
 }
 
 export interface ClinicalNoteMutationResponse {
@@ -204,8 +151,7 @@ export const clinicalNotesApi = {
   },
 
   /**
-   * Texto sugerido por seção a partir do cadastro e dados clínicos estruturados.
-   * `noteType` + `navigationStepId` ativam modelo SOAP específico (médica vs enfermagem) e foco na etapa.
+   * Markdown sugerido a partir do cadastro e dados clínicos (evolução estruturada em tópicos).
    */
   getSectionSuggestions(
     patientId: string,
@@ -213,8 +159,8 @@ export const clinicalNotesApi = {
       navigationStepId?: string;
       noteType?: ClinicalNoteType;
     }
-  ): Promise<Record<ClinicalNoteSectionKey, string>> {
-    return apiClient.get<Record<ClinicalNoteSectionKey, string>>(
+  ): Promise<{ contentMarkdown: string }> {
+    return apiClient.get<{ contentMarkdown: string }>(
       `/patients/${patientId}/clinical-notes/section-suggestions`,
       { params }
     );
@@ -229,7 +175,7 @@ export const clinicalNotesApi = {
     body: {
       noteType: ClinicalNoteType;
       navigationStepId: string;
-      sections: Record<string, string>;
+      contentMarkdown: string;
     }
   ): Promise<ClinicalNoteMutationResponse> {
     return apiClient.post<ClinicalNoteMutationResponse>(
@@ -241,7 +187,7 @@ export const clinicalNotesApi = {
   update(
     id: string,
     body: {
-      sections: Record<string, string>;
+      contentMarkdown: string;
       changeReason?: string;
       navigationStepId?: string;
     }
@@ -261,7 +207,7 @@ export const clinicalNotesApi = {
 
   addendum(
     id: string,
-    body: { sections?: Record<string, string> }
+    body: { contentMarkdown?: string }
   ): Promise<ClinicalNoteMutationResponse> {
     return apiClient.post<ClinicalNoteMutationResponse>(
       `/clinical-notes/${id}/addendum`,
@@ -278,21 +224,20 @@ export const clinicalNotesApi = {
 };
 
 /**
- * Conteúdo da evolução mais recente utilizável (não anulada), preferindo o mesmo tipo.
- * Usado ao criar nova nota para pré-preencher com a evolução anterior.
+ * Conteúdo Markdown da evolução mais recente utilizável (não anulada), preferindo o mesmo tipo.
  */
-export async function loadSectionsFromPreviousEvolution(
+export async function loadContentMarkdownFromPreviousEvolution(
   noteType: ClinicalNoteType,
   list: ClinicalNoteListItem[]
-): Promise<Record<ClinicalNoteSectionKey, string>> {
+): Promise<string> {
   const usable = list.filter((n) => n.status !== 'VOIDED');
   const sameType = usable.filter((n) => n.noteType === noteType);
   const source = sameType[0] ?? usable[0];
-  if (!source) return emptyClinicalSections();
+  if (!source) return '';
   try {
     const prev = await clinicalNotesApi.getById(source.id);
-    return cloneClinicalNoteSections(prev.sections);
+    return prev.contentMarkdown ?? '';
   } catch {
-    return emptyClinicalSections();
+    return '';
   }
 }
