@@ -62,6 +62,39 @@ export interface CreateNavigationStepDto {
   notes?: string;
 }
 
+export type ConsultationAgendaScope = 'consultations' | 'all';
+
+export interface ConsultationAgendaItem {
+  id: string;
+  patientId: string;
+  stepKey: string;
+  stepName: string;
+  journeyStage: NavigationStep['journeyStage'];
+  status: NavigationStep['status'];
+  isCompleted: boolean;
+  expectedDate: string | null;
+  dueDate: string | null;
+  actualDate: string | null;
+  agendaDate: string;
+  patient: { id: string; name: string };
+}
+
+export interface ConsultationAgendaPage {
+  items: ConsultationAgendaItem[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+
+export interface ConsultationAgendaQuery {
+  from: string;
+  to: string;
+  scope?: ConsultationAgendaScope;
+  page?: number;
+  limit?: number;
+}
+
 export interface UpdateNavigationStepDto {
   status?:
     | 'PENDING'
@@ -90,6 +123,26 @@ export interface UpdateNavigationStepDto {
 }
 
 export const oncologyNavigationApi = {
+  /**
+   * Agenda de consultas (etapas com data no intervalo, por padrão só consultas clínicas).
+   */
+  getConsultationAgenda: async (
+    params: ConsultationAgendaQuery
+  ): Promise<ConsultationAgendaPage> => {
+    return apiClient.get<ConsultationAgendaPage>(
+      '/oncology-navigation/consultation-agenda',
+      {
+        params: {
+          from: params.from,
+          to: params.to,
+          scope: params.scope,
+          page: params.page,
+          limit: params.limit,
+        },
+      }
+    );
+  },
+
   /**
    * Obtém todas as etapas de navegação de um paciente
    */

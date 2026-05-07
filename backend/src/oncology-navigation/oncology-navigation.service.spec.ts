@@ -8,6 +8,7 @@ import {
 } from './oncology-navigation.service';
 
 type MockPrisma = {
+  $transaction: jest.Mock;
   patient: {
     findFirst: jest.Mock;
     findMany: jest.Mock;
@@ -21,6 +22,7 @@ type MockPrisma = {
     create: jest.Mock;
     update: jest.Mock;
     aggregate: jest.Mock;
+    count: jest.Mock;
   };
   alert: {
     findFirst: jest.Mock;
@@ -46,6 +48,7 @@ describe('OncologyNavigationService', () => {
 
   beforeEach((): void => {
     mockPrisma = {
+      $transaction: jest.fn(),
       patient: {
         findFirst: jest.fn(),
         findMany: jest.fn(),
@@ -59,6 +62,7 @@ describe('OncologyNavigationService', () => {
         create: jest.fn(),
         update: jest.fn(),
         aggregate: jest.fn(),
+        count: jest.fn(),
       },
       alert: {
         findFirst: jest.fn(),
@@ -815,6 +819,140 @@ describe('OncologyNavigationService', () => {
         'breast',
         JourneyStage.SCREENING
       );
+    });
+  });
+
+  // ─── getConsultationAgenda ───────────────────────────────────────────────────
+
+  describe('getConsultationAgenda', () => {
+    const agendaRow = {
+      id: 'step-agenda-1',
+      patientId: PATIENT_ID,
+      stepKey: 'specialist_consultation',
+      stepName: 'Consulta especialista',
+      journeyStage: JourneyStage.TREATMENT,
+      status: NavigationStepStatus.PENDING,
+      isCompleted: false,
+      expectedDate: new Date('2026-05-10T00:00:00.000Z'),
+      dueDate: new Date('2026-05-12T00:00:00.000Z'),
+      actualDate: null,
+      patient: { id: PATIENT_ID, name: 'Paciente Teste' },
+    };
+
+    it('throws BadRequestException when from is after to', async () => {
+      await expect(
+        service.getConsultationAgenda(TENANT, {
+          from: '2026-05-10',
+          to: '2026-05-01',
+        })
+      ).rejects.toThrow(BadRequestException);
+      expect(mockPrisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('throws BadRequestException when dates are invalid', async () => {
+      await expect(
+        service.getConsultationAgenda(TENANT, {
+          from: 'not-a-date',
+          to: '2026-05-01',
+        })
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('scopes Prisma where to tenantId and excludes CANCELLED', async () => {
+      mockPrisma.$transaction.mockResolvedValue([1, [agendaRow]]);
+
+      await service.getConsultationAgenda(TENANT, {
+        from: '2026-05-01',
+        to: '2026-05-31',
+        scope: 'consultations',
+      });
+
+      expect(mockPrisma.$transaction).toHaveBeenCalled();
+      expect(mockPrisma.navigationStep.count).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            tenantId: TENANT,
+            status: { not: NavigationStepStatus.CANCELLED },
+            stepKey: {
+              in: ['specialist_consultation', 'navigation_consultation'],
+            },
+          }),
+        })
+      );
+    });
+
+    it('omits stepKey filter when scope is all', async () => {
+      mockPrisma.$transaction.mockResolvedValue([0, []]);
+
+      await service.getConsultationAgenda(TENANT, {
+        from: '2026-05-01',
+        to: '2026-05-31',
+        scope: 'all',
+      });
+
+      const countArg = mockPrisma.navigationStep.count.mock.calls[0][0];
+      expect(countArg.where).not.toHaveProperty('stepKey');
+      expect(countArg.where.tenantId).toBe(TENANT);
+    });
+
+    it('applies pagination (skip/take) for page 2', async () => {
+      mockPrisma.$transaction.mockResolvedValue([0, []]);
+
+      await service.getConsultationAgenda(TENANT, {
+        from: '2026-05-01',
+        to: '2026-05-31',
+        page: 2,
+        limit: 25,
+      });
+
+      expect(mockPrisma.navigationStep.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          skip: 25,
+          take: 25,
+        })
+      );
+    });
+
+    it('caps limit at 100', async () => {
+      mockPrisma.$transaction.mockResolvedValue([0, []]);
+
+      await service.getConsultationAgenda(TENANT, {
+        from: '2026-05-01',
+        to: '2026-05-31',
+        limit: 500,
+      });
+
+      expect(mockPrisma.navigationStep.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ take: 100 })
+      );
+    });
+
+    it('maps agendaDate from expectedDate when present', async () => {
+      mockPrisma.$transaction.mockResolvedValue([1, [agendaRow]]);
+
+      const page = await service.getConsultationAgenda(TENANT, {
+        from: '2026-05-01',
+        to: '2026-05-31',
+      });
+
+      expect(page.items).toHaveLength(1);
+      expect(page.items[0].agendaDate).toEqual(agendaRow.expectedDate);
+      expect(page.total).toBe(1);
+      expect(page.page).toBe(1);
+      expect(page.limit).toBe(50);
+      expect(page.totalPages).toBe(1);
+    });
+
+    it('returns totalPages 0 when total is 0', async () => {
+      mockPrisma.$transaction.mockResolvedValue([0, []]);
+
+      const page = await service.getConsultationAgenda(TENANT, {
+        from: '2026-05-01',
+        to: '2026-05-31',
+      });
+
+      expect(page.totalPages).toBe(0);
+      expect(page.items).toEqual([]);
     });
   });
 

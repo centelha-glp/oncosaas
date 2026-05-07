@@ -1,6 +1,24 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { oncologyNavigationApi } from '@/lib/api/oncology-navigation';
+import {
+  oncologyNavigationApi,
+  type ConsultationAgendaQuery,
+} from '@/lib/api/oncology-navigation';
+
+export const useConsultationAgenda = (
+  params: ConsultationAgendaQuery,
+  options?: { enabled?: boolean }
+) => {
+  return useQuery({
+    queryKey: ['consultation-agenda', params],
+    queryFn: () => oncologyNavigationApi.getConsultationAgenda(params),
+    enabled:
+      (options?.enabled ?? true) &&
+      Boolean(params.from) &&
+      Boolean(params.to),
+    staleTime: 30 * 1000,
+  });
+};
 
 export const usePatientNavigationSteps = (patientId: string | null) => {
   return useQuery({
@@ -56,6 +74,7 @@ export const useInitializeNavigationSteps = () => {
         queryKey: ['navigation-steps', variables.patientId],
       });
       queryClient.invalidateQueries({ queryKey: ['patient', variables.patientId] });
+      queryClient.invalidateQueries({ queryKey: ['consultation-agenda'] });
       toast.success('Etapas de navegação inicializadas!');
     },
     onError: (error: Error) => {
@@ -81,6 +100,7 @@ export const useUpdateNavigationStep = () => {
     onSuccess: (updatedStep) => {
       queryClient.invalidateQueries({ queryKey: ['navigation-steps'] });
       queryClient.invalidateQueries({ queryKey: ['patient', updatedStep.patientId] });
+      queryClient.invalidateQueries({ queryKey: ['consultation-agenda'] });
     },
     onError: (error: Error) => {
       console.error('Erro ao atualizar etapa:', error);
@@ -100,6 +120,7 @@ export const useInitializeAllPatients = () => {
       queryClient.invalidateQueries({ queryKey: ['patients'] });
       queryClient.invalidateQueries({ queryKey: ['patient'] });
       queryClient.invalidateQueries({ queryKey: ['navigation-steps'] });
+      queryClient.invalidateQueries({ queryKey: ['consultation-agenda'] });
       toast.success('Etapas inicializadas para todos os pacientes!');
       return result;
     },
@@ -121,6 +142,7 @@ export const useDeleteNavigationStep = () => {
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['navigation-steps'] });
       queryClient.invalidateQueries({ queryKey: ['patient', variables.patientId] });
+      queryClient.invalidateQueries({ queryKey: ['consultation-agenda'] });
     },
     onError: (error: Error) => {
       toast.error('Falha ao excluir etapa.', {
@@ -139,6 +161,7 @@ export const useUploadStepFile = () => {
     onSuccess: (updatedStep) => {
       queryClient.invalidateQueries({ queryKey: ['navigation-steps'] });
       queryClient.invalidateQueries({ queryKey: ['patient', updatedStep.patientId] });
+      queryClient.invalidateQueries({ queryKey: ['consultation-agenda'] });
       toast.success('Arquivo enviado com sucesso!');
     },
     onError: (error: Error) => {

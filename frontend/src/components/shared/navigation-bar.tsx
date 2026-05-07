@@ -7,6 +7,7 @@ import {
   MessageSquare,
   LayoutDashboard,
   Navigation,
+  CalendarDays,
   Calculator,
   LogOut,
   Settings,
@@ -59,6 +60,11 @@ const baseNavItems: NavItem[] = [
     path: '/oncology-navigation',
     label: 'Navegação Oncológica',
     icon: Navigation,
+  },
+  {
+    path: '/oncology-navigation/agenda',
+    label: 'Agenda de consultas',
+    icon: CalendarDays,
   },
   {
     path: '/chat',
@@ -164,6 +170,15 @@ export function NavigationBar() {
     // Caso especial: /patients deve ser ativo para /patients e subrotas
     if (itemPath === '/patients') {
       return pathname === '/patients' || pathname.startsWith('/patients/');
+    }
+
+    // Board de navegação: não marcar como ativo na rota dedicada da agenda
+    if (itemPath === '/oncology-navigation') {
+      if (pathname === '/oncology-navigation') return true;
+      if (pathname.startsWith('/oncology-navigation/')) {
+        return !pathname.startsWith('/oncology-navigation/agenda');
+      }
+      return false;
     }
 
     // Para outras rotas, verificar se começa com o path

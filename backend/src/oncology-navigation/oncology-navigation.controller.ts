@@ -18,6 +18,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname } from 'path';
 import { OncologyNavigationService } from './oncology-navigation.service';
+import { ConsultationAgendaQueryDto } from './dto/consultation-agenda-query.dto';
 import { CreateNavigationStepDto } from './dto/create-navigation-step.dto';
 import { UpdateNavigationStepDto } from './dto/update-navigation-step.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -43,6 +44,20 @@ interface MulterFile {
 @UseGuards(JwtAuthGuard, TenantGuard, RolesGuard)
 export class OncologyNavigationController {
   constructor(private readonly navigationService: OncologyNavigationService) {}
+
+  @Get('consultation-agenda')
+  async getConsultationAgenda(
+    @Query() query: ConsultationAgendaQueryDto,
+    @Request() req: any
+  ) {
+    return this.navigationService.getConsultationAgenda(req.user.tenantId, {
+      from: query.from,
+      to: query.to,
+      scope: query.scope,
+      page: query.page,
+      limit: query.limit,
+    });
+  }
 
   @Get('patients/:patientId/steps')
   async getPatientSteps(
