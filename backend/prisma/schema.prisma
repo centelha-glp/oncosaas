@@ -33,6 +33,10 @@ model User {
   clinicalNotesSigned          ClinicalNote[]        @relation("ClinicalNoteSignedBy")
   clinicalNotesVoided          ClinicalNote[]        @relation("ClinicalNoteVoidedBy")
   clinicalNoteVersionsAuthored ClinicalNoteVersion[] @relation("ClinicalNoteVersionAuthor")
+  /// Pedidos de exame registrados na evolução
+  clinicalExamRequestsRequested ClinicalExamRequest[] @relation("ClinicalExamRequestRequestedBy")
+  /// Linhas de prescrição registradas na evolução médica
+  clinicalPrescriptionLinesPrescribed ClinicalPrescriptionLine[] @relation("ClinicalPrescriptionLinePrescribedBy")
   productFeedbacks             ProductFeedback[]
 
   @@unique([tenantId, email])
@@ -152,6 +156,10 @@ model Patient {
   performanceStatusHistory PerformanceStatusHistory[] // Histórico ECOG para cálculo de delta
   dispositionFeedback      ClinicalDispositionFeedback[] // Correções de disposição para retraining
   clinicalNotes            ClinicalNote[] // Prontuário estruturado (evoluções versionadas)
+  /// Pedidos de exame vinculados a uma evolução (ServiceRequest clínico; não é o cadastro ComplementaryExam)
+  clinicalExamRequests     ClinicalExamRequest[]
+  /// Prescrição na evolução (evento prescritivo; não substitui Medication "em uso")
+  clinicalPrescriptionLines ClinicalPrescriptionLine[]
   consents                 PatientConsent[] // Termos de Consentimento Livre e Esclarecido (TCLE)
 
   createdAt DateTime @default(now())
@@ -199,6 +207,8 @@ model ClinicalNote {
   amendsClinicalNote ClinicalNote?         @relation("ClinicalNoteAmendment", fields: [amendsClinicalNoteId], references: [id])
   amendedNotes       ClinicalNote[]        @relation("ClinicalNoteAmendment")
   versions           ClinicalNoteVersion[]
+  clinicalExamRequests      ClinicalExamRequest[]
+  clinicalPrescriptionLines ClinicalPrescriptionLine[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -208,6 +218,67 @@ model ClinicalNote {
   @@index([tenantId, patientId, createdAt])
   @@index([navigationStepId])
   @@map("clinical_notes")
+}
+
+/// Pedido de exame na evolução — rastreável por `clinicalNoteId` + `clinicalNoteVersionNumber`
+model ClinicalExamRequest {
+  id                        String @id @default(uuid())
+  tenantId                  String
+  patientId                 String
+  clinicalNoteId            String
+  /// Versão da evolução no momento do registro (`ClinicalNoteVersion.versionNumber`)
+  clinicalNoteVersionNumber Int
+
+  requestedById String
+  displayName   String
+  code          String?
+  loincCode     String?
+
+  tenant         Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  patient        Patient      @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  clinicalNote   ClinicalNote @relation(fields: [clinicalNoteId], references: [id], onDelete: Cascade)
+  requestedBy    User         @relation("ClinicalExamRequestRequestedBy", fields: [requestedById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([patientId])
+  @@index([clinicalNoteId])
+  @@index([tenantId, clinicalNoteId])
+  @@map("clinical_exam_requests")
+}
+
+/// Linha de medicamento prescrita no contexto da evolução médica — não atualiza automaticamente `Medication` (em uso / ML)
+model ClinicalPrescriptionLine {
+  id                        String @id @default(uuid())
+  tenantId                  String
+  patientId                 String
+  clinicalNoteId            String
+  clinicalNoteVersionNumber Int
+
+  prescribedById String
+  medicationName String
+  catalogKey     String?
+  dosage         String?
+  frequency      String?
+  route          String?
+  duration       String?
+  indication     String?
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  patient      Patient      @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  clinicalNote ClinicalNote @relation(fields: [clinicalNoteId], references: [id], onDelete: Cascade)
+  prescribedBy User         @relation("ClinicalPrescriptionLinePrescribedBy", fields: [prescribedById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([patientId])
+  @@index([clinicalNoteId])
+  @@index([tenantId, clinicalNoteId])
+  @@map("clinical_prescription_lines")
 }
 
 enum ClinicalNoteType {
@@ -1506,6 +1577,8 @@ model Tenant {
   dispositionFeedback      ClinicalDispositionFeedback[]
   clinicalNotes            ClinicalNote[]
   clinicalNoteVersions     ClinicalNoteVersion[]
+  clinicalExamRequests     ClinicalExamRequest[]
+  clinicalPrescriptionLines ClinicalPrescriptionLine[]
   patientConsents          PatientConsent[]
   productFeedbacks         ProductFeedback[]
 
