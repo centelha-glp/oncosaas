@@ -205,7 +205,7 @@ export function CurrentMedicationsForm({
                     <div>
                       <Label className="text-xs">Dose</Label>
                       <Input
-                        placeholder="Ex: 50 mg"
+                        placeholder="Ex: 1 comprimido"
                         value={med.dosage ?? ''}
                         onChange={(e) =>
                           update(index, 'dosage', e.target.value)

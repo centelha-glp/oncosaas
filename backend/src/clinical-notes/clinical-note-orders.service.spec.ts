@@ -77,7 +77,7 @@ describe('ClinicalNoteOrdersService', () => {
       });
     });
 
-    it('throws when note not in draft', async () => {
+    it('allows when note is signed', async () => {
       mockPrisma.clinicalNote.findFirst.mockResolvedValue({
         id: 'note-1',
         status: ClinicalNoteStatus.SIGNED,
@@ -85,15 +85,26 @@ describe('ClinicalNoteOrdersService', () => {
         patientId: 'pat-1',
       });
 
+      mockPrisma.clinicalNoteVersion.findFirst.mockResolvedValue({
+        versionNumber: 2,
+      });
+      mockClinicalNotes.canCreateOrSignNoteType.mockReturnValue(true);
+      mockPrisma.clinicalExamRequest.create.mockResolvedValue({
+        id: 'ex-1',
+        clinicalNoteVersionNumber: 2,
+        displayName: 'Hemograma',
+        code: null,
+        loincCode: null,
+        requestedBy: { id: actor.id, name: 'Dra.' },
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
       await expect(
-        service.createExamRequest(
-          'pat-1',
-          'note-1',
-          'tenant-1',
-          actor,
-          { displayName: 'X' }
-        )
-      ).rejects.toThrow(BadRequestException);
+        service.createExamRequest('pat-1', 'note-1', 'tenant-1', actor, {
+          displayName: 'Hemograma',
+        })
+      ).resolves.toBeTruthy();
     });
   });
 

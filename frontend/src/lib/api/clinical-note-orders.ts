@@ -6,6 +6,7 @@ export type ClinicalExamRequestRow = {
   displayName: string;
   code: string | null;
   loincCode: string | null;
+  examCatalogCode: string | null;
   requestedBy: { id: string; name: string };
   createdAt: string;
   updatedAt: string;
@@ -39,7 +40,12 @@ export const clinicalNoteOrdersApi = {
   createExamRequest(
     patientId: string,
     clinicalNoteId: string,
-    body: { displayName: string; code?: string; loincCode?: string }
+    body: {
+      displayName: string;
+      code?: string;
+      loincCode?: string;
+      examCatalogCode?: string;
+    }
   ): Promise<ClinicalExamRequestRow> {
     return apiClient.post<ClinicalExamRequestRow>(
       `/patients/${patientId}/clinical-notes/${clinicalNoteId}/clinical-orders/exam-requests`,

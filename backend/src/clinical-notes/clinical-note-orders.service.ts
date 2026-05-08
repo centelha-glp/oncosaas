@@ -40,11 +40,6 @@ export class ClinicalNoteOrdersService {
     if (note.status === ClinicalNoteStatus.VOIDED) {
       throw new BadRequestException('Não é possível alterar pedidos em evolução anulada');
     }
-    if (note.status !== ClinicalNoteStatus.DRAFT) {
-      throw new BadRequestException(
-        'Pedidos só podem ser incluídos ou removidos enquanto a evolução estiver em rascunho'
-      );
-    }
     return note;
   }
 
@@ -99,6 +94,7 @@ export class ClinicalNoteOrdersService {
         displayName: true,
         code: true,
         loincCode: true,
+        examCatalogCode: true,
         requestedBy: { select: { id: true, name: true } },
         createdAt: true,
         updatedAt: true,
@@ -130,6 +126,7 @@ export class ClinicalNoteOrdersService {
         displayName: dto.displayName.trim(),
         code: dto.code?.trim() || null,
         loincCode: dto.loincCode?.trim() || null,
+        examCatalogCode: dto.examCatalogCode?.trim() || null,
       },
       select: {
         id: true,
@@ -137,6 +134,7 @@ export class ClinicalNoteOrdersService {
         displayName: true,
         code: true,
         loincCode: true,
+        examCatalogCode: true,
         requestedBy: { select: { id: true, name: true } },
         createdAt: true,
         updatedAt: true,
