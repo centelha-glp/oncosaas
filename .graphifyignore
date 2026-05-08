@@ -1,0 +1,8 @@
+# Vault e cache do Graphify (muitos ficheiros; não são fonte do produto)
+graphify-out/obsidian/**
+graphify-out/cache/**
+ai-service/graphify-out/cache/**
+backend/graphify-out/cache/**
+
+# Cliente Prisma gerado — AST enorme e pouco útil para o mapa da app
+backend/generated/**

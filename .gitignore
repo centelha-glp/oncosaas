@@ -90,6 +90,22 @@ backend/data/ans/exam-catalog-import.json
 # Playwright / MCP artefatos locais
 .playwright-mcp/
 
+# Graphify (artefatos gerados localmente)
+graphify-out/
+**/graphify-out/
+
+# Obsidian (vault local)
+obsidian-vault/
+
+# Headers/capturas locais de requests
+headers-*.txt
+
+# Scripts utilitários locais (não versionar)
+build_frontend.py
+gen_frontend.py
+label_frontend.py
+merge_frontend.py
+
 # Other
 # Relatório HTML gerado localmente (não versionar / não enviar ao remoto)
 report.html
