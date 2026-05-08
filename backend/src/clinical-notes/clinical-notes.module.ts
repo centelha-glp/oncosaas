@@ -2,14 +2,24 @@ import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
 import { AuditLogModule } from '../audit-log/audit-log.module';
 import { ClinicalNotesService } from './clinical-notes.service';
+import { ClinicalNoteOrdersService } from './clinical-note-orders.service';
 import { ClinicalNoteSectionSuggestionService } from './clinical-note-section-suggestion.service';
 import { ClinicalNotesController } from './clinical-notes.controller';
 import { PatientClinicalNotesController } from './patient-clinical-notes.controller';
+import { PatientClinicalNoteOrdersController } from './patient-clinical-note-orders.controller';
 
 @Module({
   imports: [PrismaModule, AuditLogModule],
-  controllers: [ClinicalNotesController, PatientClinicalNotesController],
-  providers: [ClinicalNotesService, ClinicalNoteSectionSuggestionService],
+  controllers: [
+    ClinicalNotesController,
+    PatientClinicalNotesController,
+    PatientClinicalNoteOrdersController,
+  ],
+  providers: [
+    ClinicalNotesService,
+    ClinicalNoteOrdersService,
+    ClinicalNoteSectionSuggestionService,
+  ],
   exports: [ClinicalNotesService, ClinicalNoteSectionSuggestionService],
 })
 export class ClinicalNotesModule {}
