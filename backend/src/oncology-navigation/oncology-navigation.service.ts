@@ -4,6 +4,7 @@ import {
   BadRequestException,
   Logger,
 } from '@nestjs/common';
+import type { ConsultationAgendaScope } from './dto/consultation-agenda-query.dto';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateNavigationStepDto } from './dto/create-navigation-step.dto';
 import { UpdateNavigationStepDto } from './dto/update-navigation-step.dto';
@@ -38,6 +39,39 @@ const JOURNEY_STAGE_ORDER: Record<JourneyStage, number> = {
   [JourneyStage.FOLLOW_UP]: 3,
   [JourneyStage.PALLIATIVE]: 4,
 };
+
+/** Etapas de consulta (alinha a clinical-notes.constants e nav-step-form-variants) */
+export const CONSULTATION_STEP_KEYS = [
+  'specialist_consultation',
+  'navigation_consultation',
+] as const;
+
+export interface ConsultationAgendaItem {
+  id: string;
+  patientId: string;
+  stepKey: string;
+  stepName: string;
+  journeyStage: JourneyStage;
+  status: NavigationStepStatus;
+  isCompleted: boolean;
+  expectedDate: Date | null;
+  dueDate: Date | null;
+  actualDate: Date | null;
+  /** Data de referência na agenda (esperada ou limite) */
+  agendaDate: Date;
+  patient: {
+    id: string;
+    name: string;
+  };
+}
+
+export interface ConsultationAgendaPage {
+  items: ConsultationAgendaItem[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
 
 @Injectable()
 export class OncologyNavigationService {
@@ -91,6 +125,125 @@ export class OncologyNavigationService {
         { createdAt: 'asc' },
       ],
     });
+  }
+
+  /**
+   * Lista etapas de navegação com data no intervalo [from, to] para a agenda de consultas.
+   * Leitura em lote (PHI): escopo limitado a tenantId do JWT no controller.
+   */
+  async getConsultationAgenda(
+    tenantId: string,
+    params: {
+      from: string;
+      to: string;
+      scope?: ConsultationAgendaScope;
+      page?: number;
+      limit?: number;
+    }
+  ): Promise<ConsultationAgendaPage> {
+    const fromStart = new Date(params.from);
+    const toEnd = new Date(params.to);
+    if (Number.isNaN(fromStart.getTime()) || Number.isNaN(toEnd.getTime())) {
+      throw new BadRequestException('Datas from/to inválidas');
+    }
+    fromStart.setUTCHours(0, 0, 0, 0);
+    toEnd.setUTCHours(23, 59, 59, 999);
+    if (fromStart > toEnd) {
+      throw new BadRequestException('from deve ser anterior ou igual a to');
+    }
+
+    const page = params.page ?? 1;
+    const limit = Math.min(params.limit ?? 50, 100);
+    const skip = (page - 1) * limit;
+    const scope = params.scope ?? 'consultations';
+
+    const stepKeyFilter =
+      scope === 'consultations'
+        ? { stepKey: { in: [...CONSULTATION_STEP_KEYS] } }
+        : {};
+
+    const dateOverlap: Prisma.NavigationStepWhereInput = {
+      OR: [
+        {
+          AND: [
+            { expectedDate: { not: null } },
+            { expectedDate: { gte: fromStart, lte: toEnd } },
+          ],
+        },
+        {
+          AND: [
+            { dueDate: { not: null } },
+            { dueDate: { gte: fromStart, lte: toEnd } },
+          ],
+        },
+        {
+          AND: [
+            { expectedDate: { not: null } },
+            { dueDate: { not: null } },
+            { expectedDate: { lte: toEnd } },
+            { dueDate: { gte: fromStart } },
+          ],
+        },
+      ],
+    };
+
+    const where: Prisma.NavigationStepWhereInput = {
+      tenantId,
+      status: { not: NavigationStepStatus.CANCELLED },
+      ...stepKeyFilter,
+      ...dateOverlap,
+    };
+
+    const [total, rows] = await this.prisma.$transaction([
+      this.prisma.navigationStep.count({ where }),
+      this.prisma.navigationStep.findMany({
+        where,
+        select: {
+          id: true,
+          patientId: true,
+          stepKey: true,
+          stepName: true,
+          journeyStage: true,
+          status: true,
+          isCompleted: true,
+          expectedDate: true,
+          dueDate: true,
+          actualDate: true,
+          patient: { select: { id: true, name: true } },
+        },
+        orderBy: [{ expectedDate: 'asc' }, { dueDate: 'asc' }, { stepName: 'asc' }],
+        take: limit,
+        skip,
+      }),
+    ]);
+
+    const items: ConsultationAgendaItem[] = rows.map((row) => {
+      const agendaDate = row.expectedDate ?? row.dueDate ?? fromStart;
+      return {
+        id: row.id,
+        patientId: row.patientId,
+        stepKey: row.stepKey,
+        stepName: row.stepName,
+        journeyStage: row.journeyStage,
+        status: row.status,
+        isCompleted: row.isCompleted,
+        expectedDate: row.expectedDate,
+        dueDate: row.dueDate,
+        actualDate: row.actualDate,
+        agendaDate,
+        patient: row.patient,
+      };
+    });
+
+    const totalPages = total === 0 ? 0 : Math.ceil(total / limit);
+
+    return {
+      items,
+      total,
+      page,
+      limit,
+      totalPages,
+    };
   }
 
   /**
