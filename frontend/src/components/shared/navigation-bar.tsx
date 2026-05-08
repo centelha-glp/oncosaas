@@ -8,12 +8,10 @@ import {
   LayoutDashboard,
   Navigation,
   CalendarDays,
-  Calculator,
   LogOut,
   Settings,
   Users,
   UserCircle,
-  Activity,
   Bug,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -49,7 +47,7 @@ interface NavItem {
   icon: React.ComponentType<{ className?: string }>;
 }
 
-// Itens de navegação base (sem calculadora ROI)
+// Itens de navegação base.
 const baseNavItems: NavItem[] = [
   {
     path: '/dashboard',
@@ -83,13 +81,6 @@ const baseNavItems: NavItem[] = [
   },
 ];
 
-// Item de calculadora ROI (não disponível para NURSE)
-const roiNavItem: NavItem = {
-  path: '/calculadora-roi',
-  label: 'Calculadora ROI',
-  icon: Calculator,
-};
-
 const adminNavItems: NavItem[] = [
   {
     path: '/dashboard/users',
@@ -106,12 +97,6 @@ const adminOnlyNavItems: NavItem[] = [
     icon: Bug,
   },
 ];
-
-const observabilityNavItem: NavItem = {
-  path: '/observability',
-  label: 'Observabilidade',
-  icon: Activity,
-};
 
 export function NavigationBar() {
   const compactNav = useNavCompactMode();
@@ -135,23 +120,8 @@ export function NavigationBar() {
     user?.role === 'NURSE_CHIEF' ||
     user?.role === 'COORDINATOR';
 
-  // Verificar se o usuário pode ver calculadora ROI (não permitido para NURSE)
-  const canSeeROI = user?.role !== 'NURSE';
-
-  // Observabilidade: apenas para ADMIN, ONCOLOGIST e COORDINATOR
-  const canSeeObservability =
-    user?.role === 'ADMIN' ||
-    user?.role === 'ONCOLOGIST' ||
-    user?.role === 'COORDINATOR';
-
   // Montar lista de itens de navegação baseada nas permissões
   const navItems = [...baseNavItems];
-  if (canSeeROI) {
-    navItems.push(roiNavItem);
-  }
-  if (canSeeObservability) {
-    navItems.push(observabilityNavItem);
-  }
 
   const isActive = (itemPath: string): boolean => {
     if (!pathname) return false;
