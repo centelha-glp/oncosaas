@@ -1,9 +1,12 @@
 import type { NextConfig } from 'next'
+import path from 'path'
 
 const isProd = process.env.NODE_ENV === 'production'
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // Monorepo/OneDrive: evita o Next inferir root errado.
+  outputFileTracingRoot: path.join(__dirname, '..'),
   experimental: {
     // Tree-shake de pacotes com muitos exports nomeados (menor first-load JS)
     optimizePackageImports: ['lucide-react', 'date-fns', 'recharts'],
