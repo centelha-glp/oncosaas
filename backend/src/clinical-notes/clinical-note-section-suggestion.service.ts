@@ -6,6 +6,7 @@ import {
   CLINICAL_NOTE_SECTION_KEYS,
   type ClinicalNoteSectionKey,
 } from './clinical-notes.constants';
+import { normalizeEvolutionSectionBody } from './clinical-note-evolution-text.util';
 import { sectionsRecordToMarkdown } from './clinical-note-legacy-content.util';
 import {
   formatStoredAllergyLine,
@@ -155,7 +156,7 @@ export class ClinicalNoteSectionSuggestionService {
 
     out.identificacao = [
       `Paciente: ${patient.name}`,
-      `Idade: ${age} anos (referência de data: fuso ${TZ_SP})`,
+      `Idade: ${age} anos`,
       `Sexo: ${genderLabelPt(patient.gender)}`,
       patient.medicalRecordNumber
         ? `Prontuário hospitalar: ${patient.medicalRecordNumber}`
@@ -191,7 +192,7 @@ export class ClinicalNoteSectionSuggestionService {
         hppLines.push(line);
       }
       if (typeof o.notes === 'string' && o.notes.trim()) {
-        hppLines.push(`  Notas (tabagismo): ${o.notes.trim()}`);
+        hppLines.push(`  ${o.notes.trim()}`);
       }
     } else if (patient.smokingHistory?.trim()) {
       hppLines.push(`Tabagismo: ${patient.smokingHistory.trim()}`);
@@ -216,7 +217,7 @@ export class ClinicalNoteSectionSuggestionService {
         hppLines.push(line);
       }
       if (typeof o.notes === 'string' && o.notes.trim()) {
-        hppLines.push(`  Notas (álcool): ${o.notes.trim()}`);
+        hppLines.push(`  ${o.notes.trim()}`);
       }
     } else if (patient.alcoholHistory?.trim()) {
       hppLines.push(`Etilismo: ${patient.alcoholHistory.trim()}`);
@@ -255,7 +256,7 @@ export class ClinicalNoteSectionSuggestionService {
           typeof r.ageAtDiagnosis === 'number' ? `${r.ageAtDiagnosis} anos` : '';
         if (rel || ct) {
           hppLines.push(
-            `História familiar: ${rel || '—'} — ${ct || '—'}${ageD ? ` (idade no diagnóstico: ${ageD})` : ''}`
+            `${rel || '—'} · ${ct || '—'}${ageD ? ` · ${ageD}` : ''}`
           );
         }
       }
@@ -325,11 +326,7 @@ export class ClinicalNoteSectionSuggestionService {
       }
     }
     if (patient.allergies?.trim()) {
-      if (allergyBits.length) {
-        allergyBits.push(`Observações adicionais: ${patient.allergies.trim()}`);
-      } else {
-        allergyBits.push(patient.allergies.trim());
-      }
+      allergyBits.push(patient.allergies.trim());
     }
     out.alergias = allergyBits.join('\n');
 
@@ -342,10 +339,8 @@ export class ClinicalNoteSectionSuggestionService {
           ? String(last.valueNumeric)
           : (last.valueText?.trim() ?? '');
       const unit = last.unit?.trim() ? ` ${last.unit.trim()}` : '';
-      const abn =
-        last.isAbnormal === true ? ' (alterado)' : last.isAbnormal === false ? '' : '';
       examChunks.push(
-        `• ${ex.name} (${formatDatePt(last.performedAt)}): ${val}${unit}${abn}`
+        `• ${ex.name} (${formatDatePt(last.performedAt)}): ${val}${unit}`
       );
     }
     out.examesComplementares = examChunks.join('\n');
@@ -358,7 +353,7 @@ export class ClinicalNoteSectionSuggestionService {
         : '';
       const name = t.treatmentName?.trim() ? ` — ${t.treatmentName.trim()}` : '';
       const proto = t.protocol?.trim() ? ` — ${t.protocol.trim()}` : '';
-      const start = t.startDate ? `Início: ${formatDatePt(t.startDate)}` : '';
+      const start = t.startDate ? `${formatDatePt(t.startDate)}` : '';
       const status = t.status
         ? ` — ${TREATMENT_STATUS_LABELS[t.status] ?? t.status}`
         : '';
@@ -396,6 +391,16 @@ export class ClinicalNoteSectionSuggestionService {
       out.examesComplementares = base
         ? `${base}\n${examesComplementaresAppend}`
         : examesComplementaresAppend.trim();
+    }
+
+    for (const k of CLINICAL_NOTE_SECTION_KEYS) {
+      if (k === 'tratamentos') {
+        continue;
+      }
+      const v = out[k];
+      if (typeof v === 'string' && v.trim() !== '') {
+        out[k] = normalizeEvolutionSectionBody(v);
+      }
     }
 
     return { contentMarkdown: sectionsRecordToMarkdown(out) };
