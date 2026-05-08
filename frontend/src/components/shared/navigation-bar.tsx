@@ -58,12 +58,12 @@ const baseNavItems: NavItem[] = [
   },
   {
     path: '/oncology-navigation',
-    label: 'Navegação Oncológica',
+    label: 'Navegação',
     icon: Navigation,
   },
   {
     path: '/oncology-navigation/agenda',
-    label: 'Agenda de consultas',
+    label: 'Agenda',
     icon: CalendarDays,
   },
   {

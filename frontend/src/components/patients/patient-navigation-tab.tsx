@@ -53,6 +53,10 @@ import {
   StageDroppableColumn,
 } from '@/components/patients/navigation-step-dnd';
 import { NavigationStep, navigationApi } from '@/lib/api/navigation';
+import {
+  formatNavigationStepDateBr,
+  NAVIGATION_STEP_UI_DATE_LABEL,
+} from '@/lib/utils/navigation-step-dates';
 import { NavigationStepDialog } from './navigation-step-dialog';
 import { CreateNavigationStepDialog } from './create-navigation-step-dialog';
 import { toast } from 'sonner';
@@ -723,64 +727,49 @@ export function PatientNavigationTab({
                                 {step.stepDescription}
                               </p>
                             )}
-                            <div className="flex items-center gap-4 text-sm flex-wrap">
-                              {step.expectedDate && (
-                                <div>
-                                  <span className="font-medium">
-                                    Prazo esperado:
-                                  </span>{' '}
-                                  {format(
-                                    new Date(step.expectedDate),
-                                    'dd/MM/yyyy',
-                                    {
-                                      locale: ptBR,
-                                    }
-                                  )}
-                                </div>
-                              )}
-                              {step.completedAt && (
-                                <div>
-                                  <span className="font-medium">
-                                    Concluído em:
-                                  </span>{' '}
-                                  {format(
-                                    new Date(step.completedAt),
-                                    'dd/MM/yyyy',
-                                    {
-                                      locale: ptBR,
-                                    }
-                                  )}
-                                </div>
-                              )}
-                              {step.dueDate && (
-                                <div>
-                                  <span className="font-medium">
-                                    Prazo final:
-                                  </span>{' '}
-                                  {format(
-                                    new Date(step.dueDate),
-                                    'dd/MM/yyyy',
-                                    {
-                                      locale: ptBR,
-                                    }
-                                  )}
-                                </div>
-                              )}
-                              {step.actualDate && (
-                                <div>
-                                  <span className="font-medium">
-                                    Data real:
-                                  </span>{' '}
-                                  {format(
-                                    new Date(step.actualDate),
-                                    'dd/MM/yyyy',
-                                    {
-                                      locale: ptBR,
-                                    }
-                                  )}
-                                </div>
-                              )}
-                            </div>
+                            <dl className="grid gap-2 rounded-md border border-border/70 bg-muted/15 px-2 py-2 text-sm sm:grid-cols-3">
+                              <div className="min-w-0">
+                                <dt className="text-xs font-medium text-muted-foreground">
+                                  {NAVIGATION_STEP_UI_DATE_LABEL.agendada}
+                                </dt>
+                                <dd className="font-mono text-foreground tabular-nums">
+                                  {formatNavigationStepDateBr(step.expectedDate)}
+                                </dd>
+                              </div>
+                              <div className="min-w-0">
+                                <dt className="text-xs font-medium text-muted-foreground">
+                                  {NAVIGATION_STEP_UI_DATE_LABEL.limite}
+                                </dt>
+                                <dd
+                                  className={
+                                    step.status === 'OVERDUE'
+                                      ? 'font-mono font-semibold text-destructive tabular-nums'
+                                      : 'font-mono text-foreground tabular-nums'
+                                  }
+                                >
+                                  {formatNavigationStepDateBr(step.dueDate)}
+                                </dd>
+                              </div>
+                              <div className="min-w-0">
+                                <dt className="text-xs font-medium text-muted-foreground">
+                                  {NAVIGATION_STEP_UI_DATE_LABEL.realizada}
+                                </dt>
+                                <dd className="font-mono text-foreground tabular-nums">
+                                  {formatNavigationStepDateBr(step.actualDate)}
+                                </dd>
+                              </div>
+                            </dl>
+                            {step.completedAt ? (
+                              <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                                <Clock className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                                <span>
+                                  Registro no sistema (conclusão):{' '}
+                                  {format(new Date(step.completedAt), 'dd/MM/yyyy', {
+                                    locale: ptBR,
+                                  })}
+                                </span>
+                              </div>
+                            ) : null}
                             {step.institutionName && (
                               <div className="text-sm">
                                 <span className="font-medium">

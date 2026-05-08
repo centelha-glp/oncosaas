@@ -1,6 +1,11 @@
 import { apiClient } from './client';
 import type { JourneyStage } from '@/lib/utils/journey-stage';
 
+/**
+ * Datas por etapa (documentação produto ↔ JSON):
+ * @see frontend/src/lib/utils/navigation-step-dates.ts NAVIGATION_STEP_UI_DATE_LABEL —
+ * «Agendada» → expectedDate; «Limite» → dueDate; «Realizada» → actualDate.
+ */
 /** Parâmetro de estágio da jornada (API oncology-navigation) — alinhado ao Prisma. */
 export type JourneyStageParam = JourneyStage;
 
@@ -29,9 +34,12 @@ export interface NavigationStep {
   isRequired: boolean;
   isCompleted: boolean;
   completedAt?: string;
+  /** «Agendada» na UI — data-alvo planejada. */
   expectedDate?: string;
-  dueDate?: string; // Data limite para gerar alarmes de atraso
-  actualDate?: string; // Data real de conclusão
+  /** «Limite» na UI — vigência para alertas de atraso. */
+  dueDate?: string;
+  /** «Realizada» na UI — quando o evento ocorreu. */
+  actualDate?: string;
   institutionName?: string; // Instituição de saúde onde foi realizada
   professionalName?: string; // Profissional que realizou a etapa
   result?: string; // Resultado da etapa
@@ -106,8 +114,9 @@ export interface UpdateNavigationStepDto {
   isCompleted?: boolean;
   completedAt?: string;
   completedBy?: string;
-  actualDate?: string; // Data realizada
-  dueDate?: string; // Data limite para gerar alarmes de atraso
+  expectedDate?: string;
+  actualDate?: string;
+  dueDate?: string;
   institutionName?: string; // Instituição de saúde onde foi realizada
   professionalName?: string; // Profissional que realizou
   result?: string; // Resultado da etapa

@@ -10,7 +10,6 @@ import {
   XCircle,
   ChevronRight,
   ChevronDown,
-  Calendar,
   FileText,
   ClipboardList,
   Pencil,
@@ -30,6 +29,10 @@ import {
 import { Button } from '@/components/ui/button';
 import { NavigationStepForm } from '@/components/patients/navigation-step-form';
 import type { UpdateNavigationStepFormData } from '@/lib/validations/navigation-step';
+import {
+  formatNavigationStepDateBr,
+  NAVIGATION_STEP_UI_DATE_LABEL,
+} from '@/lib/utils/navigation-step-dates';
 
 interface OncologyNavigationPanelProps {
   patientId: string;
@@ -158,6 +161,7 @@ export function OncologyNavigationPanel({
         status: data.status,
         isCompleted: data.isCompleted,
         completedAt: data.completedAt,
+        expectedDate: data.expectedDate,
         actualDate: data.actualDate,
         dueDate: data.dueDate,
         institutionName: data.institutionName,
@@ -311,35 +315,39 @@ export function OncologyNavigationPanel({
                             </p>
                           )}
 
-                          {/* Prazo */}
-                          {step.dueDate && (
-                            <div className="flex items-center gap-1.5 text-sm text-orange-700">
-                              <Clock className="h-4 w-4" />
-                              <span>
-                                Prazo:{' '}
-                                {format(new Date(step.dueDate), 'dd/MM/yyyy', {
-                                  locale: ptBR,
-                                })}
-                              </span>
+                          {/* Datas planejamento / limite / realização */}
+                          <dl className="mt-2 grid gap-2 text-sm text-orange-800 sm:grid-cols-3">
+                            <div>
+                              <dt className="text-xs font-medium text-orange-900/90">
+                                {NAVIGATION_STEP_UI_DATE_LABEL.agendada}
+                              </dt>
+                              <dd className="font-mono tabular-nums">
+                                {formatNavigationStepDateBr(step.expectedDate)}
+                              </dd>
                             </div>
-                          )}
-
-                          {/* Data esperada (se não houver prazo) */}
-                          {!step.dueDate && step.expectedDate && (
-                            <div className="flex items-center gap-1.5 text-sm text-orange-700">
-                              <Clock className="h-4 w-4" />
-                              <span>
-                                Esperado:{' '}
-                                {format(
-                                  new Date(step.expectedDate),
-                                  'dd/MM/yyyy',
-                                  {
-                                    locale: ptBR,
-                                  }
-                                )}
-                              </span>
+                            <div>
+                              <dt className="text-xs font-medium text-orange-900/90">
+                                {NAVIGATION_STEP_UI_DATE_LABEL.limite}
+                              </dt>
+                              <dd
+                                className={
+                                  step.status === 'OVERDUE'
+                                    ? 'font-mono tabular-nums font-semibold text-red-700'
+                                    : 'font-mono tabular-nums'
+                                }
+                              >
+                                {formatNavigationStepDateBr(step.dueDate)}
+                              </dd>
                             </div>
-                          )}
+                            <div>
+                              <dt className="text-xs font-medium text-orange-900/90">
+                                {NAVIGATION_STEP_UI_DATE_LABEL.realizada}
+                              </dt>
+                              <dd className="font-mono tabular-nums">
+                                {formatNavigationStepDateBr(step.actualDate)}
+                              </dd>
+                            </div>
+                          </dl>
 
                           {/* Status de conclusão */}
                           {step.completedAt && (
