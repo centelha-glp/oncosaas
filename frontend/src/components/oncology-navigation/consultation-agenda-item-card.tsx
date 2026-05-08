@@ -43,7 +43,7 @@ export function ConsultationAgendaItemCard({ item }: ConsultationAgendaItemCardP
           </p>
           <dl className="grid grid-cols-1 gap-1 text-xs text-muted-foreground sm:grid-cols-3">
             <div>
-              <dt className="inline font-medium text-foreground">Prevista: </dt>
+              <dt className="inline font-medium text-foreground">Agendada: </dt>
               <dd className="inline">{formatShortAgendaDate(item.expectedDate)}</dd>
             </div>
             <div>

@@ -919,9 +919,44 @@ describe('OncologyNavigationService', () => {
             stepKey: {
               in: ['specialist_consultation', 'navigation_consultation'],
             },
+            AND: expect.arrayContaining([
+              { expectedDate: { not: null } },
+              {
+                expectedDate: expect.objectContaining({
+                  gte: expect.any(Date),
+                  lte: expect.any(Date),
+                }),
+              },
+            ]),
           }),
         })
       );
+    });
+
+    it('filtra agenda somente por expectedDate (não considera dueDate para inclusão)', async () => {
+      mockPrisma.$transaction.mockResolvedValue([0, []]);
+
+      await service.getConsultationAgenda(TENANT, {
+        from: '2026-05-01',
+        to: '2026-05-31',
+      });
+
+      const countArg = mockPrisma.navigationStep.count.mock.calls[0][0];
+      expect(countArg.where).toEqual(
+        expect.objectContaining({
+          tenantId: TENANT,
+          AND: expect.arrayContaining([
+            { expectedDate: { not: null } },
+            {
+              expectedDate: expect.objectContaining({
+                gte: expect.any(Date),
+                lte: expect.any(Date),
+              }),
+            },
+          ]),
+        })
+      );
+      expect(JSON.stringify(countArg.where)).not.toContain('dueDate');
     });
 
     it('omits stepKey filter when scope is all', async () => {

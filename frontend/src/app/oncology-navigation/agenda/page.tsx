@@ -85,8 +85,7 @@ export default function ConsultationAgendaPage() {
               Agenda
             </h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              Etapas de consulta com data prevista ou limite no período
-              selecionado.
+              Etapas de consulta com data agendada no período selecionado.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -155,7 +154,7 @@ export default function ConsultationAgendaPage() {
               <EmptyState
                 icon={<CalendarDays className="h-12 w-12" aria-hidden />}
                 title="Nenhum item no período"
-                description="Ajuste as datas, o escopo ou verifique se as etapas têm data prevista ou limite preenchidos."
+                description="Ajuste as datas, o escopo ou verifique se as etapas têm data agendada preenchida."
               />
             </CardContent>
           </Card>
