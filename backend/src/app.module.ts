@@ -38,6 +38,7 @@ import { ConsentModule } from './consent/consent.module';
 import { ProductFeedbackModule } from './product-feedback/product-feedback.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { ThrottleGuard } from './common/guards/throttle.guard';
+import { TissGuidesModule } from './tiss-guides/tiss-guides.module';
 
 @Module({
   imports: [
@@ -76,6 +77,7 @@ import { ThrottleGuard } from './common/guards/throttle.guard';
     EmergencyReferencesModule,
     DispositionFeedbackModule,
     ClinicalNotesModule,
+    TissGuidesModule,
     ConsentModule,
     ProductFeedbackModule,
   ],
