@@ -162,28 +162,15 @@ export class OncologyNavigationService {
         ? { stepKey: { in: [...CONSULTATION_STEP_KEYS] } }
         : {};
 
-    const dateOverlap: Prisma.NavigationStepWhereInput = {
-      OR: [
-        {
-          AND: [
-            { expectedDate: { not: null } },
-            { expectedDate: { gte: fromStart, lte: toEnd } },
-          ],
-        },
-        {
-          AND: [
-            { dueDate: { not: null } },
-            { dueDate: { gte: fromStart, lte: toEnd } },
-          ],
-        },
-        {
-          AND: [
-            { expectedDate: { not: null } },
-            { dueDate: { not: null } },
-            { expectedDate: { lte: toEnd } },
-            { dueDate: { gte: fromStart } },
-          ],
-        },
+    /**
+     * Agenda deve ser filtrada por data agendada (expectedDate).
+     * dueDate ("Limite") permanece no payload para exibição/monitoramento,
+     * mas não determina inclusão no intervalo da agenda.
+     */
+    const dateFilter: Prisma.NavigationStepWhereInput = {
+      AND: [
+        { expectedDate: { not: null } },
+        { expectedDate: { gte: fromStart, lte: toEnd } },
       ],
     };
 
@@ -191,7 +178,7 @@ export class OncologyNavigationService {
       tenantId,
       status: { not: NavigationStepStatus.CANCELLED },
       ...stepKeyFilter,
-      ...dateOverlap,
+      ...dateFilter,
     };
 
     const [total, rows] = await this.prisma.$transaction([
@@ -218,7 +205,7 @@ export class OncologyNavigationService {
     ]);
 
     const items: ConsultationAgendaItem[] = rows.map((row) => {
-      const agendaDate = row.expectedDate ?? row.dueDate ?? fromStart;
+      const agendaDate = row.expectedDate ?? fromStart;
       return {
         id: row.id,
         patientId: row.patientId,
