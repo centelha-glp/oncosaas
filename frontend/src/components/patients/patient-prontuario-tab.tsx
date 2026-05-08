@@ -23,7 +23,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
+import { AutoResizeTextarea } from '@/components/ui/auto-resize-textarea';
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -38,6 +38,8 @@ import { ApiClientError } from '@/lib/api/client';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useAuthStore } from '@/stores/auth-store';
+import { ClinicalNoteOrdersPanel } from '@/components/patients/clinical-note-orders-panel';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   canCreateClinicalNoteType,
   canEditDraftClinicalNote,
@@ -639,31 +641,89 @@ export function PatientProntuarioTab({
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="clinical-note-markdown">
-                  {isDraftEditable
-                    ? 'Evolução clínica (Markdown)'
-                    : 'Evolução clínica'}
-                </Label>
-                {isDraftEditable ? (
-                  <Textarea
-                    id="clinical-note-markdown"
-                    value={draftMarkdown}
-                    onChange={(e) => setDraftMarkdown(e.target.value)}
-                    rows={18}
-                    className="font-mono text-sm min-h-[12rem]"
-                    spellCheck
-                  />
-                ) : (
-                  <div
-                    className="rounded-md border bg-muted/30 p-4 max-h-[32rem] overflow-y-auto"
-                    role="region"
-                    aria-label="Conteúdo da evolução"
-                  >
-                    <ClinicalNoteMarkdownBody markdown={draftMarkdown} />
+              <Tabs defaultValue="evolution" className="[overflow-anchor:none]">
+                <TabsList className="w-full justify-start">
+                  <TabsTrigger value="evolution">Evolução</TabsTrigger>
+                  <TabsTrigger value="exams">Exames</TabsTrigger>
+                  {detail.noteType === 'MEDICAL' && (
+                    <TabsTrigger value="prescription">Receita</TabsTrigger>
+                  )}
+                </TabsList>
+
+                <TabsContent value="evolution">
+                  <div className="space-y-2">
+                    <Label htmlFor="clinical-note-markdown">
+                      {isDraftEditable
+                        ? 'Evolução clínica (Markdown)'
+                        : 'Evolução clínica'}
+                    </Label>
+                    {isDraftEditable ? (
+                      <AutoResizeTextarea
+                        id="clinical-note-markdown"
+                        value={draftMarkdown}
+                        onChange={(e) => setDraftMarkdown(e.target.value)}
+                        minRows={10}
+                        className="font-mono text-sm pb-12 md:pb-16"
+                        spellCheck
+                      />
+                    ) : (
+                      <div
+                        className="rounded-md border bg-muted/30 p-4 pb-12 md:pb-16 max-h-[32rem] overflow-y-auto"
+                        role="region"
+                        aria-label="Conteúdo da evolução"
+                      >
+                        <ClinicalNoteMarkdownBody markdown={draftMarkdown} />
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
+                </TabsContent>
+
+                <TabsContent value="exams">
+                  <ClinicalNoteOrdersPanel
+                    variant="exams"
+                    patientId={patient.id}
+                    patientName={patient.name}
+                    clinicalNoteId={detail.id}
+                    noteType={detail.noteType}
+                    noteStatus={detail.status}
+                    professionalName={
+                      detail.signedBy?.name?.trim() ||
+                      detail.createdBy?.name?.trim() ||
+                      undefined
+                    }
+                    canManageExamRequests={canCreateClinicalNoteType(
+                      role,
+                      clinicalSubrole,
+                      detail.noteType
+                    )}
+                    canManagePrescriptions={false}
+                  />
+                </TabsContent>
+
+                <TabsContent value="prescription">
+                  {detail.noteType === 'MEDICAL' && (
+                    <ClinicalNoteOrdersPanel
+                      variant="prescription"
+                      patientId={patient.id}
+                      patientName={patient.name}
+                      clinicalNoteId={detail.id}
+                      noteType={detail.noteType}
+                      noteStatus={detail.status}
+                      professionalName={
+                        detail.signedBy?.name?.trim() ||
+                        detail.createdBy?.name?.trim() ||
+                        undefined
+                      }
+                      canManageExamRequests={false}
+                      canManagePrescriptions={canCreateClinicalNoteType(
+                        role,
+                        clinicalSubrole,
+                        'MEDICAL'
+                      )}
+                    />
+                  )}
+                </TabsContent>
+              </Tabs>
 
               {detail.status === 'VOIDED' && detail.voidReason && (
                 <p className="text-sm text-destructive">
@@ -736,11 +796,11 @@ export function PatientProntuarioTab({
               Informe o motivo da anulação (registro de auditoria).
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <Textarea
+          <AutoResizeTextarea
             value={voidReason}
             onChange={(e) => setVoidReason(e.target.value)}
             placeholder="Motivo"
-            rows={3}
+            minRows={3}
           />
           <AlertDialogFooter>
             <AlertDialogCancel disabled={voidNote.isPending}>

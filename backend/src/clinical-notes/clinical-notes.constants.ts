@@ -21,9 +21,6 @@ export type ClinicalNoteSectionKey = (typeof CLINICAL_NOTE_SECTION_KEYS)[number]
 /** Limite por campo (caracteres) — legado V1 por seção */
 export const CLINICAL_NOTE_SECTION_MAX_LENGTH = 32_000;
 
-/** Limite do corpo Markdown da evolução (V2, texto único cifrado). */
-export const CLINICAL_NOTE_CONTENT_MARKDOWN_MAX_LENGTH = 400_000;
-
 /**
  * Chave da etapa de navegação universal correspondente a cada tipo de evolução.
  * Alinhado a `mergeUniversalStepConfigs` em oncology-navigation.service.ts.

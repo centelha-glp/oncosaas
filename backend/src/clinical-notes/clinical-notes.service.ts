@@ -20,10 +20,7 @@ import {
   encryptSensitiveData,
   decryptSensitiveData,
 } from '../whatsapp-connections/utils/encryption.util';
-import {
-  CLINICAL_NOTE_NAVIGATION_STEP_KEY,
-  CLINICAL_NOTE_CONTENT_MARKDOWN_MAX_LENGTH,
-} from './clinical-notes.constants';
+import { CLINICAL_NOTE_NAVIGATION_STEP_KEY } from './clinical-notes.constants';
 import { decodeDecryptedClinicalNoteToMarkdown } from './clinical-note-legacy-content.util';
 import {
   CreateClinicalNoteDto,
@@ -59,13 +56,7 @@ export class ClinicalNotesService {
   }
 
   normalizeAndValidateContentMarkdown(raw: string | null | undefined): string {
-    const s = raw === undefined || raw === null ? '' : String(raw);
-    if (s.length > CLINICAL_NOTE_CONTENT_MARKDOWN_MAX_LENGTH) {
-      throw new BadRequestException(
-        `Conteúdo da evolução excede ${CLINICAL_NOTE_CONTENT_MARKDOWN_MAX_LENGTH} caracteres`
-      );
-    }
-    return s;
+    return raw === undefined || raw === null ? '' : String(raw);
   }
 
   private encryptClinicalNotePayload(plaintext: string): {
