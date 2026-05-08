@@ -5,7 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, UserRole } from '@generated/prisma/client';
+import { ClinicalNoteStatus, Prisma, UserRole } from '@generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ClinicalNotesService, type ClinicalNoteActor } from '../clinical-notes/clinical-notes.service';
 import { CreateTissSpsadtGuideDto } from './dto/create-tiss-spsadt-guide.dto';
@@ -63,10 +63,13 @@ export class TissGuidesService {
 
     const note = await this.prisma.clinicalNote.findFirst({
       where: { id: clinicalNoteId, tenantId, patientId },
-      select: { id: true, noteType: true },
+      select: { id: true, noteType: true, status: true },
     });
     if (!note) {
       throw new NotFoundException('Evolução não encontrada para este paciente');
+    }
+    if (note.status === ClinicalNoteStatus.VOIDED) {
+      throw new BadRequestException('Não é possível emitir guia para evolução anulada');
     }
     // Mantém a mesma regra de permissão do prontuário por tipo de evolução.
     if (

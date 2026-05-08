@@ -388,7 +388,7 @@ export function ClinicalNoteOrdersPanel(props: {
     const items = rows
       .map(
         (r) => {
-          const code = r.code || r.loincCode || '—';
+          const code = r.examCatalogCode || r.code || r.loincCode || '—';
           return `<tr>
             <td>${escapeHtml(r.displayName)}</td>
             <td class="muted">${escapeHtml(code)}</td>
@@ -416,7 +416,8 @@ export function ClinicalNoteOrdersPanel(props: {
   };
 
   const [rxCopiesRaw, setRxCopiesRaw] = useState('2');
-  const rxCopies = Math.max(parseInt(rxCopiesRaw || '1', 10) || 1, 1);
+  const rxCopiesParsed = parseInt(rxCopiesRaw || '1', 10) || 1;
+  const rxCopies = Math.min(Math.max(rxCopiesParsed, 1), 10);
   const handlePrintPrescription = () => {
     const rows =
       (rxQuery.data as ClinicalPrescriptionLineRow[] | undefined) ?? [];
