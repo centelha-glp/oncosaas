@@ -25,7 +25,6 @@ import { MetricsCharts } from '@/components/dashboard/oncologist/metrics-charts'
 import { CriticalAlertsPanel } from '@/components/dashboard/oncologist/critical-alerts-panel';
 import { TeamPerformance } from '@/components/dashboard/oncologist/team-performance';
 import { CriticalStepsSection } from '@/components/dashboard/oncologist/critical-steps-section';
-import { ROISection } from '@/components/dashboard/oncologist/roi-section';
 import { ExecutiveView } from '@/components/dashboard/oncologist/executive-view';
 import { CriticalTimelinesSection } from '@/components/dashboard/oncologist/critical-timelines-section';
 
@@ -595,11 +594,6 @@ function ManagementDashboard() {
               {/* Visão Executiva */}
               {metrics && statistics && (
                 <ExecutiveView metrics={metrics} statistics={statistics} />
-              )}
-
-              {/* Seção de ROI */}
-              {metrics && statistics && (
-                <ROISection metrics={metrics} statistics={statistics} />
               )}
 
               {/* Seção de Prazos Críticos por Tipo de Câncer */}
