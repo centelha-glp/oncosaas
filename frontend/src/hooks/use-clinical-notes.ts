@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   clinicalNotesApi,
+  type ClinicalNoteMutationResponse,
   type ClinicalNoteType,
 } from '@/lib/api/clinical-notes';
 
@@ -69,17 +70,41 @@ export function useClinicalNoteMutations(patientId: string) {
       contentMarkdown: string;
       changeReason?: string;
       navigationStepId?: string;
+      /** Quando true, evita invalidar/refetch (ex.: autosave) */
+      silent?: boolean;
     }) =>
       clinicalNotesApi.update(args.id, {
         contentMarkdown: args.contentMarkdown,
         changeReason: args.changeReason,
         navigationStepId: args.navigationStepId,
       }),
-    onSuccess: (_, v) => {
+    onSuccess: (res, v) => {
+      // Atualiza cache do detalhe imediatamente para não depender de refetch.
+      queryClient.setQueryData(
+        ['clinical-notes', 'detail', v.id],
+        (old: unknown) => {
+          if (!old || typeof old !== 'object') return old;
+          const prev = old as Record<string, unknown>;
+          return {
+            ...prev,
+            contentMarkdown: v.contentMarkdown,
+            latestVersionNumber:
+              (res as ClinicalNoteMutationResponse | undefined)
+                ?.latestVersionNumber ?? prev.latestVersionNumber,
+            sectionsContentHash:
+              (res as ClinicalNoteMutationResponse | undefined)
+                ?.sectionsContentHash ?? prev.sectionsContentHash,
+            updatedAt:
+              (res as ClinicalNoteMutationResponse | undefined)?.updatedAt ??
+              prev.updatedAt,
+          };
+        }
+      );
+
+      // Em autosave, evitar invalidate/refetch para não gerar layout shift/scroll jump.
+      if (v.silent) return;
+
       invalidate();
-      queryClient.invalidateQueries({
-        queryKey: ['clinical-notes', 'detail', v.id],
-      });
     },
   });
 

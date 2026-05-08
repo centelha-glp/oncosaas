@@ -24,6 +24,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
 import { AutoResizeTextarea } from '@/components/ui/auto-resize-textarea';
+import { Textarea } from '@/components/ui/textarea';
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -181,7 +182,11 @@ export function PatientProntuarioTab({
     if (update.isPending) return;
 
     update.mutate(
-      { id: noteId, contentMarkdown: debouncedDraftPayload.contentMarkdown },
+      {
+        id: noteId,
+        contentMarkdown: debouncedDraftPayload.contentMarkdown,
+        silent: true,
+      },
       {
         onSuccess: () => {
           draftBaselineSerialized.current = serialized;
@@ -631,13 +636,6 @@ export function PatientProntuarioTab({
                         </Button>
                       )}
                   </div>
-                  {detail.status === 'DRAFT' && detailPerms?.canEditDraft && (
-                    <p className="text-xs text-muted-foreground text-right max-w-md sm:max-w-lg">
-                      {update.isPending
-                        ? 'Salvando rascunho…'
-                        : 'Salvamento automático cerca de 1 s após parar de digitar. Use Markdown (## títulos, listas, **negrito**).'}
-                    </p>
-                  )}
                 </div>
               </div>
 
@@ -658,12 +656,12 @@ export function PatientProntuarioTab({
                         : 'Evolução clínica'}
                     </Label>
                     {isDraftEditable ? (
-                      <AutoResizeTextarea
+                      <Textarea
                         id="clinical-note-markdown"
                         value={draftMarkdown}
                         onChange={(e) => setDraftMarkdown(e.target.value)}
-                        minRows={10}
-                        className="font-mono text-sm pb-12 md:pb-16"
+                        rows={30}
+                        className="font-mono text-sm pb-12 md:pb-16 resize-none overflow-y-auto"
                         spellCheck
                       />
                     ) : (
