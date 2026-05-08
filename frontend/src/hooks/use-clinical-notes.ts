@@ -92,7 +92,10 @@ export function useClinicalNoteMutations(patientId: string) {
   });
 
   const addendum = useMutation({
-    mutationFn: (args: { parentId: string; contentMarkdown?: string }) =>
+    mutationFn: (args: {
+      parentId: string;
+      contentMarkdown?: string;
+    }) =>
       clinicalNotesApi.addendum(args.parentId, {
         contentMarkdown: args.contentMarkdown,
       }),
