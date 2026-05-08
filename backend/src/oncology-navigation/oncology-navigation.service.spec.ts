@@ -822,6 +822,49 @@ describe('OncologyNavigationService', () => {
     });
   });
 
+  // ─── updateStep — expectedDate ────────────────────────────────────────────────
+
+  describe('updateStep — expectedDate', () => {
+    const stepId = 'step-test-1';
+    const tenantScopedExisting = {
+      id: stepId,
+      tenantId: TENANT,
+      patientId: PATIENT_ID,
+      isCompleted: false,
+      status: NavigationStepStatus.PENDING,
+      journeyStage: JourneyStage.TREATMENT,
+      expectedDate: null,
+      dueDate: null,
+      actualDate: null,
+      completedAt: null,
+    };
+
+    beforeEach(() => {
+      mockPrisma.navigationStep.findFirst.mockResolvedValue(tenantScopedExisting as never);
+      mockPrisma.navigationStep.update.mockResolvedValue({
+        ...tenantScopedExisting,
+        expectedDate: new Date('2026-06-15T12:00:00.000Z'),
+      } as never);
+    });
+
+    it('persiste expectedDate quando enviado no DTO', async () => {
+      await service.updateStep(
+        stepId,
+        { expectedDate: '2026-06-15' },
+        TENANT
+      );
+
+      expect(mockPrisma.navigationStep.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: stepId, tenantId: TENANT },
+          data: expect.objectContaining({
+            expectedDate: expect.any(Date),
+          }),
+        })
+      );
+    });
+  });
+
   // ─── getConsultationAgenda ───────────────────────────────────────────────────
 
   describe('getConsultationAgenda', () => {
