@@ -5,13 +5,25 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogClose,
+} from '@/components/ui/dialog';
+import {
   clinicalNoteOrdersApi,
   type ClinicalExamRequestRow,
   type ClinicalPrescriptionLineRow,
 } from '@/lib/api/clinical-note-orders';
+import { tissGuidesApi } from '@/lib/api/tiss-guides';
 import type { ClinicalNoteType } from '@/lib/api/clinical-notes';
 import { toast } from 'sonner';
 import { useState } from 'react';
+import { useForm } from 'react-hook-form';
+import { z } from 'zod';
+import { zodResolver } from '@hookform/resolvers/zod';
 
 const qk = ['clinical-note-orders'] as const;
 
@@ -31,19 +43,14 @@ function escapeHtml(s: string): string {
 }
 
 function openPrintHtml(args: { title: string; htmlBody: string }) {
-  const w = window.open('', '_blank', 'noopener,noreferrer');
-  if (!w) {
-    toast.error('Não foi possível abrir a janela de impressão.');
-    return;
-  }
-  w.document.open();
-  w.document.write(`<!doctype html>
+  const html = `<!doctype html>
 <html>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>${escapeHtml(args.title)}</title>
     <style>
+      @page { size: A4; margin: 10mm; content: "A4"; }
       body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; color: #111827; padding: 24px; }
       h1 { font-size: 16px; margin: 0 0 12px; }
       h2 { font-size: 14px; margin: 16px 0 8px; }
@@ -53,17 +60,59 @@ function openPrintHtml(args: { title: string; htmlBody: string }) {
       th, td { border-bottom: 1px solid #e5e7eb; text-align: left; padding: 8px 6px; font-size: 12px; vertical-align: top; }
       th { font-weight: 600; }
       .page-break { page-break-before: always; }
-      @media print { body { padding: 0; } .no-print { display: none; } }
+      @media print {
+        body { padding: 0; }
+        .no-print { display: none; }
+      }
     </style>
   </head>
   <body>
     ${args.htmlBody}
-    <script>
-      window.onload = () => { window.focus(); window.print(); };
-    </script>
   </body>
-</html>`);
-  w.document.close();
+</html>`;
+
+  // Imprime via iframe invisível na mesma página (sem abrir nova aba)
+  const iframe = document.createElement('iframe');
+  iframe.style.position = 'fixed';
+  iframe.style.right = '0';
+  iframe.style.bottom = '0';
+  iframe.style.width = '0';
+  iframe.style.height = '0';
+  iframe.style.border = '0';
+  iframe.setAttribute('aria-hidden', 'true');
+  document.body.appendChild(iframe);
+
+  const doc = iframe.contentDocument;
+  if (!doc) {
+    toast.error('Não foi possível iniciar impressão (documento indisponível).');
+    iframe.remove();
+    return;
+  }
+
+  doc.open();
+  doc.write(html);
+  doc.close();
+
+  // Espera o iframe carregar o conteúdo antes de printar
+  let didPrint = false;
+  const tryPrint = () => {
+    if (didPrint) return;
+    const win = iframe.contentWindow;
+    if (!win) {
+      toast.error('Não foi possível iniciar impressão (janela indisponível).');
+      iframe.remove();
+      return;
+    }
+    didPrint = true;
+    win.focus();
+    win.print();
+    // Limpeza: remover após um tempo curto (evita acumular iframes)
+    window.setTimeout(() => iframe.remove(), 1000);
+  };
+
+  // Alguns browsers disparam onload; outros não. Então tentamos ambos.
+  iframe.onload = () => tryPrint();
+  window.setTimeout(() => tryPrint(), 250);
 }
 
 export function ClinicalNoteOrdersPanel(props: {
@@ -154,6 +203,7 @@ export function ClinicalNoteOrdersPanel(props: {
   const [medDose, setMedDose] = useState('');
   const [medFreq, setMedFreq] = useState('');
   const [medRoute, setMedRoute] = useState('');
+  const [medPosology, setMedPosology] = useState('');
 
   const addRx = useMutation({
     mutationFn: () =>
@@ -163,7 +213,7 @@ export function ClinicalNoteOrdersPanel(props: {
         {
           medicationName: medName.trim(),
           dosage: medDose.trim() || undefined,
-          frequency: medFreq.trim() || undefined,
+          frequency: (medFreq.trim() || medPosology.trim()) || undefined,
           route: medRoute.trim() || undefined,
         }
       ),
@@ -172,6 +222,7 @@ export function ClinicalNoteOrdersPanel(props: {
       setMedDose('');
       setMedFreq('');
       setMedRoute('');
+      setMedPosology('');
       invalidate();
       toast.success('Medicamento adicionado à prescrição.');
     },
@@ -198,24 +249,151 @@ export function ClinicalNoteOrdersPanel(props: {
     onError: () => toast.error('Não foi possível remover o item.'),
   });
 
-  const draftLocked = noteStatus !== 'DRAFT';
-  const canEditExams = !draftLocked && canManageExamRequests;
-  const canEditRx = !draftLocked && canManagePrescriptions;
+  const canEditExams = noteStatus !== 'VOIDED' && canManageExamRequests;
+  const canEditRx = noteStatus !== 'VOIDED' && canManagePrescriptions;
 
   const safePatientName = patientName?.trim() ? patientName.trim() : 'Paciente';
   const safeProfessionalName =
     professionalName?.trim() ? professionalName.trim() : '—';
 
+  const tissFormSchema = z.object({
+    operatorName: z.string().trim().min(1, 'Operadora é obrigatória').max(200),
+    operatorANSCode: z.string().trim().max(32).optional().or(z.literal('')),
+    beneficiaryName: z.string().trim().max(200).optional().or(z.literal('')),
+    beneficiaryCardNumber: z.string().trim().max(64).optional().or(z.literal('')),
+    requestingProfessionalName: z
+      .string()
+      .trim()
+      .max(200)
+      .optional()
+      .or(z.literal('')),
+    requestingProfessionalCouncil: z.string().trim().max(32).optional().or(z.literal('')),
+    requestingProfessionalCouncilUf: z.string().trim().max(2).optional().or(z.literal('')),
+    requestingProfessionalRegistration: z.string().trim().max(32).optional().or(z.literal('')),
+    requestingFacilityCnes: z.string().trim().max(16).optional().or(z.literal('')),
+  });
+
+  type TissFormValues = z.infer<typeof tissFormSchema>;
+  const [tissOpen, setTissOpen] = useState(false);
+  const tissForm = useForm<TissFormValues>({
+    resolver: zodResolver(tissFormSchema),
+    defaultValues: {
+      operatorName: '',
+      operatorANSCode: '',
+      beneficiaryName: safePatientName,
+      beneficiaryCardNumber: '',
+      requestingProfessionalName: safeProfessionalName !== '—' ? safeProfessionalName : '',
+      requestingProfessionalCouncil: '',
+      requestingProfessionalCouncilUf: '',
+      requestingProfessionalRegistration: '',
+      requestingFacilityCnes: '',
+    },
+  });
+
+  const emitTiss = useMutation({
+    mutationFn: async (values: TissFormValues) => {
+      const payload = {
+        operatorName: values.operatorName,
+        operatorANSCode: values.operatorANSCode || undefined,
+        beneficiaryName: values.beneficiaryName || undefined,
+        beneficiaryCardNumber: values.beneficiaryCardNumber || undefined,
+        requestingProfessionalName: values.requestingProfessionalName || undefined,
+        requestingProfessionalCouncil: values.requestingProfessionalCouncil || undefined,
+        requestingProfessionalCouncilUf: values.requestingProfessionalCouncilUf || undefined,
+        requestingProfessionalRegistration:
+          values.requestingProfessionalRegistration || undefined,
+        requestingFacilityCnes: values.requestingFacilityCnes || undefined,
+      };
+      return tissGuidesApi.emitSpsadtGuide(patientId, clinicalNoteId, payload);
+    },
+    onSuccess: (guide) => {
+      setTissOpen(false);
+      toast.success('Guia TISS (SP/SADT) emitida.');
+      const dateStr = new Date(guide.createdAt).toLocaleDateString('pt-BR');
+      const itemsHtml = (guide.items ?? [])
+        .map((it) => {
+          return `<tr>
+            <td class="muted">${escapeHtml(it.procedureCode || '—')}</td>
+            <td>${escapeHtml(it.procedureName)}</td>
+            <td>${escapeHtml(String(it.quantity ?? 1))}</td>
+            <td class="muted">${escapeHtml(it.notes || '—')}</td>
+          </tr>`;
+        })
+        .join('');
+
+      openPrintHtml({
+        title: `Guia TISS SP/SADT — ${guide.beneficiaryName}`,
+        htmlBody: `
+          <h1>Guia TISS SP/SADT — Solicitação</h1>
+          <div class="muted">Data: ${escapeHtml(dateStr)} · Nº Guia: ${escapeHtml(guide.guideNumber)}</div>
+
+          <h2>Operadora</h2>
+          <div class="box">
+            <div><strong>Operadora:</strong> ${escapeHtml(guide.operatorName)}</div>
+            <div><strong>Código ANS:</strong> <span class="muted">${escapeHtml(guide.operatorANSCode || '—')}</span></div>
+          </div>
+
+          <h2>Beneficiário</h2>
+          <div class="box">
+            <div><strong>Nome:</strong> ${escapeHtml(guide.beneficiaryName)}</div>
+            <div><strong>Nº carteirinha:</strong> <span class="muted">${escapeHtml(guide.beneficiaryCardNumber || '—')}</span></div>
+          </div>
+
+          <h2>Solicitante</h2>
+          <div class="box">
+            <div><strong>Profissional:</strong> ${escapeHtml(guide.requestingProfessionalName)}</div>
+            <div><strong>Conselho/UF/Registro:</strong> <span class="muted">${escapeHtml(
+              [
+                guide.requestingProfessionalCouncil,
+                guide.requestingProfessionalCouncilUf,
+                guide.requestingProfessionalRegistration,
+              ]
+                .filter(Boolean)
+                .join(' ')
+                .trim() || '—'
+            )}</span></div>
+            <div><strong>CNES:</strong> <span class="muted">${escapeHtml(guide.requestingFacilityCnes || '—')}</span></div>
+          </div>
+
+          <h2>Procedimentos solicitados</h2>
+          <div class="box">
+            <table>
+              <thead>
+                <tr>
+                  <th>Código (TUSS/LOINC)</th>
+                  <th>Procedimento</th>
+                  <th>Qtd</th>
+                  <th>Obs.</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${itemsHtml || `<tr><td colspan="4" class="muted">Sem itens.</td></tr>`}
+              </tbody>
+            </table>
+          </div>
+        `,
+      });
+    },
+    onError: (e: unknown) => {
+      const msg =
+        e && typeof e === 'object' && 'message' in e
+          ? String((e as { message?: string }).message)
+          : 'Não foi possível emitir a guia TISS.';
+      toast.error(msg);
+    },
+  });
+
   const handlePrintExamRequests = () => {
     const rows = (examsQuery.data as ClinicalExamRequestRow[] | undefined) ?? [];
     const items = rows
       .map(
-        (r) =>
-          `<tr>
+        (r) => {
+          const code = r.code || r.loincCode || '—';
+          return `<tr>
             <td>${escapeHtml(r.displayName)}</td>
-            <td class="muted">${escapeHtml(r.code ?? '—')}</td>
-            <td class="muted">${escapeHtml(formatVersionHint(r))}</td>
-          </tr>`
+            <td class="muted">${escapeHtml(code)}</td>
+          </tr>`;
+        }
       )
       .join('');
     openPrintHtml({
@@ -226,10 +404,10 @@ export function ClinicalNoteOrdersPanel(props: {
         <div class="box" style="margin-top: 12px;">
           <table>
             <thead>
-              <tr><th>Exame</th><th>Código</th><th>Versão</th></tr>
+              <tr><th>Exame</th><th>Código (TUSS/LOINC)</th></tr>
             </thead>
             <tbody>
-              ${items || `<tr><td colspan="3" class="muted">Sem exames solicitados.</td></tr>`}
+              ${items || `<tr><td colspan="2" class="muted">Sem exames solicitados.</td></tr>`}
             </tbody>
           </table>
         </div>
@@ -238,10 +416,7 @@ export function ClinicalNoteOrdersPanel(props: {
   };
 
   const [rxCopiesRaw, setRxCopiesRaw] = useState('2');
-  const rxCopies = Math.min(
-    Math.max(parseInt(rxCopiesRaw || '1', 10) || 1, 1),
-    10
-  );
+  const rxCopies = Math.max(parseInt(rxCopiesRaw || '1', 10) || 1, 1);
   const handlePrintPrescription = () => {
     const rows =
       (rxQuery.data as ClinicalPrescriptionLineRow[] | undefined) ?? [];
@@ -251,7 +426,6 @@ export function ClinicalNoteOrdersPanel(props: {
         return `<tr>
           <td>${escapeHtml(r.medicationName)}</td>
           <td class="muted">${escapeHtml(sig || '—')}</td>
-          <td class="muted">${escapeHtml(formatVersionHint(r))}</td>
         </tr>`;
       })
       .join('');
@@ -261,18 +435,20 @@ export function ClinicalNoteOrdersPanel(props: {
       <div class="muted">Paciente: ${escapeHtml(safePatientName)} · Profissional: ${escapeHtml(safeProfessionalName)}</div>
       <div class="box" style="margin-top: 12px;">
         <table>
-          <thead><tr><th>Medicamento</th><th>Posologia</th><th>Versão</th></tr></thead>
+          <thead><tr><th>Medicamento</th><th>Posologia</th></tr></thead>
           <tbody>
-            ${tableRows || `<tr><td colspan="3" class="muted">Sem itens prescritos.</td></tr>`}
+            ${tableRows || `<tr><td colspan="2" class="muted">Sem itens prescritos.</td></tr>`}
           </tbody>
         </table>
       </div>
     `;
 
+    // 1 via por página. O “2 páginas por folha” deve ser configurado no diálogo de impressão do navegador.
     const copiesHtml = Array.from({ length: rxCopies })
-      .map((_, idx) =>
-        idx === 0 ? single : `<div class="page-break"></div>${single}`
-      )
+      .map((_, idx) => {
+        const label = `<div class="muted" style="margin-bottom: 6px;">Via ${idx + 1} de ${rxCopies}</div>`;
+        return `${idx === 0 ? '' : '<div class="page-break"></div>'}${label}${single}`;
+      })
       .join('');
 
     openPrintHtml({
@@ -290,20 +466,43 @@ export function ClinicalNoteOrdersPanel(props: {
         >
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h4 className="text-sm font-medium">Solicitações de exames</h4>
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              onClick={handlePrintExamRequests}
-              disabled={!enabled}
-            >
-              Imprimir solicitação
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  tissForm.reset({
+                    operatorName: '',
+                    operatorANSCode: '',
+                    beneficiaryName: safePatientName,
+                    beneficiaryCardNumber: '',
+                    requestingProfessionalName:
+                      safeProfessionalName !== '—' ? safeProfessionalName : '',
+                    requestingProfessionalCouncil: '',
+                    requestingProfessionalCouncilUf: '',
+                    requestingProfessionalRegistration: '',
+                    requestingFacilityCnes: '',
+                  });
+                  setTissOpen(true);
+                }}
+                disabled={!enabled}
+              >
+                Emitir guia TISS (SP/SADT)
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={handlePrintExamRequests}
+                disabled={!enabled}
+              >
+                Imprimir solicitação
+              </Button>
+            </div>
           </div>
           <p className="text-xs text-muted-foreground">
-            {draftLocked
-              ? 'Visível após assinatura; não editável.'
-              : 'Inclua/remova pedidos antes de assinar.'}
+            {'Inclua/remova pedidos com a evolução aberta ou assinada.'}
           </p>
         {examsQuery.isLoading && (
           <p className="text-xs text-muted-foreground">Carregando…</p>
@@ -384,7 +583,10 @@ export function ClinicalNoteOrdersPanel(props: {
                 <Label htmlFor="rx-copies">Nº de vias</Label>
                 <Input
                   id="rx-copies"
+                  type="number"
                   inputMode="numeric"
+                  min={1}
+                  step={1}
                   value={rxCopiesRaw}
                   onChange={(e) => setRxCopiesRaw(e.target.value)}
                   className="w-20"
@@ -403,9 +605,10 @@ export function ClinicalNoteOrdersPanel(props: {
             </div>
           </div>
           <p className="text-xs text-muted-foreground">
-            {draftLocked
-              ? 'Visível após assinatura; não editável.'
-              : 'Inclua/remova itens antes de assinar.'}
+            {'Inclua/remova itens com a evolução aberta ou assinada.'}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {'Cada via sai em 1 página. Para 2 páginas por folha, ajuste no diálogo de impressão (Páginas por folha = 2).'}
           </p>
           {rxQuery.isLoading && (
             <p className="text-xs text-muted-foreground">Carregando…</p>
@@ -467,7 +670,7 @@ export function ClinicalNoteOrdersPanel(props: {
                   id="rx-dose"
                   value={medDose}
                   onChange={(e) => setMedDose(e.target.value)}
-                  placeholder="Ex.: 50 mg"
+                  placeholder="Ex.: 1 comprimido"
                   autoComplete="off"
                 />
               </div>
@@ -479,6 +682,16 @@ export function ClinicalNoteOrdersPanel(props: {
                   onChange={(e) => setMedFreq(e.target.value)}
                   placeholder="Ex.: 12/12 h"
                   autoComplete="off"
+                />
+              </div>
+              <div className="space-y-1 sm:col-span-2">
+                <Label htmlFor="rx-posology">Posologia (texto livre)</Label>
+                <Input
+                  id="rx-posology"
+                  value={medPosology}
+                  onChange={(e) => setMedPosology(e.target.value)}
+                  placeholder="Ex.: 50 mg 12/12 h VO"
+                  autoComplete="on"
                 />
               </div>
               <div className="space-y-1 sm:col-span-2">
@@ -505,6 +718,100 @@ export function ClinicalNoteOrdersPanel(props: {
           )}
         </section>
       )}
+
+      <Dialog open={tissOpen} onOpenChange={setTissOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogClose onClose={() => setTissOpen(false)} />
+          <DialogHeader>
+            <DialogTitle>Emitir guia TISS (SP/SADT)</DialogTitle>
+            <DialogDescription>
+              MVP: gera uma guia de solicitação e prepara para impressão (1 guia por página).
+            </DialogDescription>
+          </DialogHeader>
+
+          <form
+            className="space-y-4"
+            onSubmit={tissForm.handleSubmit((values) => emitTiss.mutate(values))}
+          >
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="operatorName">Operadora</Label>
+                <Input id="operatorName" {...tissForm.register('operatorName')} />
+                {tissForm.formState.errors.operatorName?.message && (
+                  <div className="text-xs text-red-600">
+                    {tissForm.formState.errors.operatorName.message}
+                  </div>
+                )}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="operatorANSCode">Código ANS (opcional)</Label>
+                <Input id="operatorANSCode" {...tissForm.register('operatorANSCode')} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="beneficiaryName">Beneficiário</Label>
+                <Input id="beneficiaryName" {...tissForm.register('beneficiaryName')} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="beneficiaryCardNumber">Nº carteirinha (opcional)</Label>
+                <Input
+                  id="beneficiaryCardNumber"
+                  {...tissForm.register('beneficiaryCardNumber')}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="requestingProfessionalName">Profissional solicitante</Label>
+                <Input
+                  id="requestingProfessionalName"
+                  {...tissForm.register('requestingProfessionalName')}
+                />
+              </div>
+              <div className="grid grid-cols-3 gap-2 md:col-span-1">
+                <div className="space-y-2">
+                  <Label htmlFor="requestingProfessionalCouncil">Conselho</Label>
+                  <Input
+                    id="requestingProfessionalCouncil"
+                    {...tissForm.register('requestingProfessionalCouncil')}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="requestingProfessionalCouncilUf">UF</Label>
+                  <Input
+                    id="requestingProfessionalCouncilUf"
+                    {...tissForm.register('requestingProfessionalCouncilUf')}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="requestingProfessionalRegistration">Registro</Label>
+                  <Input
+                    id="requestingProfessionalRegistration"
+                    {...tissForm.register('requestingProfessionalRegistration')}
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="requestingFacilityCnes">CNES (opcional)</Label>
+                <Input
+                  id="requestingFacilityCnes"
+                  {...tissForm.register('requestingFacilityCnes')}
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setTissOpen(false)}
+              >
+                Cancelar
+              </Button>
+              <Button type="submit" disabled={emitTiss.isPending}>
+                Emitir
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
