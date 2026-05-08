@@ -10,7 +10,6 @@ import {
 import { ClinicalNotesService } from './clinical-notes.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
-import { CLINICAL_NOTE_CONTENT_MARKDOWN_MAX_LENGTH } from './clinical-notes.constants';
 
 describe('ClinicalNotesService', () => {
   let service: ClinicalNotesService;
@@ -55,10 +54,10 @@ describe('ClinicalNotesService', () => {
       expect(service.normalizeAndValidateContentMarkdown('')).toBe('');
     });
 
-    it('rejects content exceeding max length', () => {
-      const huge = 'x'.repeat(CLINICAL_NOTE_CONTENT_MARKDOWN_MAX_LENGTH + 1);
-      expect(() => service.normalizeAndValidateContentMarkdown(huge)).toThrow(
-        BadRequestException
+    it('accepts conteúdo muito longo (sem limite artificial)', () => {
+      const longContent = 'x'.repeat(450_000);
+      expect(service.normalizeAndValidateContentMarkdown(longContent)).toBe(
+        longContent
       );
     });
   });
