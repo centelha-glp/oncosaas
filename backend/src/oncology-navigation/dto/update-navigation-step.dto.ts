@@ -11,6 +11,14 @@ import { JourneyStage, NavigationStepStatus } from '@generated/prisma/client';
 import { IsPlainText } from '../../common/validators/is-plain-text.decorator';
 
 export class UpdateNavigationStepDto {
+  /**
+   * Datas da etapa (Prisma → JSON):
+   * - expectedDate: data agendada / planejada
+   * - dueDate: data limite (alertas de atraso)
+   * - actualDate: data em que o evento foi realizado
+   * completedAt marca conclusão no fluxo do sistema e pode coexistir com actualDate.
+   */
+
   @IsEnum(NavigationStepStatus)
   @IsOptional()
   status?: NavigationStepStatus;
@@ -30,6 +38,10 @@ export class UpdateNavigationStepDto {
   @IsDateString()
   @IsOptional()
   actualDate?: string;
+
+  @IsDateString()
+  @IsOptional()
+  expectedDate?: string;
 
   @IsDateString()
   @IsOptional()

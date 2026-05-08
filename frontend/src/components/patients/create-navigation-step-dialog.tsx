@@ -205,7 +205,7 @@ export function CreateNavigationStepDialog({
               name="expectedDate"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Data esperada (opcional)</FormLabel>
+                  <FormLabel>Data agendada (opcional)</FormLabel>
                   <Popover>
                     <PopoverTrigger asChild>
                       <FormControl>
@@ -251,7 +251,7 @@ export function CreateNavigationStepDialog({
               name="dueDate"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Prazo final (opcional)</FormLabel>
+                  <FormLabel>Data limite (opcional)</FormLabel>
                   <Popover>
                     <PopoverTrigger asChild>
                       <FormControl>

@@ -36,6 +36,7 @@ import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
 import { NavigationStep } from '@/lib/api/navigation';
+import { NAVIGATION_STEP_UI_DATE_LABEL } from '@/lib/utils/navigation-step-dates';
 
 const STEP_STATUS_LABELS: Record<string, string> = {
   PENDING: 'Pendente',
@@ -85,6 +86,11 @@ export function NavigationStepForm({
         ? typeof step.dueDate === 'string' && step.dueDate.includes('T')
           ? step.dueDate
           : new Date(step.dueDate).toISOString()
+        : undefined,
+      expectedDate: step.expectedDate
+        ? typeof step.expectedDate === 'string' && step.expectedDate.includes('T')
+          ? step.expectedDate
+          : new Date(step.expectedDate).toISOString()
         : undefined,
       institutionName: step.institutionName || undefined,
       professionalName: step.professionalName || undefined,
@@ -153,22 +159,24 @@ export function NavigationStepForm({
             )}
           />
 
-          {/* Data Real */}
+          {/* Data agendada (expectedDate) */}
           <FormField
             control={form.control}
-            name="actualDate"
+            name="expectedDate"
             render={({ field }) => (
               <FormItem className="flex flex-col">
-                <FormLabel>Data Real de Conclusão</FormLabel>
+                <FormLabel>Data agendada</FormLabel>
                 <Popover>
                   <PopoverTrigger asChild>
                     <FormControl>
                       <Button
+                        type="button"
                         variant="outline"
                         className={cn(
                           'w-full pl-3 text-left font-normal',
                           !field.value && 'text-muted-foreground'
                         )}
+                        aria-label={`${NAVIGATION_STEP_UI_DATE_LABEL.agendada}, opcional`}
                       >
                         {field.value ? (
                           format(new Date(field.value), 'dd/MM/yyyy', {
@@ -177,7 +185,7 @@ export function NavigationStepForm({
                         ) : (
                           <span>Selecione a data</span>
                         )}
-                        <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                        <CalendarIcon className="ml-auto h-4 w-4 opacity-50" aria-hidden />
                       </Button>
                     </FormControl>
                   </PopoverTrigger>
@@ -188,6 +196,7 @@ export function NavigationStepForm({
                       onSelect={(date) =>
                         field.onChange(date ? date.toISOString() : undefined)
                       }
+                      locale={ptBR}
                       initialFocus
                     />
                   </PopoverContent>
@@ -197,22 +206,24 @@ export function NavigationStepForm({
             )}
           />
 
-          {/* Prazo Final */}
+          {/* Data limite (dueDate) */}
           <FormField
             control={form.control}
             name="dueDate"
             render={({ field }) => (
               <FormItem className="flex flex-col">
-                <FormLabel>Prazo Final</FormLabel>
+                <FormLabel>Data limite</FormLabel>
                 <Popover>
                   <PopoverTrigger asChild>
                     <FormControl>
                       <Button
+                        type="button"
                         variant="outline"
                         className={cn(
                           'w-full pl-3 text-left font-normal',
                           !field.value && 'text-muted-foreground'
                         )}
+                        aria-label={`${NAVIGATION_STEP_UI_DATE_LABEL.limite}`}
                       >
                         {field.value ? (
                           format(new Date(field.value), 'dd/MM/yyyy', {
@@ -221,7 +232,7 @@ export function NavigationStepForm({
                         ) : (
                           <span>Selecione a data</span>
                         )}
-                        <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                        <CalendarIcon className="ml-auto h-4 w-4 opacity-50" aria-hidden />
                       </Button>
                     </FormControl>
                   </PopoverTrigger>
@@ -232,6 +243,54 @@ export function NavigationStepForm({
                       onSelect={(date) =>
                         field.onChange(date ? date.toISOString() : undefined)
                       }
+                      locale={ptBR}
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          {/* Data realizada (actualDate) */}
+          <FormField
+            control={form.control}
+            name="actualDate"
+            render={({ field }) => (
+              <FormItem className="flex flex-col md:col-span-2">
+                <FormLabel>Data realizada</FormLabel>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <FormControl>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className={cn(
+                          'w-full pl-3 text-left font-normal',
+                          !field.value && 'text-muted-foreground'
+                        )}
+                        aria-label={`${NAVIGATION_STEP_UI_DATE_LABEL.realizada}, opcional`}
+                      >
+                        {field.value ? (
+                          format(new Date(field.value), 'dd/MM/yyyy', {
+                            locale: ptBR,
+                          })
+                        ) : (
+                          <span>Selecione a data</span>
+                        )}
+                        <CalendarIcon className="ml-auto h-4 w-4 opacity-50" aria-hidden />
+                      </Button>
+                    </FormControl>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={field.value ? new Date(field.value) : undefined}
+                      onSelect={(date) =>
+                        field.onChange(date ? date.toISOString() : undefined)
+                      }
+                      locale={ptBR}
                       initialFocus
                     />
                   </PopoverContent>

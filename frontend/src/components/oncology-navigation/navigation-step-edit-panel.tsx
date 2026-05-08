@@ -60,8 +60,13 @@ export interface NavigationStepEditPanelProps {
   variantSectionReplacement?: React.ReactNode;
   stepDetail: Record<string, string>;
   onStepDetailFieldChange: (key: string, value: string) => void;
+  /** Data agendada (planejamento) — `expectedDate`. */
+  expectedDate: string;
+  onExpectedDateChange: (v: string) => void;
+  /** Data limite — `dueDate`; obrigatória para monitoramento de atrasos. */
   dueDate: string;
   onDueDateChange: (v: string) => void;
+  /** Data realizada — `actualDate`. */
   actualDate: string;
   onActualDateChange: (v: string) => void;
   isCompleted: boolean;
@@ -133,6 +138,8 @@ export function NavigationStepEditPanel({
   variantSectionReplacement,
   stepDetail,
   onStepDetailFieldChange,
+  expectedDate,
+  onExpectedDateChange,
   dueDate,
   onDueDateChange,
   actualDate,
@@ -166,6 +173,7 @@ export function NavigationStepEditPanel({
   const hint = getNavigationStepContextHint(stepKey);
   const VariantIcon = variantSectionIcon(variant);
   const idPrefix = useId();
+  const expectedId = `${idPrefix}-expected`;
   const dueId = `${idPrefix}-due`;
   const actualId = `${idPrefix}-actual`;
   const instId = `${idPrefix}-inst`;
@@ -199,10 +207,26 @@ export function NavigationStepEditPanel({
             <SectionTitle icon={CalendarDays}>Prazos e status</SectionTitle>
           </div>
           <p className="text-xs text-muted-foreground">
-            A data limite alimenta alertas de atraso no painel. A data realizada registra quando o
-            evento ocorreu de fato.
+            <span className="font-medium text-foreground">Agendada</span> registra quando o evento
+            está planejado. <span className="font-medium text-foreground">Limite</span> alimenta
+            alertas de atraso.{' '}
+            <span className="font-medium text-foreground">Realizada</span> marca quando de fato
+            ocorreu.
           </p>
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="space-y-2">
+              <Label htmlFor={expectedId}>Data agendada</Label>
+              <Input
+                id={expectedId}
+                type="date"
+                value={expectedDate}
+                onChange={(e) => onExpectedDateChange(e.target.value)}
+                className="tabular-nums"
+              />
+              <p className="text-xs text-muted-foreground">
+                Opcional; preencha quando houver compromisso previsto.
+              </p>
+            </div>
             <div className="space-y-2">
               <Label htmlFor={dueId}>
                 Data limite <span className="text-destructive">*</span>
@@ -220,7 +244,7 @@ export function NavigationStepEditPanel({
                 Obrigatória para manter o monitoramento de prazos e atrasos.
               </p>
             </div>
-            <div className="space-y-2">
+            <div className="space-y-2 sm:col-span-2 lg:col-span-1">
               <Label htmlFor={actualId}>Data realizada</Label>
               <Input
                 id={actualId}

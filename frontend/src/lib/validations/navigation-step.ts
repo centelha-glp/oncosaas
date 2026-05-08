@@ -13,6 +13,7 @@ export const updateNavigationStepSchema = z.object({
   status: navigationStepStatusSchema.optional(),
   isCompleted: z.boolean().optional(),
   completedAt: z.string().optional(),
+  expectedDate: z.string().optional(),
   actualDate: z.string().optional(),
   dueDate: z.string().optional(),
   institutionName: z.string().optional(),

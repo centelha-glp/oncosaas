@@ -70,6 +70,10 @@ import { NavigationStepEditPanel } from '@/components/oncology-navigation/naviga
 import { NavigationStepLinkedEvolutions } from '@/components/oncology-navigation/navigation-step-linked-evolutions';
 import { cn } from '@/lib/utils';
 import {
+  formatNavigationStepDateBr,
+  NAVIGATION_STEP_UI_DATE_LABEL,
+} from '@/lib/utils/navigation-step-dates';
+import {
   getFilledStepDetailEntries,
   getNavStepFormVariant,
   parseStepDetailFromMetadata,
@@ -892,6 +896,9 @@ function StepCard({ step, apiUrl, dragHandle }: StepCardProps) {
   const [dueDate, setDueDate] = useState(
     step.dueDate ? new Date(step.dueDate).toISOString().split('T')[0] : ''
   );
+  const [expectedDate, setExpectedDate] = useState(
+    step.expectedDate ? new Date(step.expectedDate).toISOString().split('T')[0] : ''
+  );
 
   const [stepDetail, setStepDetail] = useState<Record<string, string>>(() =>
     parseStepDetailFromMetadata(step.metadata, variant)
@@ -926,6 +933,11 @@ function StepCard({ step, apiUrl, dragHandle }: StepCardProps) {
       );
       setDueDate(
         step.dueDate ? new Date(step.dueDate).toISOString().split('T')[0] : ''
+      );
+      setExpectedDate(
+        step.expectedDate
+          ? new Date(step.expectedDate).toISOString().split('T')[0]
+          : ''
       );
       setStepDetail(parseStepDetailFromMetadata(step.metadata, variant));
     });
@@ -967,6 +979,9 @@ function StepCard({ step, apiUrl, dragHandle }: StepCardProps) {
             variant === 'generic' && findings.length > 0 ? findings : undefined,
           actualDate: actualDate
             ? new Date(actualDate).toISOString()
+            : undefined,
+          expectedDate: expectedDate
+            ? new Date(expectedDate).toISOString()
             : undefined,
           dueDate: dueDate ? new Date(dueDate).toISOString() : undefined,
           metadata: nextMetadata,
@@ -1148,6 +1163,8 @@ function StepCard({ step, apiUrl, dragHandle }: StepCardProps) {
             }
             dueDate={dueDate}
             onDueDateChange={setDueDate}
+            expectedDate={expectedDate}
+            onExpectedDateChange={setExpectedDate}
             actualDate={actualDate}
             onActualDateChange={setActualDate}
             isCompleted={isCompleted}
@@ -1186,6 +1203,11 @@ function StepCard({ step, apiUrl, dragHandle }: StepCardProps) {
               setActualDate(
                 step.actualDate
                   ? new Date(step.actualDate).toISOString().split('T')[0]
+                  : ''
+              );
+              setExpectedDate(
+                step.expectedDate
+                  ? new Date(step.expectedDate).toISOString().split('T')[0]
                   : ''
               );
               setDueDate(
@@ -1311,31 +1333,43 @@ function StepCard({ step, apiUrl, dragHandle }: StepCardProps) {
               </div>
             )}
 
-            {/* Informações de datas */}
-            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs mt-2 opacity-70">
-              {step.expectedDate && (
-                <span>
-                  Esperado:{' '}
-                  {new Date(step.expectedDate).toLocaleDateString('pt-BR')}
-                </span>
-              )}
-              {step.dueDate && (
-                <span
-                  className={
-                    step.status === 'OVERDUE' ? 'text-red-600 font-medium' : ''
-                  }
+            {/* Datas da etapa: sempre as três dimensões */}
+            <dl className="mt-3 grid gap-2 rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-xs sm:grid-cols-3">
+              <div className="min-w-0">
+                <dt className="font-medium text-muted-foreground">
+                  {NAVIGATION_STEP_UI_DATE_LABEL.agendada}
+                </dt>
+                <dd className="font-mono text-foreground tabular-nums">
+                  {formatNavigationStepDateBr(step.expectedDate)}
+                </dd>
+              </div>
+              <div className="min-w-0">
+                <dt className="font-medium text-muted-foreground">
+                  {NAVIGATION_STEP_UI_DATE_LABEL.limite}
+                </dt>
+                <dd
+                  className={cn(
+                    'font-mono tabular-nums',
+                    step.status === 'OVERDUE'
+                      ? 'font-medium text-destructive'
+                      : 'text-foreground'
+                  )}
                 >
-                  Prazo: {new Date(step.dueDate).toLocaleDateString('pt-BR')}
-                  {step.status === 'OVERDUE' && ' (ATRASADO)'}
-                </span>
-              )}
-              {step.actualDate && (
-                <span>
-                  Realizado:{' '}
-                  {new Date(step.actualDate).toLocaleDateString('pt-BR')}
-                </span>
-              )}
-            </div>
+                  {formatNavigationStepDateBr(step.dueDate)}
+                  {step.status === 'OVERDUE' && step.dueDate ? (
+                    <span className="ml-1 text-destructive">(atrasado)</span>
+                  ) : null}
+                </dd>
+              </div>
+              <div className="min-w-0">
+                <dt className="font-medium text-muted-foreground">
+                  {NAVIGATION_STEP_UI_DATE_LABEL.realizada}
+                </dt>
+                <dd className="font-mono text-foreground tabular-nums">
+                  {formatNavigationStepDateBr(step.actualDate)}
+                </dd>
+              </div>
+            </dl>
           </div>
         )}
       </div>

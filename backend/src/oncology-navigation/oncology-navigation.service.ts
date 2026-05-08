@@ -387,6 +387,12 @@ export class OncologyNavigationService {
         : null;
     }
 
+    if (updateDto.expectedDate !== undefined) {
+      updateData.expectedDate = updateDto.expectedDate
+        ? new Date(updateDto.expectedDate)
+        : null;
+    }
+
     // Se mudando status para OVERDUE (apenas se não estiver marcando/desmarcando como completa)
     if (
       updateDto.status === NavigationStepStatus.OVERDUE &&
