@@ -37,6 +37,8 @@ model User {
   clinicalExamRequestsRequested ClinicalExamRequest[] @relation("ClinicalExamRequestRequestedBy")
   /// Linhas de prescrição registradas na evolução médica
   clinicalPrescriptionLinesPrescribed ClinicalPrescriptionLine[] @relation("ClinicalPrescriptionLinePrescribedBy")
+  /// Guias TISS SP/SADT emitidas
+  tissSpsadtGuidesCreated TissSpsadtGuide[] @relation("TissSpsadtGuideCreatedBy")
   productFeedbacks             ProductFeedback[]
 
   @@unique([tenantId, email])
@@ -160,6 +162,7 @@ model Patient {
   clinicalExamRequests     ClinicalExamRequest[]
   /// Prescrição na evolução (evento prescritivo; não substitui Medication "em uso")
   clinicalPrescriptionLines ClinicalPrescriptionLine[]
+  tissSpsadtGuides         TissSpsadtGuide[]
   consents                 PatientConsent[] // Termos de Consentimento Livre e Esclarecido (TCLE)
 
   createdAt DateTime @default(now())
@@ -209,6 +212,7 @@ model ClinicalNote {
   versions           ClinicalNoteVersion[]
   clinicalExamRequests      ClinicalExamRequest[]
   clinicalPrescriptionLines ClinicalPrescriptionLine[]
+  tissSpsadtGuides          TissSpsadtGuide[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -233,11 +237,14 @@ model ClinicalExamRequest {
   displayName   String
   code          String?
   loincCode     String?
+  /// Referência opcional ao catálogo global (TUSS) para emissão TISS (SP/SADT).
+  examCatalogCode String?
 
   tenant         Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   patient        Patient      @relation(fields: [patientId], references: [id], onDelete: Cascade)
   clinicalNote   ClinicalNote @relation(fields: [clinicalNoteId], references: [id], onDelete: Cascade)
   requestedBy    User         @relation("ClinicalExamRequestRequestedBy", fields: [requestedById], references: [id])
+  tissSpsadtGuideItems TissSpsadtGuideItem[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -246,7 +253,72 @@ model ClinicalExamRequest {
   @@index([patientId])
   @@index([clinicalNoteId])
   @@index([tenantId, clinicalNoteId])
+  @@index([examCatalogCode])
   @@map("clinical_exam_requests")
+}
+
+/// Guia TISS SP/SADT (solicitação) — cabeçalho e numeração por tenant.
+model TissSpsadtGuide {
+  id        String @id @default(uuid())
+  tenantId  String
+  patientId String
+  clinicalNoteId String
+
+  /// Número da guia (sequencial por tenant, string para permitir formatação futura).
+  guideNumber String
+
+  operatorName     String
+  operatorANSCode  String?
+  beneficiaryName  String
+  beneficiaryCardNumber String?
+
+  requestingProfessionalName String
+  requestingProfessionalCouncil String?
+  requestingProfessionalCouncilUf String?
+  requestingProfessionalRegistration String?
+  requestingFacilityCnes String?
+
+  createdById String
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  clinicalNote ClinicalNote @relation(fields: [clinicalNoteId], references: [id], onDelete: Cascade)
+  createdBy User @relation("TissSpsadtGuideCreatedBy", fields: [createdById], references: [id])
+  items TissSpsadtGuideItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([tenantId, patientId])
+  @@unique([tenantId, guideNumber])
+  @@map("tiss_spsadt_guides")
+}
+
+/// Snapshot dos procedimentos (exames) emitidos na guia.
+model TissSpsadtGuideItem {
+  id        String @id @default(uuid())
+  tenantId  String
+  guideId   String
+  examRequestId String
+
+  /// Congela o código e nome emitidos (evita mudança retroativa).
+  procedureName String
+  procedureCode String?
+  quantity Int @default(1)
+  notes String?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  guide TissSpsadtGuide @relation(fields: [guideId], references: [id], onDelete: Cascade)
+  examRequest ClinicalExamRequest @relation(fields: [examRequestId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([guideId])
+  @@index([examRequestId])
+  @@map("tiss_spsadt_guide_items")
 }
 
 /// Linha de medicamento prescrita no contexto da evolução médica — não atualiza automaticamente `Medication` (em uso / ML)
@@ -1579,6 +1651,8 @@ model Tenant {
   clinicalNoteVersions     ClinicalNoteVersion[]
   clinicalExamRequests     ClinicalExamRequest[]
   clinicalPrescriptionLines ClinicalPrescriptionLine[]
+  tissSpsadtGuides         TissSpsadtGuide[]
+  tissSpsadtGuideItems     TissSpsadtGuideItem[]
   patientConsents          PatientConsent[]
   productFeedbacks         ProductFeedback[]
 
