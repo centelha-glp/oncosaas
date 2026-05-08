@@ -21,6 +21,7 @@ import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Select,
@@ -269,15 +270,12 @@ export default function ConsultationAgendaPage() {
         </Card>
 
         {isError && (
-          <div
-            role="alert"
-            className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-destructive"
-          >
-            <p className="font-semibold">Não foi possível carregar a agenda</p>
-            <p className="mt-1 text-sm">
+          <Alert variant="destructive">
+            <AlertTitle>Não foi possível carregar a agenda</AlertTitle>
+            <AlertDescription>
               {error instanceof Error ? error.message : 'Erro desconhecido.'}
-            </p>
-          </div>
+            </AlertDescription>
+          </Alert>
         )}
 
         {isLoading && (
