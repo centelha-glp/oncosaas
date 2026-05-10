@@ -18,6 +18,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { PatientsService } from './patients.service';
 import { CreatePatientDto } from './dto/create-patient.dto';
 import { UpdatePatientDto } from './dto/update-patient.dto';
+import { UpdatePatientRegistrationDto } from './dto/update-patient-registration.dto';
 import { UpdatePriorityDto } from './dto/update-priority.dto';
 import { CreateCancerDiagnosisDto } from './dto/create-cancer-diagnosis.dto';
 import { UpdateCancerDiagnosisDto } from './dto/update-cancer-diagnosis.dto';
@@ -50,7 +51,8 @@ export class PatientsController {
     UserRole.ADMIN,
     UserRole.ONCOLOGIST,
     UserRole.NURSE,
-    UserRole.COORDINATOR
+    UserRole.COORDINATOR,
+    UserRole.SECRETARY
   )
   findAll(@CurrentUser() user: any, @Query() query: QueryPatientsDto) {
     return this.patientsService.findAll(user.tenantId, {
@@ -64,7 +66,8 @@ export class PatientsController {
     UserRole.ADMIN,
     UserRole.ONCOLOGIST,
     UserRole.NURSE,
-    UserRole.COORDINATOR
+    UserRole.COORDINATOR,
+    UserRole.SECRETARY
   )
   async findByPhone(@Param('phone') phone: string, @CurrentUser() user: any) {
     // [A-08] Validar formato E.164 antes de processar (evita path traversal e enumeração)
@@ -143,7 +146,8 @@ export class PatientsController {
     UserRole.ADMIN,
     UserRole.ONCOLOGIST,
     UserRole.NURSE,
-    UserRole.COORDINATOR
+    UserRole.COORDINATOR,
+    UserRole.SECRETARY
   )
   async getDetail(
     @Param('id', ParseUUIDPipe) id: string,
@@ -158,7 +162,8 @@ export class PatientsController {
     UserRole.ADMIN,
     UserRole.ONCOLOGIST,
     UserRole.NURSE,
-    UserRole.COORDINATOR
+    UserRole.COORDINATOR,
+    UserRole.SECRETARY
   )
   getTimeline(
     @Param('id', ParseUUIDPipe) id: string,
@@ -173,7 +178,8 @@ export class PatientsController {
     UserRole.ADMIN,
     UserRole.ONCOLOGIST,
     UserRole.NURSE,
-    UserRole.COORDINATOR
+    UserRole.COORDINATOR,
+    UserRole.SECRETARY
   )
   async getCancerDiagnoses(
     @Param('id', ParseUUIDPipe) patientId: string,
@@ -238,7 +244,8 @@ export class PatientsController {
     UserRole.ADMIN,
     UserRole.ONCOLOGIST,
     UserRole.NURSE,
-    UserRole.COORDINATOR
+    UserRole.COORDINATOR,
+    UserRole.SECRETARY
   )
   findOne(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: any) {
     return this.patientsService.findOne(id, user.tenantId);
@@ -248,6 +255,22 @@ export class PatientsController {
   @Roles(UserRole.ADMIN, UserRole.ONCOLOGIST, UserRole.NURSE, UserRole.COORDINATOR)
   create(@Body() createPatientDto: CreatePatientDto, @CurrentUser() user: any) {
     return this.patientsService.create(createPatientDto, user.tenantId);
+  }
+
+  @Patch(':id/registration')
+  @Roles(
+    UserRole.ADMIN,
+    UserRole.ONCOLOGIST,
+    UserRole.NURSE,
+    UserRole.COORDINATOR,
+    UserRole.SECRETARY
+  )
+  updateRegistration(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdatePatientRegistrationDto,
+    @CurrentUser() user: any
+  ) {
+    return this.patientsService.updateRegistration(id, dto, user.tenantId);
   }
 
   @Patch(':id')

@@ -280,6 +280,8 @@ export interface CurrentMedication {
   indication?: string;
 }
 
+export type HealthCoverageTypeApi = 'PRIVATE' | 'HEALTH_PLAN';
+
 export interface Patient {
   id: string;
   tenantId: string;
@@ -289,6 +291,9 @@ export interface Patient {
   gender: 'male' | 'female' | 'other';
   phone: string | null;
   email: string | null;
+  healthCoverageType?: HealthCoverageTypeApi | null;
+  healthPlanName?: string | null;
+  insuranceMemberId?: string | null;
   cancerType: string | null;
   stage: string | null;
   diagnosisDate: string | null;
@@ -320,6 +325,9 @@ export interface Patient {
   priorityReason: string | null;
   priorityUpdatedAt: string | null;
   ehrPatientId: string | null;
+  /** Número do prontuário hospitalar (cadastro administrativo). */
+  medicalRecordNumber?: string | null;
+  occupation?: string | null;
   lastSyncAt: string | null;
   status: string;
   lastInteraction: string | null;
@@ -346,6 +354,9 @@ export interface CreatePatientDto {
   gender?: 'male' | 'female' | 'other';
   phone: string;
   email?: string;
+  healthCoverageType?: HealthCoverageTypeApi;
+  healthPlanName?: string;
+  insuranceMemberId?: string;
   cancerType?: string;
   cancerSubtype?: string;
   stage?: string;
@@ -380,6 +391,25 @@ export interface CreatePatientDto {
 
 export interface UpdatePatientDto extends Partial<CreatePatientDto> {
   currentMedications?: CurrentMedication[];
+  healthCoverageType?: HealthCoverageTypeApi | null;
+  healthPlanName?: string | null;
+  insuranceMemberId?: string | null;
+}
+
+/** Campos permitidos em PATCH /patients/:id/registration (sem dados clínicos). */
+export interface UpdatePatientRegistrationDto {
+  name?: string;
+  cpf?: string;
+  birthDate?: string;
+  gender?: 'male' | 'female' | 'other';
+  phone?: string;
+  email?: string;
+  medicalRecordNumber?: string;
+  occupation?: string;
+  ehrId?: string;
+  healthCoverageType?: HealthCoverageTypeApi | null;
+  healthPlanName?: string | null;
+  insuranceMemberId?: string | null;
 }
 
 export interface NavigationStep {
@@ -641,6 +671,13 @@ export const patientsApi = {
 
   async update(id: string, data: UpdatePatientDto): Promise<Patient> {
     return apiClient.patch<Patient>(`/patients/${id}`, data);
+  },
+
+  async updateRegistration(
+    id: string,
+    data: UpdatePatientRegistrationDto
+  ): Promise<Patient> {
+    return apiClient.patch<Patient>(`/patients/${id}/registration`, data);
   },
 
   async delete(id: string): Promise<void> {

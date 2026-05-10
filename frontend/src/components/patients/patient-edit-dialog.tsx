@@ -38,27 +38,60 @@ import { toast } from 'sonner';
 import { JOURNEY_STAGE_LABELS } from '@/lib/utils/journey-stage';
 import { useEnabledCancerTypes } from '@/hooks/useEnabledCancerTypes';
 
-const patientQuickEditSchema = z.object({
-  name: z.string().min(2, 'Nome deve ter pelo menos 2 caracteres'),
-  cpf: z.string().optional(),
-  phone: z.string().min(10, 'Telefone é obrigatório (mín. 10 dígitos)'),
-  birthDate: z.string().min(1, 'Data de nascimento é obrigatória'),
-  email: z.string().email('Email inválido').optional().or(z.literal('')),
-  currentStage: z.enum(['SCREENING', 'DIAGNOSIS', 'TREATMENT', 'FOLLOW_UP', 'PALLIATIVE']),
-  cancerType: z
-    .enum([
-      'breast',
-      'lung',
-      'colorectal',
-      'prostate',
-      'kidney',
-      'bladder',
-      'testicular',
-      'other',
-    ])
-    .optional()
-    .nullable(),
-});
+const patientQuickEditSchema = z
+  .object({
+    name: z.string().min(2, 'Nome deve ter pelo menos 2 caracteres'),
+    cpf: z.string().optional(),
+    phone: z.string().min(10, 'Telefone é obrigatório (mín. 10 dígitos)'),
+    birthDate: z.string().min(1, 'Data de nascimento é obrigatória'),
+    email: z.string().email('Email inválido').optional().or(z.literal('')),
+    currentStage: z.enum([
+      'SCREENING',
+      'DIAGNOSIS',
+      'TREATMENT',
+      'FOLLOW_UP',
+      'PALLIATIVE',
+    ]),
+    cancerType: z
+      .enum([
+        'breast',
+        'lung',
+        'colorectal',
+        'prostate',
+        'kidney',
+        'bladder',
+        'testicular',
+        'other',
+      ])
+      .optional()
+      .nullable(),
+    healthCoverageType: z.enum(['PRIVATE', 'HEALTH_PLAN']).optional(),
+    healthPlanName: z.string().max(255).optional(),
+    insuranceMemberId: z.string().max(128).optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (
+      data.healthCoverageType === 'HEALTH_PLAN' &&
+      !data.healthPlanName?.trim()
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['healthPlanName'],
+        message: 'Informe o nome do plano de saúde.',
+      });
+    }
+    if (
+      !data.healthCoverageType &&
+      (data.healthPlanName?.trim() || data.insuranceMemberId?.trim())
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['healthCoverageType'],
+        message:
+          'Selecione "Plano de saúde" para informar nome do plano ou carteirinha.',
+      });
+    }
+  });
 
 type PatientQuickEditFormData = z.infer<typeof patientQuickEditSchema>;
 
@@ -75,6 +108,7 @@ const CURRENT_STAGE_OPTIONS: {
 
 /** Valor usado no Select para "nenhum tipo"; Radix não permite value="" em SelectItem */
 const CANCER_TYPE_NONE_VALUE = '__none__';
+const HEALTH_COVERAGE_NONE = '__health_coverage_none__';
 
 // CANCER_TYPE_OPTIONS agora é dinâmico, gerado dentro do componente via useEnabledCancerTypes
 
@@ -115,8 +149,12 @@ export function PatientEditDialog({
       email: '',
       currentStage: 'SCREENING',
       cancerType: undefined,
+      healthPlanName: '',
+      insuranceMemberId: '',
     },
   });
+
+  const healthCoverageWatch = form.watch('healthCoverageType');
 
   useEffect(() => {
     if (patient && open) {
@@ -132,6 +170,13 @@ export function PatientEditDialog({
         cancerType: (getCancerTypeKey(
           getPatientCancerType(patient) ?? undefined
         ) ?? undefined) as PatientQuickEditFormData['cancerType'],
+        healthCoverageType:
+          patient.healthCoverageType === 'PRIVATE' ||
+          patient.healthCoverageType === 'HEALTH_PLAN'
+            ? patient.healthCoverageType
+            : undefined,
+        healthPlanName: patient.healthPlanName ?? '',
+        insuranceMemberId: patient.insuranceMemberId ?? '',
       });
     }
   }, [patient, open, form]);
@@ -146,6 +191,19 @@ export function PatientEditDialog({
       email: data.email || undefined,
       currentStage: data.currentStage,
       cancerType: data.cancerType == null ? undefined : data.cancerType,
+      healthCoverageType:
+        data.healthCoverageType === 'PRIVATE' ||
+        data.healthCoverageType === 'HEALTH_PLAN'
+          ? data.healthCoverageType
+          : null,
+      healthPlanName:
+        data.healthCoverageType === 'HEALTH_PLAN'
+          ? data.healthPlanName?.trim()
+          : null,
+      insuranceMemberId:
+        data.healthCoverageType === 'HEALTH_PLAN'
+          ? data.insuranceMemberId?.trim() || null
+          : null,
     };
     try {
       await updateMutation.mutateAsync({ id: patient.id, data: payload });
@@ -240,6 +298,87 @@ export function PatientEditDialog({
                 </FormItem>
               )}
             />
+            <FormField
+              control={form.control}
+              name="healthCoverageType"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Cobertura de saúde</FormLabel>
+                  <Select
+                    onValueChange={(v) => {
+                      if (v === HEALTH_COVERAGE_NONE) {
+                        field.onChange(undefined);
+                        form.setValue('healthPlanName', '');
+                        form.setValue('insuranceMemberId', '');
+                        return;
+                      }
+                      field.onChange(v as 'PRIVATE' | 'HEALTH_PLAN');
+                      if (v === 'PRIVATE') {
+                        form.setValue('healthPlanName', '');
+                        form.setValue('insuranceMemberId', '');
+                      }
+                    }}
+                    value={
+                      field.value === 'PRIVATE' || field.value === 'HEALTH_PLAN'
+                        ? field.value
+                        : HEALTH_COVERAGE_NONE
+                    }
+                  >
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Não informado" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value={HEALTH_COVERAGE_NONE}>
+                        Não informado
+                      </SelectItem>
+                      <SelectItem value="PRIVATE">Particular</SelectItem>
+                      <SelectItem value="HEALTH_PLAN">Plano de saúde</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            {healthCoverageWatch === 'HEALTH_PLAN' && (
+              <>
+                <FormField
+                  control={form.control}
+                  name="healthPlanName"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Nome do plano / operadora</FormLabel>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          placeholder="Ex.: Unimed, Amil"
+                          autoComplete="off"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="insuranceMemberId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Número da carteirinha</FormLabel>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          placeholder="Opcional"
+                          autoComplete="off"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </>
+            )}
             <FormField
               control={form.control}
               name="currentStage"

@@ -6,6 +6,7 @@ import { OncologyNavigationService } from '../oncology-navigation/oncology-navig
 import { PriorityRecalculationService } from '../oncology-navigation/priority-recalculation.service';
 import { ComorbiditiesService } from '../comorbidities/comorbidities.service';
 import { MedicationsService } from '../medications/medications.service';
+import { HealthCoverageType } from '@generated/prisma/client';
 
 const mockPrisma = {
   patient: {
@@ -97,6 +98,9 @@ const basePatient = {
   priorityCategory: 'HIGH',
   currentStage: 'SCREENING',
   status: 'ACTIVE',
+  healthCoverageType: null,
+  healthPlanName: null,
+  insuranceMemberId: null,
   createdAt: new Date(),
   updatedAt: new Date(),
   cancerDiagnoses: [],
@@ -319,6 +323,88 @@ describe('PatientsService', () => {
       expect(callData.phoneHash).toBeDefined();
       expect(callData.phoneHash).not.toBe(createDto.phone); // hash é diferente do telefone bruto
     });
+
+    it('deve persistir HEALTH_PLAN com nome e carteirinha', async () => {
+      mockPrisma.tenant.findUnique.mockResolvedValue({
+        id: TENANT,
+        settings: { enabledCancerTypes: ['bladder'] },
+      });
+      mockPrisma.patient.create.mockResolvedValue(basePatient);
+
+      await service.create(
+        {
+          ...createDto,
+          healthCoverageType: HealthCoverageType.HEALTH_PLAN,
+          healthPlanName: 'Unimed',
+          insuranceMemberId: '12345',
+        } as any,
+        TENANT
+      );
+
+      const callData = mockPrisma.patient.create.mock.calls[0][0].data;
+      expect(callData.healthCoverageType).toBe(HealthCoverageType.HEALTH_PLAN);
+      expect(callData.healthPlanName).toBe('Unimed');
+      expect(callData.insuranceMemberId).toBe('12345');
+    });
+
+    it('deve normalizar PRIVATE removendo plano e carteirinha', async () => {
+      mockPrisma.tenant.findUnique.mockResolvedValue({
+        id: TENANT,
+        settings: { enabledCancerTypes: ['bladder'] },
+      });
+      mockPrisma.patient.create.mockResolvedValue(basePatient);
+
+      await service.create(
+        {
+          ...createDto,
+          healthCoverageType: HealthCoverageType.PRIVATE,
+          healthPlanName: 'ignored',
+          insuranceMemberId: 'ignored',
+        } as any,
+        TENANT
+      );
+
+      const callData = mockPrisma.patient.create.mock.calls[0][0].data;
+      expect(callData.healthCoverageType).toBe(HealthCoverageType.PRIVATE);
+      expect(callData.healthPlanName).toBeNull();
+      expect(callData.insuranceMemberId).toBeNull();
+    });
+
+    it('deve lançar BadRequest ao criar HEALTH_PLAN sem nome do plano', async () => {
+      mockPrisma.tenant.findUnique.mockResolvedValue({
+        id: TENANT,
+        settings: { enabledCancerTypes: ['bladder'] },
+      });
+
+      await expect(
+        service.create(
+          {
+            ...createDto,
+            healthCoverageType: HealthCoverageType.HEALTH_PLAN,
+          } as any,
+          TENANT
+        )
+      ).rejects.toThrow(BadRequestException);
+      expect(mockPrisma.patient.create).not.toHaveBeenCalled();
+    });
+
+    it('deve lançar BadRequest ao informar carteirinha sem tipo de cobertura', async () => {
+      mockPrisma.tenant.findUnique.mockResolvedValue({
+        id: TENANT,
+        settings: { enabledCancerTypes: ['bladder'] },
+      });
+
+      await expect(
+        service.create(
+          {
+            ...createDto,
+            insuranceMemberId: '999',
+          } as any,
+          TENANT
+        )
+      ).rejects.toThrow(BadRequestException);
+      expect(mockPrisma.patient.create).not.toHaveBeenCalled();
+    });
   });
 
   // ─── update ─────────────────────────────────────────────────────────────────
@@ -361,6 +447,109 @@ describe('PatientsService', () => {
       await expect(
         service.update(PATIENT_ID, { cancerType: 'pancreatic' } as any, TENANT)
       ).rejects.toThrow(BadRequestException);
+    });
+
+    it('deve limpar plano e carteirinha ao atualizar para PRIVATE', async () => {
+      mockPrisma.patient.findFirst.mockResolvedValue({
+        ...basePatient,
+        healthCoverageType: HealthCoverageType.HEALTH_PLAN,
+        healthPlanName: 'Amil',
+        insuranceMemberId: '99',
+      });
+      mockPrisma.patient.update.mockResolvedValue(basePatient);
+      mockPrisma.tenant.findUnique.mockResolvedValue({
+        id: TENANT,
+        settings: { enabledCancerTypes: ['bladder'] },
+      });
+
+      await service.update(
+        PATIENT_ID,
+        { healthCoverageType: HealthCoverageType.PRIVATE } as any,
+        TENANT
+      );
+
+      const data = mockPrisma.patient.update.mock.calls[0][0].data;
+      expect(data.healthCoverageType).toBe(HealthCoverageType.PRIVATE);
+      expect(data.healthPlanName).toBeNull();
+      expect(data.insuranceMemberId).toBeNull();
+    });
+  });
+
+  // ─── updateRegistration ─────────────────────────────────────────────────────
+
+  describe('updateRegistration', () => {
+    it('deve lançar NotFoundException quando paciente não pertence ao tenant', async () => {
+      mockPrisma.patient.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.updateRegistration(
+          PATIENT_ID,
+          { name: 'Só Cadastro' },
+          OTHER_TENANT
+        )
+      ).rejects.toThrow(NotFoundException);
+
+      expect(mockPrisma.patient.update).not.toHaveBeenCalled();
+    });
+
+    it('deve atualizar apenas campos de cadastro e incluir tenantId no where', async () => {
+      mockPrisma.patient.findFirst.mockResolvedValue(basePatient);
+      mockPrisma.patient.update.mockResolvedValue({
+        ...basePatient,
+        name: 'Nome Atualizado',
+      });
+
+      await service.updateRegistration(
+        PATIENT_ID,
+        {
+          name: 'Nome Atualizado',
+          medicalRecordNumber: '  PR-001  ',
+          occupation: '  Auxiliar  ',
+        },
+        TENANT
+      );
+
+      expect(mockPrisma.patient.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: PATIENT_ID, tenantId: TENANT },
+          data: expect.objectContaining({
+            name: 'Nome Atualizado',
+            medicalRecordNumber: 'PR-001',
+            occupation: 'Auxiliar',
+          }),
+        })
+      );
+    });
+
+    it('deve persistir HEALTH_PLAN com nome e carteirinha no cadastro administrativo', async () => {
+      mockPrisma.patient.findFirst.mockResolvedValue(basePatient);
+      mockPrisma.patient.update.mockResolvedValue({
+        ...basePatient,
+        healthCoverageType: HealthCoverageType.HEALTH_PLAN,
+        healthPlanName: 'Unimed',
+        insuranceMemberId: '999',
+      });
+
+      await service.updateRegistration(
+        PATIENT_ID,
+        {
+          healthCoverageType: HealthCoverageType.HEALTH_PLAN,
+          healthPlanName: 'Unimed',
+          insuranceMemberId: '999',
+        },
+        TENANT
+      );
+
+      expect(mockPrisma.patient.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: PATIENT_ID, tenantId: TENANT },
+          data: expect.objectContaining({
+            healthCoverageType: HealthCoverageType.HEALTH_PLAN,
+            healthPlanName: 'Unimed',
+            insuranceMemberId: '999',
+          }),
+        })
+      );
     });
   });
 

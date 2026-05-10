@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm, useWatch, type FieldErrors } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import {
@@ -26,6 +26,7 @@ import {
 import {
   patientsApi,
   CreatePatientDto,
+  type Patient,
   type ComorbiditySeverity,
   type ComorbidityType,
 } from '@/lib/api/patients';
@@ -49,9 +50,15 @@ import { FamilyHistoryForm } from './family-history-form';
 import { PriorClinicalHistoryForm } from './prior-clinical-history-form';
 import { StructuredClinicalRisksForm } from './structured-clinical-risks-form';
 
+export type PatientCreateDialogVariant = 'full' | 'agenda-quick';
+
 interface PatientCreateDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Chamado após criar paciente com sucesso (ex.: pré-selecionar na agenda). */
+  onPatientCreated?: (patient: Patient) => void;
+  /** `agenda-quick`: só a 1.ª etapa (dados básicos), para cadastro rápido a partir da agenda. */
+  variant?: PatientCreateDialogVariant;
 }
 
 function fieldErrorText(err: { message?: unknown } | undefined): string {
@@ -65,11 +72,24 @@ const STEPS = [
   { id: 3, title: 'Integração EHR (Opcional)' },
 ];
 
+/** Radix Select não aceita value="" em SelectItem */
+const HEALTH_COVERAGE_NONE = '__health_coverage_none__';
+
 export function PatientCreateDialog({
   open,
   onOpenChange,
+  onPatientCreated,
+  variant = 'full',
 }: PatientCreateDialogProps) {
   const [currentStep, setCurrentStep] = useState(1);
+  const isAgendaQuick = variant === 'agenda-quick';
+  const displayStep = isAgendaQuick ? 1 : currentStep;
+
+  useEffect(() => {
+    if (open && isAgendaQuick) {
+      setCurrentStep(1);
+    }
+  }, [open, isAgendaQuick]);
   const queryClient = useQueryClient();
   const { labels: enabledCancerLabels } = useEnabledCancerTypes();
 
@@ -120,6 +140,10 @@ export function PatientCreateDialog({
   });
   const allergyEntries = useWatch({ control, name: 'allergyEntries' });
   const allergies = useWatch({ control, name: 'allergies' });
+  const healthCoverageType = useWatch({
+    control,
+    name: 'healthCoverageType',
+  });
 
   const needsOncologyCoreFields = requiresOncologyCoreFields(currentStage);
   const needsTreatmentField = requiresCurrentTreatmentField(currentStage);
@@ -163,9 +187,10 @@ export function PatientCreateDialog({
 
   const createPatientMutation = useMutation({
     mutationFn: (data: CreatePatientDto) => patientsApi.create(data),
-    onSuccess: () => {
+    onSuccess: (created) => {
       queryClient.invalidateQueries({ queryKey: ['patients'] });
       toast.success('Paciente criado com sucesso!');
+      onPatientCreated?.(created);
       reset();
       setCurrentStep(1);
       onOpenChange(false);
@@ -333,6 +358,15 @@ export function PatientCreateDialog({
         durationDays: h.durationDays,
         notes: h.notes?.trim() || undefined,
       })),
+      ...(data.healthCoverageType === 'PRIVATE'
+        ? { healthCoverageType: 'PRIVATE' as const }
+        : data.healthCoverageType === 'HEALTH_PLAN'
+          ? {
+              healthCoverageType: 'HEALTH_PLAN' as const,
+              healthPlanName: data.healthPlanName!.trim(),
+              insuranceMemberId: data.insuranceMemberId?.trim() || undefined,
+            }
+          : {}),
     };
     createPatientMutation.mutate(patientData);
   };
@@ -349,55 +383,63 @@ export function PatientCreateDialog({
     }
   };
 
-  const handleClose = () => {
-    reset();
-    setCurrentStep(1);
-    onOpenChange(false);
+  const handleDialogOpenChange = (next: boolean) => {
+    if (!next) {
+      reset();
+      setCurrentStep(1);
+    }
+    onOpenChange(next);
   };
 
   return (
-    <Dialog open={open} onOpenChange={handleClose}>
+    <Dialog open={open} onOpenChange={handleDialogOpenChange}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Adicionar Novo Paciente</DialogTitle>
+          <DialogTitle>
+            {isAgendaQuick ? 'Novo paciente (agenda)' : 'Adicionar Novo Paciente'}
+          </DialogTitle>
           <DialogDescription>
-            Preencha os dados do paciente em 3 etapas
+            {isAgendaQuick
+              ? 'Apenas dados básicos. Complete o cadastro clínico depois na ficha do paciente.'
+              : 'Preencha os dados do paciente em 3 etapas'}
           </DialogDescription>
         </DialogHeader>
 
         {/* Indicador de progresso */}
-        <div className="flex items-center justify-between mb-6">
-          {STEPS.map((step, index) => (
-            <div key={step.id} className="flex items-center flex-1">
-              <div className="flex flex-col items-center flex-1">
-                <div
-                  className={`w-10 h-10 rounded-full flex items-center justify-center border-2 ${
-                    currentStep >= step.id
-                      ? 'bg-primary text-primary-foreground border-primary'
-                      : 'bg-background border-muted-foreground text-muted-foreground'
-                  }`}
-                >
-                  {step.id}
+        {!isAgendaQuick && (
+          <div className="flex items-center justify-between mb-6">
+            {STEPS.map((step, index) => (
+              <div key={step.id} className="flex items-center flex-1">
+                <div className="flex flex-col items-center flex-1">
+                  <div
+                    className={`w-10 h-10 rounded-full flex items-center justify-center border-2 ${
+                      currentStep >= step.id
+                        ? 'bg-primary text-primary-foreground border-primary'
+                        : 'bg-background border-muted-foreground text-muted-foreground'
+                    }`}
+                  >
+                    {step.id}
+                  </div>
+                  <span className="text-xs mt-1 text-center">{step.title}</span>
                 </div>
-                <span className="text-xs mt-1 text-center">{step.title}</span>
+                {index < STEPS.length - 1 && (
+                  <div
+                    className={`h-0.5 flex-1 mx-2 ${
+                      currentStep > step.id ? 'bg-primary' : 'bg-muted'
+                    }`}
+                  />
+                )}
               </div>
-              {index < STEPS.length - 1 && (
-                <div
-                  className={`h-0.5 flex-1 mx-2 ${
-                    currentStep > step.id ? 'bg-primary' : 'bg-muted'
-                  }`}
-                />
-              )}
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
 
         <form
           onSubmit={handleSubmit(onSubmit, onValidationError)}
           className="space-y-6"
         >
           {/* Etapa 1: Dados Básicos */}
-          {currentStep === 1 && (
+          {displayStep === 1 && (
             <div className="space-y-4">
               <div>
                 <label className="text-sm font-medium">Nome *</label>
@@ -483,11 +525,93 @@ export function PatientCreateDialog({
                 )}
               </div>
 
+              <div>
+                <label className="text-sm font-medium">Cobertura de saúde</label>
+                <Select
+                  value={
+                    healthCoverageType === 'PRIVATE' ||
+                    healthCoverageType === 'HEALTH_PLAN'
+                      ? healthCoverageType
+                      : HEALTH_COVERAGE_NONE
+                  }
+                  onValueChange={(value) => {
+                    if (value === HEALTH_COVERAGE_NONE) {
+                      setValue('healthCoverageType', undefined, {
+                        shouldValidate: true,
+                      });
+                      setValue('healthPlanName', '', { shouldValidate: true });
+                      setValue('insuranceMemberId', '', {
+                        shouldValidate: true,
+                      });
+                      return;
+                    }
+                    setValue('healthCoverageType', value as 'PRIVATE' | 'HEALTH_PLAN', {
+                      shouldValidate: true,
+                    });
+                    if (value === 'PRIVATE') {
+                      setValue('healthPlanName', '', { shouldValidate: true });
+                      setValue('insuranceMemberId', '', {
+                        shouldValidate: true,
+                      });
+                    }
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione (opcional)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={HEALTH_COVERAGE_NONE}>
+                      Não informado
+                    </SelectItem>
+                    <SelectItem value="PRIVATE">Particular</SelectItem>
+                    <SelectItem value="HEALTH_PLAN">Plano de saúde</SelectItem>
+                  </SelectContent>
+                </Select>
+                {errors.healthCoverageType && (
+                  <p className="text-sm text-destructive mt-1">
+                    {fieldErrorText(errors.healthCoverageType)}
+                  </p>
+                )}
+              </div>
+
+              {healthCoverageType === 'HEALTH_PLAN' && (
+                <>
+                  <div>
+                    <label className="text-sm font-medium">
+                      Nome do plano / operadora *
+                    </label>
+                    <Input
+                      {...register('healthPlanName')}
+                      placeholder="Ex.: Unimed, Amil, etc."
+                    />
+                    {errors.healthPlanName && (
+                      <p className="text-sm text-destructive mt-1">
+                        {fieldErrorText(errors.healthPlanName)}
+                      </p>
+                    )}
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium">
+                      Número da carteirinha
+                    </label>
+                    <Input
+                      {...register('insuranceMemberId')}
+                      placeholder="Opcional"
+                      autoComplete="off"
+                    />
+                    {errors.insuranceMemberId && (
+                      <p className="text-sm text-destructive mt-1">
+                        {fieldErrorText(errors.insuranceMemberId)}
+                      </p>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
           )}
 
           {/* Etapa 2: Dados Oncológicos */}
-          {currentStep === 2 && (
+          {displayStep === 2 && (
             <div className="space-y-4">
               {/* Estágio da Jornada primeiro — define quais campos aparecem */}
               <div>
@@ -764,7 +888,7 @@ export function PatientCreateDialog({
           )}
 
           {/* Etapa 3: Integração EHR */}
-          {currentStep === 3 && (
+          {displayStep === 3 && (
             <div className="space-y-4">
               <div>
                 <label className="text-sm font-medium">ID no Sistema EHR</label>
@@ -782,27 +906,46 @@ export function PatientCreateDialog({
 
           {/* Botões de navegação */}
           <div className="flex justify-between">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={handlePrevious}
-              disabled={currentStep === 1}
-            >
-              <ChevronLeft className="h-4 w-4 mr-2" />
-              Anterior
-            </Button>
-
-            {currentStep < STEPS.length ? (
-              <Button type="button" onClick={handleNext}>
-                Próximo
-                <ChevronRight className="h-4 w-4 ml-2" />
-              </Button>
+            {isAgendaQuick ? (
+              <div className="ml-auto flex gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => handleDialogOpenChange(false)}
+                >
+                  Cancelar
+                </Button>
+                <Button type="submit" disabled={createPatientMutation.isPending}>
+                  {createPatientMutation.isPending
+                    ? 'Criando…'
+                    : 'Criar e usar na consulta'}
+                </Button>
+              </div>
             ) : (
-              <Button type="submit" disabled={createPatientMutation.isPending}>
-                {createPatientMutation.isPending
-                  ? 'Criando...'
-                  : 'Criar Paciente'}
-              </Button>
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handlePrevious}
+                  disabled={currentStep === 1}
+                >
+                  <ChevronLeft className="h-4 w-4 mr-2" />
+                  Anterior
+                </Button>
+
+                {currentStep < STEPS.length ? (
+                  <Button type="button" onClick={handleNext}>
+                    Próximo
+                    <ChevronRight className="h-4 w-4 ml-2" />
+                  </Button>
+                ) : (
+                  <Button type="submit" disabled={createPatientMutation.isPending}>
+                    {createPatientMutation.isPending
+                      ? 'Criando...'
+                      : 'Criar Paciente'}
+                  </Button>
+                )}
+              </>
             )}
           </div>
         </form>

@@ -79,6 +79,13 @@ model Patient {
   phoneHash String? // Hash SHA-256 do telefone normalizado para busca eficiente (indexado)
   email     String?
 
+  /// Particular vs plano de saúde (opcional = não informado)
+  healthCoverageType HealthCoverageType?
+  /// Nome do plano / operadora quando healthCoverageType = HEALTH_PLAN
+  healthPlanName     String?
+  /// Número da carteirinha (opcional)
+  insuranceMemberId  String?
+
   // Dados hospitalares (importação de planilhas)
   medicalRecordNumber String? // Número do prontuário hospitalar
   occupation          String? // Ocupação/profissão
@@ -428,6 +435,11 @@ enum PriorityCategory {
   HIGH // Alto (score 60-79)
   MEDIUM // Médio (score 40-59)
   LOW // Baixo (score 0-39)
+}
+
+enum HealthCoverageType {
+  PRIVATE // Particular
+  HEALTH_PLAN // Plano de saúde / convênio
 }
 
 enum PatientStatus {

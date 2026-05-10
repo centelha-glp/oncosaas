@@ -14,7 +14,9 @@ import {
   Max,
   MaxLength,
   IsObject,
+  ValidateIf,
 } from 'class-validator';
+import { HealthCoverageType } from '@generated/prisma/client';
 import { Type } from 'class-transformer';
 import { CreateCancerDiagnosisDto } from './create-cancer-diagnosis.dto';
 import { FamilyHistoryDto } from './family-history.dto';
@@ -177,4 +179,24 @@ export class CreatePatientDto {
   @ValidateNested({ each: true })
   @Type(() => CreateMedicationDto)
   currentMedications?: CreateMedicationDto[];
+
+  @IsOptional()
+  @IsEnum(HealthCoverageType)
+  healthCoverageType?: HealthCoverageType;
+
+  @ValidateIf(
+    (o: CreatePatientDto) => o.healthCoverageType === HealthCoverageType.HEALTH_PLAN,
+  )
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(255)
+  healthPlanName?: string;
+
+  @ValidateIf(
+    (o: CreatePatientDto) => o.healthCoverageType === HealthCoverageType.HEALTH_PLAN,
+  )
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  insuranceMemberId?: string;
 }

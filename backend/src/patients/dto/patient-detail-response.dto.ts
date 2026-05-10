@@ -3,6 +3,7 @@ import {
   PriorityCategory,
   PatientStatus,
   ComplementaryExamType,
+  HealthCoverageType,
 } from '@generated/prisma/client';
 
 export interface PatientDetailResponse {
@@ -14,6 +15,9 @@ export interface PatientDetailResponse {
   gender: string | null;
   phone: string | null;
   email: string | null;
+  healthCoverageType: HealthCoverageType | null;
+  healthPlanName: string | null;
+  insuranceMemberId: string | null;
   cancerType: string | null;
   stage: string | null;
   diagnosisDate: Date | null;

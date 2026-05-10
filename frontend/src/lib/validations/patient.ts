@@ -98,6 +98,10 @@ const patientFormSharedFields = {
     z.union([z.literal(''), z.string().email('Email inválido')])
   ),
 
+  healthCoverageType: z.enum(['PRIVATE', 'HEALTH_PLAN']).optional(),
+  healthPlanName: z.string().max(255).optional(),
+  insuranceMemberId: z.string().max(128).optional(),
+
   // Etapa 2 - Dados Oncológicos Essenciais
   cancerType: z
     .enum([
@@ -274,7 +278,28 @@ const patientFormRefines = <T extends z.ZodTypeAny>(schema: T) =>
         'Em cada medicamento, escolha um item do catálogo ou informe o nome livre; em "Outro", o nome é obrigatório.',
       path: ['currentMedications'],
     }
-  );
+  )
+  .superRefine((data, ctx) => {
+    const t = data.healthCoverageType;
+    if (t === 'HEALTH_PLAN' && !data.healthPlanName?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['healthPlanName'],
+        message: 'Informe o nome do plano de saúde.',
+      });
+    }
+    if (
+      !t &&
+      (data.healthPlanName?.trim() || data.insuranceMemberId?.trim())
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['healthCoverageType'],
+        message:
+          'Selecione "Plano de saúde" para informar nome do plano ou carteirinha.',
+      });
+    }
+  });
 
 /** Cadastro: telefone obrigatório (mín. 10 caracteres no campo). */
 export const createPatientSchema = patientFormRefines(

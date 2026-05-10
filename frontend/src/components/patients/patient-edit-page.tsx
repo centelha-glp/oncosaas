@@ -80,6 +80,8 @@ import type {
   PriorSurgeryItem,
 } from '@/lib/api/patients';
 
+const HEALTH_COVERAGE_NONE = '__health_coverage_none__';
+
 function normalizePriorSurgeries(raw: unknown): PriorSurgeryItem[] {
   if (!raw || !Array.isArray(raw)) return [];
   return raw
@@ -238,6 +240,8 @@ export function PatientEditPage({ patientId }: PatientEditPageProps) {
       priorHospitalizations: [],
       occupationalExposureEntries: [],
       allergyEntries: [],
+      healthPlanName: '',
+      insuranceMemberId: '',
     },
   });
 
@@ -450,6 +454,13 @@ export function PatientEditPage({ patientId }: PatientEditPageProps) {
           (patient as { priorHospitalizations?: unknown }).priorHospitalizations
         ),
         ehrPatientId: patient.ehrPatientId || undefined,
+        healthCoverageType:
+          patient.healthCoverageType === 'PRIVATE' ||
+          patient.healthCoverageType === 'HEALTH_PLAN'
+            ? patient.healthCoverageType
+            : undefined,
+        healthPlanName: patient.healthPlanName ?? '',
+        insuranceMemberId: patient.insuranceMemberId ?? '',
       };
 
       reset(formData, {
@@ -491,6 +502,14 @@ export function PatientEditPage({ patientId }: PatientEditPageProps) {
         }
         if (formData.grade) {
           setValue('grade', formData.grade, { shouldValidate: false });
+        }
+        if (
+          formData.healthCoverageType === 'PRIVATE' ||
+          formData.healthCoverageType === 'HEALTH_PLAN'
+        ) {
+          setValue('healthCoverageType', formData.healthCoverageType, {
+            shouldValidate: false,
+          });
         }
       }, 0);
 
@@ -757,6 +776,20 @@ export function PatientEditPage({ patientId }: PatientEditPageProps) {
       }
     }
 
+    updateData.healthCoverageType =
+      data.healthCoverageType === 'PRIVATE' ||
+      data.healthCoverageType === 'HEALTH_PLAN'
+        ? data.healthCoverageType
+        : null;
+    if (data.healthCoverageType === 'HEALTH_PLAN') {
+      updateData.healthPlanName = data.healthPlanName?.trim();
+      updateData.insuranceMemberId =
+        data.insuranceMemberId?.trim() || null;
+    } else {
+      updateData.healthPlanName = null;
+      updateData.insuranceMemberId = null;
+    }
+
     if (data.priorHospitalizations !== undefined) {
       if (data.priorHospitalizations.length > 0) {
         const validH = data.priorHospitalizations
@@ -880,6 +913,11 @@ export function PatientEditPage({ patientId }: PatientEditPageProps) {
       occupationalExposure:
         watch('occupationalExposure') ?? g.occupationalExposure,
       ehrPatientId: watch('ehrPatientId') ?? g.ehrPatientId,
+      healthCoverageType:
+        watch('healthCoverageType') ?? g.healthCoverageType,
+      healthPlanName: watch('healthPlanName') ?? g.healthPlanName,
+      insuranceMemberId:
+        watch('insuranceMemberId') ?? g.insuranceMemberId,
     };
   };
 
@@ -960,6 +998,7 @@ export function PatientEditPage({ patientId }: PatientEditPageProps) {
 
   const currentStage = watch('currentStage');
   const cancerTypeWatch = watch('cancerType');
+  const healthCoverageTypeWatch = watch('healthCoverageType');
   const needsOncologyCoreFields = requiresOncologyCoreFields(currentStage);
   const needsTreatmentField = requiresCurrentTreatmentField(currentStage);
   const treatmentOptions = getTreatmentOptionsForCancerType(
@@ -1126,6 +1165,118 @@ export function PatientEditPage({ patientId }: PatientEditPageProps) {
                   </p>
                 )}
               </div>
+
+              <div
+                className="md:col-span-2"
+                id={patientEditFieldId('healthCoverageType')}
+              >
+                <label className="text-sm font-medium mb-2 block">
+                  Cobertura de saúde
+                </label>
+                <Controller
+                  name="healthCoverageType"
+                  control={control}
+                  render={({ field }) => (
+                    <Select
+                      value={
+                        field.value === 'PRIVATE' || field.value === 'HEALTH_PLAN'
+                          ? field.value
+                          : HEALTH_COVERAGE_NONE
+                      }
+                      onValueChange={(value) => {
+                        if (value === HEALTH_COVERAGE_NONE) {
+                          field.onChange(undefined);
+                          setValue('healthPlanName', '', {
+                            shouldValidate: true,
+                          });
+                          setValue('insuranceMemberId', '', {
+                            shouldValidate: true,
+                          });
+                          return;
+                        }
+                        field.onChange(value as 'PRIVATE' | 'HEALTH_PLAN');
+                        if (value === 'PRIVATE') {
+                          setValue('healthPlanName', '', {
+                            shouldValidate: true,
+                          });
+                          setValue('insuranceMemberId', '', {
+                            shouldValidate: true,
+                          });
+                        }
+                      }}
+                    >
+                      <SelectTrigger
+                        ref={field.ref}
+                        name={field.name}
+                        onBlur={field.onBlur}
+                        aria-invalid={!!errors.healthCoverageType}
+                        className={cn(
+                          errors.healthCoverageType &&
+                            'border-destructive ring-1 ring-destructive'
+                        )}
+                      >
+                        <SelectValue placeholder="Não informado" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={HEALTH_COVERAGE_NONE}>
+                          Não informado
+                        </SelectItem>
+                        <SelectItem value="PRIVATE">Particular</SelectItem>
+                        <SelectItem value="HEALTH_PLAN">
+                          Plano de saúde
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+                {errors.healthCoverageType && (
+                  <p className="text-sm text-destructive mt-1">
+                    {fieldErrorText(errors.healthCoverageType)}
+                  </p>
+                )}
+              </div>
+
+              {healthCoverageTypeWatch === 'HEALTH_PLAN' && (
+                <>
+                  <div id={patientEditFieldId('healthPlanName')}>
+                    <label className="text-sm font-medium mb-2 block">
+                      Nome do plano / operadora *
+                    </label>
+                    <Input
+                      {...register('healthPlanName')}
+                      placeholder="Ex.: Unimed, Amil, etc."
+                      aria-invalid={!!errors.healthPlanName}
+                      className={cn(
+                        errors.healthPlanName && 'border-destructive'
+                      )}
+                    />
+                    {errors.healthPlanName && (
+                      <p className="text-sm text-destructive mt-1">
+                        {fieldErrorText(errors.healthPlanName)}
+                      </p>
+                    )}
+                  </div>
+                  <div id={patientEditFieldId('insuranceMemberId')}>
+                    <label className="text-sm font-medium mb-2 block">
+                      Número da carteirinha
+                    </label>
+                    <Input
+                      {...register('insuranceMemberId')}
+                      placeholder="Opcional"
+                      autoComplete="off"
+                      aria-invalid={!!errors.insuranceMemberId}
+                      className={cn(
+                        errors.insuranceMemberId && 'border-destructive'
+                      )}
+                    />
+                    {errors.insuranceMemberId && (
+                      <p className="text-sm text-destructive mt-1">
+                        {fieldErrorText(errors.insuranceMemberId)}
+                      </p>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
 
           </CardContent>

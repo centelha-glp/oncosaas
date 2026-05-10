@@ -10,6 +10,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePatientDto, Gender, CancerType } from './dto/create-patient.dto';
 import { UpdatePatientDto } from './dto/update-patient.dto';
+import { UpdatePatientRegistrationDto } from './dto/update-patient-registration.dto';
 import { UpdatePriorityDto } from './dto/update-priority.dto';
 import { ImportPatientRowDto } from './dto/import-patients.dto';
 import { ImportSpreadsheetRowDto } from './dto/import-spreadsheet.dto';
@@ -17,7 +18,12 @@ import { PatientDetailResponse } from './dto/patient-detail-response.dto';
 import { CreateCancerDiagnosisDto } from './dto/create-cancer-diagnosis.dto';
 import { UpdateCancerDiagnosisDto } from './dto/update-cancer-diagnosis.dto';
 import { TimelineQueryDto } from './dto/timeline-query.dto';
-import { Patient, Prisma, JourneyStage } from '@generated/prisma/client';
+import {
+  Patient,
+  Prisma,
+  JourneyStage,
+  HealthCoverageType,
+} from '@generated/prisma/client';
 import { OncologyNavigationService } from '../oncology-navigation/oncology-navigation.service';
 import { PriorityRecalculationService } from '../oncology-navigation/priority-recalculation.service';
 import {
@@ -98,6 +104,114 @@ export class PatientsService {
       throw new BadRequestException(
         `Tipo de câncer '${cancerType}' não está habilitado para este tenant. Tipos habilitados: ${enabledTypes.join(', ')}`
       );
+    }
+  }
+
+  private normalizeHealthCoverageForCreate(dto: {
+    healthCoverageType?: HealthCoverageType;
+    healthPlanName?: string;
+    insuranceMemberId?: string;
+  }): {
+    healthCoverageType: HealthCoverageType | null;
+    healthPlanName: string | null;
+    insuranceMemberId: string | null;
+  } {
+    const { healthCoverageType, healthPlanName, insuranceMemberId } = dto;
+    if (!healthCoverageType) {
+      if (healthPlanName?.trim() || insuranceMemberId?.trim()) {
+        throw new BadRequestException(
+          'Para informar plano ou carteirinha, selecione cobertura "Plano de saúde".'
+        );
+      }
+      return {
+        healthCoverageType: null,
+        healthPlanName: null,
+        insuranceMemberId: null,
+      };
+    }
+    if (healthCoverageType === HealthCoverageType.PRIVATE) {
+      return {
+        healthCoverageType,
+        healthPlanName: null,
+        insuranceMemberId: null,
+      };
+    }
+    const name = healthPlanName?.trim();
+    if (!name) {
+      throw new BadRequestException(
+        'Nome do plano de saúde é obrigatório quando a cobertura é plano de saúde.'
+      );
+    }
+    return {
+      healthCoverageType,
+      healthPlanName: name,
+      insuranceMemberId: insuranceMemberId?.trim() || null,
+    };
+  }
+
+  private applyHealthCoverageToUpdate(
+    existing: Pick<
+      Patient,
+      'healthCoverageType' | 'healthPlanName' | 'insuranceMemberId'
+    >,
+    dto: {
+      healthCoverageType?: HealthCoverageType | null;
+      healthPlanName?: string;
+      insuranceMemberId?: string;
+    },
+    updateData: Prisma.PatientUpdateInput
+  ): void {
+    const typeInDto = dto.healthCoverageType;
+    if (typeInDto === HealthCoverageType.PRIVATE) {
+      updateData.healthCoverageType = HealthCoverageType.PRIVATE;
+      updateData.healthPlanName = null;
+      updateData.insuranceMemberId = null;
+      return;
+    }
+    if (typeInDto === HealthCoverageType.HEALTH_PLAN) {
+      const name =
+        dto.healthPlanName !== undefined
+          ? dto.healthPlanName?.trim()
+          : existing.healthPlanName?.trim();
+      if (!name) {
+        throw new BadRequestException(
+          'Nome do plano de saúde é obrigatório quando a cobertura é plano de saúde.'
+        );
+      }
+      updateData.healthCoverageType = HealthCoverageType.HEALTH_PLAN;
+      if (dto.healthPlanName !== undefined) {
+        updateData.healthPlanName = name;
+      }
+      if (dto.insuranceMemberId !== undefined) {
+        updateData.insuranceMemberId = dto.insuranceMemberId?.trim() || null;
+      }
+      return;
+    }
+    if (typeInDto === null) {
+      updateData.healthCoverageType = null;
+      updateData.healthPlanName = null;
+      updateData.insuranceMemberId = null;
+      return;
+    }
+    if (
+      dto.healthPlanName !== undefined ||
+      dto.insuranceMemberId !== undefined
+    ) {
+      if (existing.healthCoverageType !== HealthCoverageType.HEALTH_PLAN) {
+        throw new BadRequestException(
+          'Altere a cobertura para "Plano de saúde" antes de informar plano ou carteirinha.'
+        );
+      }
+      if (dto.healthPlanName !== undefined) {
+        const n = dto.healthPlanName?.trim();
+        if (!n) {
+          throw new BadRequestException('Nome do plano não pode ser vazio.');
+        }
+        updateData.healthPlanName = n;
+      }
+      if (dto.insuranceMemberId !== undefined) {
+        updateData.insuranceMemberId = dto.insuranceMemberId?.trim() || null;
+      }
     }
   }
 
@@ -333,6 +447,12 @@ export class PatientsService {
     const allergyEntriesJson =
       normalizeAllergyEntriesForStorage(rawAllergyEntries);
 
+    const healthCoverage = this.normalizeHealthCoverageForCreate({
+      healthCoverageType: patientData.healthCoverageType,
+      healthPlanName: patientData.healthPlanName,
+      insuranceMemberId: patientData.insuranceMemberId,
+    });
+
     // Processar cancerDiagnoses se fornecidos
     const processedDiagnoses = cancerDiagnoses?.map((diagnosis) => {
       // Calcular stage automaticamente se campos TNM fornecidos
@@ -386,6 +506,9 @@ export class PatientsService {
         priorHospitalizations: patientData.priorHospitalizations as any,
         allergies: patientData.allergies,
         ehrPatientId: patientData.ehrId,
+        healthCoverageType: healthCoverage.healthCoverageType,
+        healthPlanName: healthCoverage.healthPlanName,
+        insuranceMemberId: healthCoverage.insuranceMemberId,
         tenantId, // SEMPRE incluir tenantId
         phoneHash, // Hash para busca eficiente
         cancerDiagnoses: processedDiagnoses
@@ -569,6 +692,8 @@ export class PatientsService {
       updateData.preferredEmergencyHospital = (updatePatientDto as any).preferredEmergencyHospital;
     }
 
+    this.applyHealthCoverageToUpdate(existingPatient, updatePatientDto, updateData);
+
     const updatedPatient = await this.prisma.patient.update({
       where: { id, tenantId },
       data: updateData,
@@ -650,6 +775,66 @@ export class PatientsService {
     }
 
     return updatedPatient;
+  }
+
+  /**
+   * Atualiza apenas dados administrativos de cadastro (sem campos clínicos,
+   * sem efeitos colaterais em navegação oncológica).
+   */
+  async updateRegistration(
+    id: string,
+    dto: UpdatePatientRegistrationDto,
+    tenantId: string
+  ): Promise<Patient> {
+    const existingPatient = await this.prisma.patient.findFirst({
+      where: { id, tenantId },
+    });
+
+    if (!existingPatient) {
+      throw new NotFoundException(`Patient with ID ${id} not found`);
+    }
+
+    const updateData: Prisma.PatientUpdateInput = {};
+
+    if (dto.name !== undefined) {
+      updateData.name = dto.name;
+    }
+    if (dto.cpf !== undefined) {
+      updateData.cpf = dto.cpf;
+    }
+    if (dto.birthDate !== undefined) {
+      updateData.birthDate = new Date(dto.birthDate);
+    }
+    if (dto.gender !== undefined) {
+      updateData.gender = dto.gender;
+    }
+    if (dto.phone !== undefined) {
+      const normalizedPhone = normalizePhoneNumber(dto.phone);
+      updateData.phone = normalizedPhone;
+      updateData.phoneHash = hashPhoneNumber(normalizedPhone);
+    }
+    if (dto.email !== undefined) {
+      updateData.email = dto.email;
+    }
+    if (dto.medicalRecordNumber !== undefined) {
+      const v = dto.medicalRecordNumber?.trim();
+      updateData.medicalRecordNumber = v && v.length > 0 ? v : null;
+    }
+    if (dto.occupation !== undefined) {
+      const v = dto.occupation?.trim();
+      updateData.occupation = v && v.length > 0 ? v : null;
+    }
+    if (dto.ehrId !== undefined) {
+      const v = dto.ehrId?.trim();
+      updateData.ehrPatientId = v && v.length > 0 ? v : null;
+    }
+
+    this.applyHealthCoverageToUpdate(existingPatient, dto, updateData);
+
+    return this.prisma.patient.update({
+      where: { id, tenantId },
+      data: updateData,
+    });
   }
 
   /**
