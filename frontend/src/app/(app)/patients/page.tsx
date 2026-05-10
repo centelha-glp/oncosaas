@@ -7,7 +7,7 @@ import { PatientListPage } from '@/components/patients/patient-list-page';
 
 export default function PatientsPage() {
   const router = useRouter();
-  const { user, isAuthenticated, isInitializing, initialize } = useAuthStore();
+  const { isAuthenticated, isInitializing, initialize } = useAuthStore();
 
   useEffect(() => {
     initialize();

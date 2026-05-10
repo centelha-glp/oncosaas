@@ -180,10 +180,10 @@ export function filterSlotsByOccupiedAndBlocks(params: {
   return candidates.filter((start) => {
     const slot = consultationIntervalBounds(start, durationMinutes);
     for (const b of booked) {
-      if (intervalsOverlapSemiOpen(slot, b)) return false;
+      if (intervalsOverlapSemiOpen(slot, b)) {return false;}
     }
     for (const b of blocks) {
-      if (intervalsOverlapSemiOpen(slot, b)) return false;
+      if (intervalsOverlapSemiOpen(slot, b)) {return false;}
     }
     return true;
   });

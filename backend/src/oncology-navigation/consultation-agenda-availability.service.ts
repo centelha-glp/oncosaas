@@ -44,7 +44,7 @@ export class ConsultationAgendaAvailabilityService {
     const row = await this.prisma.consultationAgendaConfig.findFirst({
       where: { tenantId, userId },
     });
-    if (!row) return null;
+    if (!row) {return null;}
     const weeklyPattern = this.parseWeeklyPatternOrThrow(row.weeklyPattern);
     return {
       defaultConsultationDurationMinutes: row.defaultConsultationDurationMinutes,
@@ -59,7 +59,7 @@ export class ConsultationAgendaAvailabilityService {
     professionalId: string
   ): Promise<number> {
     const cfg = await this.getConfigForProfessional(tenantId, professionalId);
-    if (!cfg) return LEGACY_CONSULTATION_SLOT_MINUTES;
+    if (!cfg) {return LEGACY_CONSULTATION_SLOT_MINUTES;}
     const d = cfg.defaultConsultationDurationMinutes;
     if (d < 5 || d > MAX_CONSULTATION_DURATION_MINUTES) {
       return LEGACY_CONSULTATION_SLOT_MINUTES;
@@ -120,13 +120,13 @@ export class ConsultationAgendaAvailabilityService {
 
     const booked: IntervalUtc[] = [];
     for (const row of bookedRows) {
-      if (!row.expectedDate) continue;
+      if (!row.expectedDate) {continue;}
       booked.push(consultationIntervalBounds(row.expectedDate, D));
     }
 
     const maxCap = cfg.maxConsultationsPerDay;
     const ymdsBlockedByCap = new Set<string>();
-    if (maxCap != null && maxCap > 0) {
+    if (maxCap !== null && maxCap !== undefined && maxCap > 0) {
       const ymds = eachCalendarYmdInUtcRange(from, to, CONSULTATION_AGENDA_TIMEZONE);
       for (const ymd of ymds) {
         const { start, end } = zonedDayBounds(ymd, CONSULTATION_AGENDA_TIMEZONE);
@@ -185,7 +185,7 @@ export class ConsultationAgendaAvailabilityService {
     const { tenantId, professionalId, expectedDate, durationMinutes, excludeStepId } =
       params;
     const cfg = await this.getConfigForProfessional(tenantId, professionalId);
-    if (!cfg) return;
+    if (!cfg) {return;}
 
     const slot = consultationIntervalBounds(expectedDate, durationMinutes);
     if (
@@ -215,7 +215,7 @@ export class ConsultationAgendaAvailabilityService {
     }
 
     const maxCap = cfg.maxConsultationsPerDay;
-    if (maxCap != null && maxCap > 0) {
+    if (maxCap !== null && maxCap !== undefined && maxCap > 0) {
       const ymd = formatInTimeZone(
         expectedDate,
         CONSULTATION_AGENDA_TIMEZONE,
@@ -276,7 +276,7 @@ export class ConsultationAgendaAvailabilityService {
         select: { id: true, expectedDate: true, scheduledProfessionalId: true },
       });
       for (const o of others) {
-        if (!o.expectedDate || !o.scheduledProfessionalId) continue;
+        if (!o.expectedDate || !o.scheduledProfessionalId) {continue;}
         const d = await this.getConsultationDurationMinutes(
           tenantId,
           o.scheduledProfessionalId
@@ -302,7 +302,7 @@ export class ConsultationAgendaAvailabilityService {
       select: { id: true, expectedDate: true, scheduledProfessionalId: true },
     });
     for (const o of profRows) {
-      if (!o.expectedDate || !o.scheduledProfessionalId) continue;
+      if (!o.expectedDate || !o.scheduledProfessionalId) {continue;}
       const d = await this.getConsultationDurationMinutes(
         tenantId,
         o.scheduledProfessionalId

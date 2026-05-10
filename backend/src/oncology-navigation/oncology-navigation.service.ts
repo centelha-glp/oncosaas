@@ -807,7 +807,7 @@ export class OncologyNavigationService {
           : null
         : existingStep.expectedDate;
 
-    let nextProfId: string | null =
+    const nextProfId: string | null =
       updateDto.scheduledProfessionalId !== undefined
         ? updateDto.scheduledProfessionalId ?? null
         : existingStep.scheduledProfessionalId;
@@ -4155,7 +4155,7 @@ export class OncologyNavigationService {
     const row = await this.prisma.consultationAgendaConfig.findFirst({
       where: { tenantId, userId },
     });
-    if (!row) return null;
+    if (!row) {return null;}
     return {
       id: row.id,
       userId: row.userId,

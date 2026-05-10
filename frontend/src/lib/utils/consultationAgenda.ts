@@ -1,6 +1,9 @@
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import type { User, UserRole } from '@/lib/api/users';
+
+/** Contexto mínimo para elegibilidade (aceita utilizador da sessão ou da API /users). */
+export type ConsultationStepUserRef = Pick<User, 'role' | 'clinicalSubrole'>;
 import type {
   ConsultationAgendaItem,
   AppointmentConfirmationStatus,
@@ -26,7 +29,7 @@ export type ConsultationAppointmentStepKey =
 
 /** Alinhado às regras do backend (`isUserEligibleForConsultationStepKey`). */
 export function userEligibleForConsultationStep(
-  user: User,
+  user: ConsultationStepUserRef,
   stepKey: ConsultationAppointmentStepKey
 ): boolean {
   if (!isSchedulableConsultationRole(user.role)) {
