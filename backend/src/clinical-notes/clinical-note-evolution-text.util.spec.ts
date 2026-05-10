@@ -38,4 +38,9 @@ describe('clinical-note-evolution-text.util', () => {
     const line = '• Quimioterapia — bexiga — Início: 01/01/2025 — Ativo';
     expect(normalizeEvolutionLine(line)).toBe('• 01/01/2025 — Ativo');
   });
+
+  it('linha tipo nota de etapa com dois-pontos no texto perde o contexto se normalizada (navegacao é excluída no serviço)', () => {
+    const line = '• Etapa X (Pendente) — obs: revisar laudo';
+    expect(normalizeEvolutionLine(line)).toBe('• revisar laudo');
+  });
 });

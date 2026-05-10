@@ -393,8 +393,10 @@ export class ClinicalNoteSectionSuggestionService {
         : examesComplementaresAppend.trim();
     }
 
+    // `tratamentos`: linhas com "Início:" etc. perdem contexto.
+    // `navegacao`: notas livres podem conter ":" (ex. "obs: revisar laudo") e não são rótulo:valor.
     for (const k of CLINICAL_NOTE_SECTION_KEYS) {
-      if (k === 'tratamentos') {
+      if (k === 'tratamentos' || k === 'navegacao') {
         continue;
       }
       const v = out[k];
