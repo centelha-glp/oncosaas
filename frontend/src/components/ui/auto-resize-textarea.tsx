@@ -84,12 +84,19 @@ export const AutoResizeTextarea = React.forwardRef<
   const innerRef = React.useRef<HTMLTextAreaElement | null>(null);
   const mergedRef = React.useMemo(() => mergeRefs(innerRef, ref), [ref]);
   const scrollParentsRef = React.useRef<HTMLElement[]>([]);
+  const isRestoringScrollRef = React.useRef(false);
+  const lastManualScrollAtRef = React.useRef<number>(0);
   const lastScrollRef = React.useRef<{
     winY: number | null;
     docTop: number | null;
     parents: number[];
   }>({ winY: null, docTop: null, parents: [] });
   const lastScrollLogTsRef = React.useRef<number>(0);
+
+  const SCROLL_COOLDOWN_MS = 700;
+  const isInManualScrollCooldown = React.useCallback(() => {
+    return Date.now() - lastManualScrollAtRef.current < SCROLL_COOLDOWN_MS;
+  }, []);
 
   React.useEffect(() => {
     const el = innerRef.current;
@@ -123,6 +130,12 @@ export const AutoResizeTextarea = React.forwardRef<
 
       if (!changed) return;
       lastScrollRef.current = { winY, docTop, parents: parentTops };
+
+      // Marca scroll manual (ou do browser) enquanto o campo está focado.
+      // Evita "disputa" de scroll quando o usuário acabou de rolar e voltou a digitar.
+      if (!isRestoringScrollRef.current) {
+        lastManualScrollAtRef.current = now;
+      }
 
       // #region agent log (H1)
       debugLog(
@@ -253,8 +266,13 @@ export const AutoResizeTextarea = React.forwardRef<
 
     // Se o resize mexeu no scroll do documento, restaura. Isso impede o “pulo” ao inserir quebra de linha.
     if (document.activeElement === el && scrollingEl && scrollTopBefore !== null) {
+      if (isInManualScrollCooldown()) {
+        return;
+      }
       if (scrollingEl.scrollTop !== scrollTopBefore) {
+        isRestoringScrollRef.current = true;
         scrollingEl.scrollTop = scrollTopBefore;
+        isRestoringScrollRef.current = false;
         // #region agent log (H1)
         debugLog(
           'auto-resize-textarea.tsx:adjustHeight',
@@ -273,6 +291,9 @@ export const AutoResizeTextarea = React.forwardRef<
 
     // Se houver container scrollável acima (tabs, painel, etc.), também restaura para evitar “tremida”.
     if (document.activeElement === el) {
+      if (isInManualScrollCooldown()) {
+        return;
+      }
       for (const parent of scrollParents) {
         const snap = (before as any).scrollParents?.find(
           (p: any) =>
@@ -282,7 +303,9 @@ export const AutoResizeTextarea = React.forwardRef<
         );
         if (snap && typeof snap.scrollTop === 'number' && parent.scrollTop !== snap.scrollTop) {
           const beforeRestore = parent.scrollTop;
+          isRestoringScrollRef.current = true;
           parent.scrollTop = snap.scrollTop;
+          isRestoringScrollRef.current = false;
           // #region agent log (H1)
           debugLog(
             'auto-resize-textarea.tsx:adjustHeight',
@@ -303,67 +326,19 @@ export const AutoResizeTextarea = React.forwardRef<
       }
     }
 
-    // Mantém o foco visível com o mínimo de scroll (evita “teleportar” ao rodapé como `block: center/start`).
-    if (document.activeElement === el) {
+    // Alguns navegadores ajustam o scroll *depois* do layout (na mesma frame).
+    // Se houver “tremida” (scroll muda e volta), esse é o ponto de captura/correção.
+    if (document.activeElement === el && !isInManualScrollCooldown()) {
       requestAnimationFrame(() => {
-        const r = el.getBoundingClientRect();
-        const cushion = 32;
-        // Se a textarea é maior que a viewport, `r.bottom` estará quase sempre fora da tela
-        // e `scrollIntoView` vira um "puxão" constante. Só ajusta scroll quando o campo
-        // inteiro cabe na viewport.
-        if (r.height <= window.innerHeight && r.bottom > window.innerHeight - cushion) {
-          // #region agent log (H2)
-          debugLog(
-            'auto-resize-textarea.tsx:scrollIntoView',
-            'trigger-scrollIntoView',
-            {
-              ...before,
-              rectBottom: r.bottom,
-              rectTop: r.top,
-              innerHeight: window.innerHeight,
-              cushion,
-              nextHeight: next,
-            },
-            'H2',
-            'pre-fix'
-          );
-          // #endregion
-          el.scrollIntoView({
-            block: 'nearest',
-            inline: 'nearest',
-            behavior: 'instant',
-          });
-        }
-
-        // #region agent log (H1)
-        debugLog(
-          'auto-resize-textarea.tsx:adjustHeight',
-          'post-raf-rect-and-scroll',
-          {
-            rectTop: r.top,
-            rectBottom: r.bottom,
-            rectHeight: r.height,
-            innerHeight: window.innerHeight,
-            winScrollY: window.scrollY,
-            scrollTop:
-              typeof document !== 'undefined'
-                ? (document.scrollingElement as HTMLElement | null)?.scrollTop ?? null
-                : null,
-          },
-          'H1',
-          'pre-fix'
-        );
-        // #endregion
-
-        // Alguns navegadores ajustam o scroll *depois* do layout (na mesma frame).
-        // Se houver “tremida” (scroll muda e volta), esse é o ponto de captura/correção.
         const se =
           typeof document !== 'undefined'
             ? (document.scrollingElement as HTMLElement | null)
             : null;
         if (se && scrollTopBefore !== null && se.scrollTop !== scrollTopBefore) {
           const beforeRaf = se.scrollTop;
+          isRestoringScrollRef.current = true;
           se.scrollTop = scrollTopBefore;
+          isRestoringScrollRef.current = false;
           // #region agent log (H1)
           debugLog(
             'auto-resize-textarea.tsx:adjustHeight',

@@ -31,7 +31,7 @@ const CANCER_TYPE_LABEL_PT: Record<string, string> = {
 
 export function cancerTypeLabelPt(cancerType: string | null | undefined): string {
   if (!cancerType?.trim()) {
-    return 'Tipo de câncer não informado no cadastro';
+    return 'Não informado';
   }
   const k = cancerType.trim().toLowerCase();
   return CANCER_TYPE_LABEL_PT[k] ?? cancerType.trim();
@@ -163,68 +163,29 @@ export function buildEvolutionSectionScaffolds(
         s.status === NavigationStepStatus.OVERDUE)
   );
 
-  const navLines: string[] = [
-    `Contexto da jornada: ${stageLb} (estágio atual do paciente no sistema).`,
-    `Tipo de câncer (cadastro): ${cancerLb}.`,
-  ];
-
-  if (focus) {
-    navLines.push(
-      `Esta evolução refere-se à etapa: ${focus.stepName} — ${navStatusLabelPt(focus.status)}.`
-    );
-    const hint = stepExamHintPt(baseNavigationStepKey(focus.stepKey));
-    if (hint) {
-      navLines.push(`Foco clínico desta etapa: ${hint}`);
-    }
-  }
-
   const formatStepLine = (s: StepRow) => {
     const st = navStatusLabelPt(s.status);
     const due = s.dueDate
-      ? ` — prazo: ${s.dueDate.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })}`
+      ? ` — ${s.dueDate.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })}`
       : '';
-    const n = s.notes?.trim() ? ` — obs.: ${s.notes.trim()}` : '';
+    const n = s.notes?.trim() ? ` — ${s.notes.trim()}` : '';
     return `• ${s.stepName} (${st})${due}${n}`;
   };
 
-  if (activeInStage.length > 0) {
-    navLines.push('', 'Etapas pendentes ou em andamento nesta fase:');
-    activeInStage.forEach((s) => navLines.push(formatStepLine(s)));
+  // Seção "navegação": manter apenas as etapas (sem meta, cabeçalhos ou dicas).
+  const stepLines: string[] = [];
+  if (focus) {
+    stepLines.push(formatStepLine(focus));
   }
-
-  const other = sorted.filter((s) => !activeInStage.includes(s));
-  if (other.length > 0) {
-    navLines.push('', 'Demais etapas registradas na navegação:');
-    other.slice(0, 25).forEach((s) => navLines.push(formatStepLine(s)));
-    if (other.length > 25) {
-      navLines.push(`… (+${other.length - 25} etapas)`);
-    }
-  }
-
-  const examHints: string[] = [];
-  const keysForHints = new Set<string>();
-  for (const s of activeInStage.length > 0 ? activeInStage : sorted.slice(0, 12)) {
-    const bk = baseNavigationStepKey(s.stepKey);
-    if (keysForHints.has(bk)) {
+  for (const s of sorted) {
+    if (focus && s.id === focus.id) {
       continue;
     }
-    keysForHints.add(bk);
-    const h = stepExamHintPt(bk);
-    if (h) {
-      examHints.push(`• (${s.stepName}) ${h}`);
-    }
+    stepLines.push(formatStepLine(s));
   }
 
-  let examesComplementaresAppend = '';
-  if (examHints.length > 0) {
-    examesComplementaresAppend = [
-      '',
-      '--- Sugestões de registro conforme etapas em curso ---',
-      ...examHints.slice(0, 8),
-    ].join('\n');
-  }
-
-  const navegacaoBlock = navLines.join('\n');
+  const navegacaoBlock = stepLines.join('\n');
+  const examesComplementaresAppend = '';
 
   if (!noteType) {
     return {
@@ -237,39 +198,44 @@ export function buildEvolutionSectionScaffolds(
     return {
       sections: {
         hda: [
-          'História da doença atual:',
-          '• Motivo do atendimento / encaminhamento:',
-          '• Tempo de evolução e sintomas principais:',
-          '• Tratamentos oncológicos em curso ou recentes (linha, resposta, toxicidades):',
+          '• ',
           '',
         ].join('\n'),
         subjetivo: [
-          `Subjetivo — ${cancerLb} (${stageLb}):`,
-          '• Queixa principal e expectativas do paciente:',
-          '• Adesão, compreensão do plano e apoio familiar/social:',
+          '• ',
           '',
         ].join('\n'),
         exameFisico: [
-          'Exame físico (sinais vitais e sistemas relevantes):',
           '• Geral:',
-          '• Loco-regional / específico ao tumor ou tratamento:',
+          '• NEURO:',
+          '• ACV',
+          '• AR',
+          '• ABD',
+          '• MMII',
+          '',
+        ].join('\n'),
+        examesComplementares: [
+          '• Lab',
+          '• USG',
+          '• TC',
+          '• PET',
+          '• EDA',
+          '• BIOPSIA',
+          '• CITOLOGIA',
+          '• LAUDOS',
+          '• OUTROS',
           '',
         ].join('\n'),
         analise: [
-          'Análise / problema clínico:',
-          '• Síntese diagnóstica e raciocínio:',
+          '',
           '',
         ].join('\n'),
         conduta: [
-          'Conduta médica:',
-          '• Prescrições e encaminhamentos:',
-          '• Orientações ao paciente:',
+          '• ',
           '',
         ].join('\n'),
         planos: [
-          'Plano terapêutico e próximos passos:',
-          '• Curto prazo:',
-          '• Médio prazo / seguimento:',
+          '• ',
           '',
         ].join('\n'),
         navegacao: navegacaoBlock,
@@ -282,36 +248,30 @@ export function buildEvolutionSectionScaffolds(
   return {
     sections: {
       hda: [
-        'História de enfermagem / demanda assistencial:',
         '• Motivo do contato (consulta de navegação oncológica):',
         '• Percepções do paciente e familiares sobre diagnóstico e tratamento:',
         '• Barreiras (acesso, transporte, financeiras, adesão):',
         '',
       ].join('\n'),
       subjetivo: [
-        `Subjetivo — ${cancerLb} (${stageLb}):`,
         '• Narrativa do paciente e principais preocupações:',
         '• Sintomas relatados e autocuidado:',
         '',
       ].join('\n'),
       exameFisico: [
-        'Avaliação (sinais vitais e necessidades observadas):',
         '• Condições gerais e suporte:',
         '',
       ].join('\n'),
       analise: [
-        'Análise de enfermagem:',
         '• Necessidades identificadas (ex.: educação, suporte, sintomas):',
         '',
       ].join('\n'),
       conduta: [
-        'Conduta de enfermagem / navegação:',
         '• Educação em saúde e mediação:',
         '• Encaminhamentos e articulação com a equipe:',
         '',
       ].join('\n'),
       planos: [
-        'Plano de cuidados e próximos passos:',
         '• Ações pactuadas com o paciente:',
         '• Retorno / contato:',
         '',

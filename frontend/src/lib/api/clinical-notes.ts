@@ -20,18 +20,17 @@ export type ClinicalNoteNavigationStepRef = {
 };
 
 /**
- * Combina texto da evolução anterior com o Markdown sugerido a partir do cadastro.
- * Se só um lado tiver conteúdo, devolve esse; se ambos, concatena com separador.
+ * Conteúdo inicial da nova evolução: usa a evolução anterior quando houver texto;
+ * caso contrário, usa o Markdown sugerido a partir do cadastro (não soma os dois).
  */
 export function mergeMarkdownWithCadastroSuggestion(
   previousMarkdown: string,
   suggestionMarkdown: string
 ): string {
-  const prev = previousMarkdown.trim();
-  const sug = suggestionMarkdown.trim();
-  if (!prev) return suggestionMarkdown;
-  if (!sug) return previousMarkdown;
-  return `${previousMarkdown.trimEnd()}\n\n---\n\n${sug}`;
+  if (previousMarkdown.trim()) {
+    return previousMarkdown;
+  }
+  return suggestionMarkdown;
 }
 
 export type ClinicalNoteUserRef = {

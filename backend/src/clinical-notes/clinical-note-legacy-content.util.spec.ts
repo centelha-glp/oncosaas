@@ -13,7 +13,7 @@ describe('sectionsRecordToMarkdown', () => {
     expect(md).toContain('Queixa');
     expect(md).toContain('## Conduta');
     expect(md).toContain('Observar');
-    expect(md).toContain('---');
+    expect(md).not.toContain('\n---\n');
   });
 });
 

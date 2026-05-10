@@ -40,7 +40,7 @@ export function sectionsRecordToMarkdown(
     const title = CLINICAL_NOTE_SECTION_LABELS_PT[k];
     parts.push(`## ${title}\n\n${raw ?? ''}`.trimEnd());
   }
-  return parts.join('\n\n---\n\n');
+  return parts.join('\n\n');
 }
 
 /**
