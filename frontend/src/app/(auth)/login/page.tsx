@@ -5,12 +5,13 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuthStore } from '@/stores/auth-store';
 import { Button } from '@/components/ui/button';
-import { getSafeRedirectTarget } from '@/lib/utils/redirect';
+import { getPostLoginRedirectTarget } from '@/lib/utils/redirect';
 
 function LoginPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { login, isAuthenticated, isInitializing, initialize } = useAuthStore();
+  const { login, user, isAuthenticated, isInitializing, initialize } =
+    useAuthStore();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -24,10 +25,13 @@ function LoginPageContent() {
   // Verificar se já está autenticado (após inicialização)
   useEffect(() => {
     if (!isInitializing && isAuthenticated) {
-      const target = getSafeRedirectTarget(searchParams.get('redirect'));
+      const target = getPostLoginRedirectTarget(
+        searchParams.get('redirect'),
+        user?.role
+      );
       router.replace(target);
     }
-  }, [isAuthenticated, isInitializing, router, searchParams]);
+  }, [isAuthenticated, isInitializing, router, searchParams, user?.role]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -42,7 +46,11 @@ function LoginPageContent() {
 
       // Usar window.location.href para forçar reload completo e garantir redirecionamento
       if (typeof window !== 'undefined') {
-        const target = getSafeRedirectTarget(searchParams.get('redirect'));
+        const loggedUser = useAuthStore.getState().user;
+        const target = getPostLoginRedirectTarget(
+          searchParams.get('redirect'),
+          loggedUser?.role
+        );
         window.location.href = target;
       }
     } catch (err: unknown) {

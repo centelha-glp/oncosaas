@@ -1,6 +1,7 @@
 ---
 name: agente-ai-service
 description: Ativa o subagente ai-service (FastAPI, orchestrator, agente conversacional) no ONCONAV. Use para ai-service/, pipeline de mensagens ou quando o usuário pedir agente Python/FastAPI.
+disable-model-invocation: false
 ---
 
 # Agente `ai-service`

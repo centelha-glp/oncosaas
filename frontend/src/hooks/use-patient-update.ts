@@ -1,5 +1,10 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { patientsApi, UpdatePatientDto, Patient } from '@/lib/api/patients';
+import {
+  patientsApi,
+  UpdatePatientDto,
+  UpdatePatientRegistrationDto,
+  Patient,
+} from '@/lib/api/patients';
 
 export function usePatientUpdate() {
   const queryClient = useQueryClient();
@@ -21,6 +26,30 @@ export function usePatientUpdate() {
         queryKey: ['patient-detail', updatedPatient.id],
       });
       // Invalidar lista para sidebar/lista atualizar
+      queryClient.invalidateQueries({ queryKey: ['patients'] });
+    },
+  });
+}
+
+export function usePatientRegistrationUpdate() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      id,
+      data,
+    }: {
+      id: string;
+      data: UpdatePatientRegistrationDto;
+    }) => patientsApi.updateRegistration(id, data),
+    onSuccess: async (updatedPatient: Patient) => {
+      queryClient.setQueryData(
+        ['patient-basic', updatedPatient.id],
+        updatedPatient
+      );
+      await queryClient.invalidateQueries({
+        queryKey: ['patient', updatedPatient.id],
+      });
       queryClient.invalidateQueries({ queryKey: ['patients'] });
     },
   });

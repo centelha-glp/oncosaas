@@ -15,6 +15,20 @@ const nextConfig: NextConfig = {
     domains: [],
   },
   output: 'standalone',
+  async redirects() {
+    return [
+      {
+        source: '/oncology-navigation/agenda',
+        destination: '/agenda',
+        permanent: true,
+      },
+      {
+        source: '/oncology-navigation/agenda/settings',
+        destination: '/agenda/settings',
+        permanent: true,
+      },
+    ]
+  },
   async rewrites() {
     // Com API relativa, o proxy é `src/app/api/v1/[[...path]]/route.ts` (fetch Undici + Agent
     // rejectUnauthorized em dev). Os rewrites nativos do Next não aplicam o dispatcher global

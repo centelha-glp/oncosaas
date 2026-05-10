@@ -1,6 +1,7 @@
 ---
 name: processo-dev-onconav
 description: Índice de processos de desenvolvimento ONCONAV que orquestram skills de squad em sequência. Use quando o usuário pedir fluxo de desenvolvimento, como implementar uma entrega, processo de feature, bugfix, deploy, commit ou checklist de squad.
+disable-model-invocation: false
 ---
 
 # Processos de desenvolvimento ONCONAV

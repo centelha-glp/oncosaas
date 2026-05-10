@@ -3,6 +3,10 @@ import { toast } from 'sonner';
 import {
   oncologyNavigationApi,
   type ConsultationAgendaQuery,
+  type ConsultationAvailableSlotsQuery,
+  type CreateConsultationAppointmentDto,
+  type CreateConsultationAgendaBlockPayload,
+  type UpsertConsultationAgendaConfigPayload,
 } from '@/lib/api/oncology-navigation';
 
 export const useConsultationAgenda = (
@@ -81,6 +85,52 @@ export const useInitializeNavigationSteps = () => {
       console.error('Erro ao inicializar etapas:', error);
       toast.error('Falha ao inicializar etapas de navegação.', {
         description: error.message || 'Tente novamente.',
+      });
+    },
+  });
+};
+
+export const useCreateConsultationAppointment = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (data: CreateConsultationAppointmentDto) =>
+      oncologyNavigationApi.createConsultationAppointment(data),
+    onSuccess: (step) => {
+      queryClient.invalidateQueries({ queryKey: ['consultation-agenda'] });
+      queryClient.invalidateQueries({ queryKey: ['navigation-steps'] });
+      queryClient.invalidateQueries({ queryKey: ['patient', step.patientId] });
+      toast.success('Consulta registrada na agenda.');
+    },
+    onError: (error: Error) => {
+      toast.error('Não foi possível registrar a consulta.', {
+        description: error.message || 'Tente novamente.',
+      });
+    },
+  });
+};
+
+export const useSendConsultationConfirmation = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      stepId,
+      message,
+    }: {
+      stepId: string;
+      message?: string;
+    }) =>
+      oncologyNavigationApi.sendConsultationConfirmation(stepId, { message }),
+    onSuccess: ({ step }) => {
+      queryClient.invalidateQueries({ queryKey: ['consultation-agenda'] });
+      queryClient.invalidateQueries({ queryKey: ['navigation-steps'] });
+      queryClient.invalidateQueries({ queryKey: ['patient', step.patientId] });
+      toast.success('Mensagem de confirmação enviada ao paciente.');
+    },
+    onError: (error: Error) => {
+      toast.error('Falha ao enviar confirmação.', {
+        description: error.message || 'Verifique canal, opt-in e telefone.',
       });
     },
   });
@@ -168,6 +218,99 @@ export const useUploadStepFile = () => {
       console.error('Erro ao enviar arquivo:', error);
       toast.error('Falha ao enviar arquivo.', {
         description: error.message || 'Verifique o arquivo e tente novamente.',
+      });
+    },
+  });
+};
+
+export const useConsultationAvailableSlots = (
+  params: ConsultationAvailableSlotsQuery | null,
+  options?: { enabled?: boolean }
+) => {
+  return useQuery({
+    queryKey: ['consultation-available-slots', params],
+    queryFn: () => oncologyNavigationApi.getConsultationAvailableSlots(params!),
+    enabled:
+      (options?.enabled ?? true) &&
+      !!params &&
+      !!params.professionalId &&
+      !!params.stepKey &&
+      !!params.from &&
+      !!params.to,
+    staleTime: 15_000,
+  });
+};
+
+export const useConsultationAgendaConfig = (userId: string | null) => {
+  return useQuery({
+    queryKey: ['consultation-agenda-config', userId],
+    queryFn: () => oncologyNavigationApi.getConsultationAgendaConfig(userId!),
+    enabled: !!userId,
+  });
+};
+
+export const useUpsertConsultationAgendaConfig = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      userId,
+      body,
+    }: {
+      userId: string;
+      body: UpsertConsultationAgendaConfigPayload;
+    }) => oncologyNavigationApi.upsertConsultationAgendaConfig(userId, body),
+    onSuccess: (_, v) => {
+      queryClient.invalidateQueries({ queryKey: ['consultation-agenda-config', v.userId] });
+      queryClient.invalidateQueries({ queryKey: ['consultation-available-slots'] });
+      toast.success('Configuração da agenda guardada.');
+    },
+    onError: (error: Error) => {
+      toast.error('Não foi possível guardar a agenda.', {
+        description: error.message || 'Tente novamente.',
+      });
+    },
+  });
+};
+
+export const useConsultationAgendaBlocks = (forProfessionalId: string | null) => {
+  return useQuery({
+    queryKey: ['consultation-agenda-blocks', forProfessionalId],
+    queryFn: () =>
+      oncologyNavigationApi.listConsultationAgendaBlocks(forProfessionalId ?? undefined),
+    enabled: !!forProfessionalId,
+  });
+};
+
+export const useCreateConsultationAgendaBlock = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: CreateConsultationAgendaBlockPayload) =>
+      oncologyNavigationApi.createConsultationAgendaBlock(body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['consultation-agenda-blocks'] });
+      queryClient.invalidateQueries({ queryKey: ['consultation-available-slots'] });
+      toast.success('Bloqueio criado.');
+    },
+    onError: (error: Error) => {
+      toast.error('Não foi possível criar o bloqueio.', {
+        description: error.message || 'Tente novamente.',
+      });
+    },
+  });
+};
+
+export const useDeleteConsultationAgendaBlock = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => oncologyNavigationApi.deleteConsultationAgendaBlock(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['consultation-agenda-blocks'] });
+      queryClient.invalidateQueries({ queryKey: ['consultation-available-slots'] });
+      toast.success('Bloqueio removido.');
+    },
+    onError: (error: Error) => {
+      toast.error('Não foi possível remover o bloqueio.', {
+        description: error.message || 'Tente novamente.',
       });
     },
   });

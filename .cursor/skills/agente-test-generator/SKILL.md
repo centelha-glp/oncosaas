@@ -1,6 +1,7 @@
 ---
 name: agente-test-generator
 description: Ativa o subagente test-generator (testes unitários e E2E alinhados às mudanças) no ONCONAV. Use antes de commit ou quando o usuário pedir cobertura de testes.
+disable-model-invocation: false
 ---
 
 # Agente `test-generator`

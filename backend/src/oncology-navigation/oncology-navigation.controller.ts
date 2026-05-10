@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Put,
   Patch,
   Delete,
   Param,
@@ -11,6 +12,7 @@ import {
   UseInterceptors,
   UploadedFile,
   BadRequestException,
+  ForbiddenException,
   ParseUUIDPipe,
   Query,
 } from '@nestjs/common';
@@ -20,12 +22,47 @@ import { extname } from 'path';
 import { OncologyNavigationService } from './oncology-navigation.service';
 import { ConsultationAgendaQueryDto } from './dto/consultation-agenda-query.dto';
 import { CreateNavigationStepDto } from './dto/create-navigation-step.dto';
+import { CreateConsultationAppointmentDto } from './dto/create-consultation-appointment.dto';
+import { SendConsultationConfirmationDto } from './dto/send-consultation-confirmation.dto';
 import { UpdateNavigationStepDto } from './dto/update-navigation-step.dto';
+import { ConsultationAvailableSlotsQueryDto } from './dto/consultation-available-slots-query.dto';
+import { UpsertConsultationAgendaConfigDto } from './dto/upsert-consultation-agenda-config.dto';
+import { CreateConsultationAgendaBlockDto } from './dto/create-consultation-agenda-block.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { TenantGuard } from '../auth/guards/tenant.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole, JourneyStage } from '@generated/prisma/client';
+import type { ConsultationAgendaActorContext } from './oncology-navigation.service';
+
+function agendaActorFromRequest(req: {
+  user: { id: string; role: UserRole };
+}): ConsultationAgendaActorContext {
+  return { id: req.user.id, role: req.user.role };
+}
+
+/** Secretária: filtro opcional por profissional; demais papéis: sempre a própria agenda (servidor). */
+function effectiveConsultationAgendaProfessionalId(
+  role: UserRole,
+  userId: string,
+  queryProfessionalId?: string
+): string | undefined {
+  if (role === UserRole.SECRETARY) {
+    return queryProfessionalId;
+  }
+  return userId;
+}
+
+function slotsQueryForActor(
+  role: UserRole,
+  userId: string,
+  query: ConsultationAvailableSlotsQueryDto
+): ConsultationAvailableSlotsQueryDto {
+  if (role === UserRole.SECRETARY) {
+    return query;
+  }
+  return { ...query, professionalId: userId };
+}
 
 // Interface para o arquivo do Multer
 interface MulterFile {
@@ -50,13 +87,143 @@ export class OncologyNavigationController {
     @Query() query: ConsultationAgendaQueryDto,
     @Request() req: any
   ) {
+    const professionalId = effectiveConsultationAgendaProfessionalId(
+      req.user.role,
+      req.user.id,
+      query.professionalId
+    );
     return this.navigationService.getConsultationAgenda(req.user.tenantId, {
       from: query.from,
       to: query.to,
       scope: query.scope,
+      professionalId,
       page: query.page,
       limit: query.limit,
     });
+  }
+
+  @Get('consultation-available-slots')
+  async getConsultationAvailableSlots(
+    @Query() query: ConsultationAvailableSlotsQueryDto,
+    @Request() req: any
+  ) {
+    const scoped = slotsQueryForActor(req.user.role, req.user.id, query);
+    return this.navigationService.getConsultationAvailableSlots(
+      req.user.tenantId,
+      scoped
+    );
+  }
+
+  @Get('consultation-agenda-config/:userId')
+  @Roles(
+    UserRole.ADMIN,
+    UserRole.COORDINATOR,
+    UserRole.ONCOLOGIST,
+    UserRole.SECRETARY
+  )
+  async getConsultationAgendaConfig(
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Request() req: any
+  ) {
+    if (
+      req.user.role !== UserRole.SECRETARY &&
+      userId !== req.user.id
+    ) {
+      throw new ForbiddenException(
+        'Só é possível consultar a configuração da própria agenda.'
+      );
+    }
+    return this.navigationService.getConsultationAgendaConfigForUser(
+      req.user.tenantId,
+      userId
+    );
+  }
+
+  @Put('consultation-agenda-config/:userId')
+  @Roles(
+    UserRole.ADMIN,
+    UserRole.COORDINATOR,
+    UserRole.ONCOLOGIST,
+    UserRole.SECRETARY
+  )
+  async upsertConsultationAgendaConfig(
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Body() body: UpsertConsultationAgendaConfigDto,
+    @Request() req: any
+  ) {
+    if (
+      req.user.role !== UserRole.SECRETARY &&
+      userId !== req.user.id
+    ) {
+      throw new ForbiddenException(
+        'Só é possível alterar a configuração da própria agenda.'
+      );
+    }
+    return this.navigationService.upsertConsultationAgendaConfig(
+      req.user.tenantId,
+      userId,
+      body
+    );
+  }
+
+  @Get('consultation-agenda-blocks')
+  @Roles(
+    UserRole.ADMIN,
+    UserRole.COORDINATOR,
+    UserRole.ONCOLOGIST,
+    UserRole.SECRETARY
+  )
+  async listConsultationAgendaBlocks(
+    @Query('forProfessionalId') forProfessionalId: string | undefined,
+    @Request() req: any
+  ) {
+    const scoped =
+      req.user.role === UserRole.SECRETARY
+        ? forProfessionalId
+          ? { forProfessionalId }
+          : undefined
+        : { forProfessionalId: req.user.id };
+    return this.navigationService.listConsultationAgendaBlocks(
+      req.user.tenantId,
+      scoped
+    );
+  }
+
+  @Post('consultation-agenda-blocks')
+  @Roles(
+    UserRole.ADMIN,
+    UserRole.COORDINATOR,
+    UserRole.ONCOLOGIST,
+    UserRole.SECRETARY
+  )
+  async createConsultationAgendaBlock(
+    @Body() body: CreateConsultationAgendaBlockDto,
+    @Request() req: any
+  ) {
+    return this.navigationService.createConsultationAgendaBlock(
+      req.user.tenantId,
+      body,
+      agendaActorFromRequest(req)
+    );
+  }
+
+  @Delete('consultation-agenda-blocks/:id')
+  @Roles(
+    UserRole.ADMIN,
+    UserRole.COORDINATOR,
+    UserRole.ONCOLOGIST,
+    UserRole.SECRETARY
+  )
+  async deleteConsultationAgendaBlock(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Request() req: any
+  ) {
+    await this.navigationService.deleteConsultationAgendaBlock(
+      req.user.tenantId,
+      id,
+      agendaActorFromRequest(req)
+    );
+    return { message: 'Bloqueio removido' };
   }
 
   @Get('patients/:patientId/steps')
@@ -108,8 +275,51 @@ export class OncologyNavigationController {
     return this.navigationService.createStep(createDto, req.user.tenantId);
   }
 
+  @Post('consultation-appointments')
+  @Roles(
+    UserRole.ADMIN,
+    UserRole.COORDINATOR,
+    UserRole.ONCOLOGIST,
+    UserRole.SECRETARY
+  )
+  async createConsultationAppointment(
+    @Body() dto: CreateConsultationAppointmentDto,
+    @Request() req: any
+  ) {
+    return this.navigationService.createConsultationAppointment(
+      dto,
+      req.user.tenantId,
+      agendaActorFromRequest(req)
+    );
+  }
+
+  @Post('steps/:id/send-confirmation')
+  @Roles(
+    UserRole.ADMIN,
+    UserRole.COORDINATOR,
+    UserRole.ONCOLOGIST,
+    UserRole.SECRETARY
+  )
+  async sendConsultationConfirmation(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: SendConsultationConfirmationDto,
+    @Request() req: any
+  ) {
+    return this.navigationService.sendConsultationConfirmation(
+      id,
+      req.user.tenantId,
+      { message: body.message },
+      agendaActorFromRequest(req)
+    );
+  }
+
   @Patch('steps/:id')
-  @Roles(UserRole.ADMIN, UserRole.COORDINATOR, UserRole.ONCOLOGIST)
+  @Roles(
+    UserRole.ADMIN,
+    UserRole.COORDINATOR,
+    UserRole.ONCOLOGIST,
+    UserRole.SECRETARY
+  )
   async updateStep(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() updateDto: UpdateNavigationStepDto,
@@ -120,16 +330,30 @@ export class OncologyNavigationController {
       updateDto.completedBy = req.user.id;
     }
 
-    return this.navigationService.updateStep(id, updateDto, req.user.tenantId);
+    return this.navigationService.updateStep(
+      id,
+      updateDto,
+      req.user.tenantId,
+      agendaActorFromRequest(req)
+    );
   }
 
   @Delete('steps/:id')
-  @Roles(UserRole.ADMIN, UserRole.COORDINATOR, UserRole.ONCOLOGIST)
+  @Roles(
+    UserRole.ADMIN,
+    UserRole.COORDINATOR,
+    UserRole.ONCOLOGIST,
+    UserRole.SECRETARY
+  )
   async deleteStep(
     @Param('id', ParseUUIDPipe) id: string,
     @Request() req: any
   ) {
-    await this.navigationService.deleteStep(id, req.user.tenantId);
+    await this.navigationService.deleteStep(
+      id,
+      req.user.tenantId,
+      agendaActorFromRequest(req)
+    );
     return { message: 'Etapa excluída com sucesso' };
   }
 
@@ -220,7 +444,8 @@ export class OncologyNavigationController {
           files,
         },
       },
-      req.user.tenantId
+      req.user.tenantId,
+      agendaActorFromRequest(req)
     );
   }
 

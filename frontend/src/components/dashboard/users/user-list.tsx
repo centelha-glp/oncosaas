@@ -22,6 +22,7 @@ const roleLabels: Record<UserRole, string> = {
   NURSE_CHIEF: 'Enfermeiro Chefe',
   NURSE: 'Enfermeiro',
   COORDINATOR: 'Coordenador',
+  SECRETARY: 'Secretaria',
 };
 
 const roleColors: Record<UserRole, string> = {
@@ -31,6 +32,7 @@ const roleColors: Record<UserRole, string> = {
   NURSE_CHIEF: 'bg-orange-100 text-orange-800',
   NURSE: 'bg-green-100 text-green-800',
   COORDINATOR: 'bg-indigo-100 text-indigo-800',
+  SECRETARY: 'bg-slate-100 text-slate-800',
 };
 
 interface UserListProps {

@@ -70,6 +70,7 @@ ThrottleGuard (global) → JwtAuthGuard (global) → TenantGuard → RolesGuard
 | `NURSE_CHIEF` | Enfermeiro-chefe |
 | `NURSE` | Enfermeiro |
 | `COORDINATOR` | Coordenador |
+| `SECRETARY` | Secretaria — agenda de consultas (visão global do tenant), integrações WhatsApp e chat; sem aprovação de decisões do agente nem observability; **pacientes**: listagem e leitura conforme rotas expostas; **edição** apenas de cadastro administrativo via `PATCH /patients/:id/registration` (sem campos clínicos nem `PATCH /patients/:id` completo); demais perfis têm agenda de consultas limitada ao próprio `scheduledProfessionalId` no servidor (não confiar em `professionalId` do cliente) |
 
 ### Regras
 

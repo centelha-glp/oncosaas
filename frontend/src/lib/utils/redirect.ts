@@ -28,3 +28,20 @@ export function getSafeRedirectTarget(redirectParam: string | null): string {
 
   return decoded;
 }
+
+/**
+ * Destino pós-login: respeita `redirect` na query quando seguro; secretaria cai na agenda.
+ */
+export function getPostLoginRedirectTarget(
+  redirectParam: string | null | undefined,
+  role?: string | null
+): string {
+  const trimmed = redirectParam?.trim();
+  if (trimmed) {
+    return getSafeRedirectTarget(trimmed);
+  }
+  if (role === 'SECRETARY') {
+    return '/agenda';
+  }
+  return '/dashboard';
+}

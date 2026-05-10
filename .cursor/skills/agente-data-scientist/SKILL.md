@@ -1,6 +1,7 @@
 ---
 name: agente-data-scientist
 description: Ativa o subagente data-scientist (treino LightGBM, EDA, métricas, bias) no ONCONAV. Use para laboratório de ML de priorização, não para só ajustar prompts.
+disable-model-invocation: false
 ---
 
 # Agente `data-scientist`

@@ -1,6 +1,7 @@
 ---
 name: novo-modulo-backend
 description: Cria estrutura completa de novo módulo NestJS seguindo padrões do projeto
+disable-model-invocation: false
 ---
 
 # Skill: /novo-modulo-backend

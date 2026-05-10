@@ -1,6 +1,7 @@
 ---
 name: agente-backend-nestjs
 description: Ativa o subagente backend-nestjs (NestJS, Prisma, APIs, guards, tenant) no ONCONAV. Use para rotas, services, DTOs, módulos em backend/ ou quando o usuário pedir backend Nest.
+disable-model-invocation: false
 ---
 
 # Agente `backend-nestjs`

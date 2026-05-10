@@ -4,6 +4,7 @@ import {
   IsIn,
   IsInt,
   IsOptional,
+  IsUUID,
   Max,
   Min,
 } from 'class-validator';
@@ -21,6 +22,10 @@ export class ConsultationAgendaQueryDto {
   @IsOptional()
   @IsIn(['consultations', 'all'])
   scope?: ConsultationAgendaScope = 'consultations';
+
+  @IsOptional()
+  @IsUUID()
+  professionalId?: string;
 
   @IsOptional()
   @Type(() => Number)

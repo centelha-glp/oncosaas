@@ -1,6 +1,7 @@
 ---
 name: agente-especialista-medico
 description: Ativa o subagente especialista-medico (parecer clínico, terminologia, texto médico) no ONCONAV. Use para revisão de conteúdo clínico sem substituir clinical-domain em regras de código.
+disable-model-invocation: false
 ---
 
 # Agente `especialista-medico`

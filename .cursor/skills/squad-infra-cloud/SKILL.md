@@ -1,6 +1,7 @@
 ---
 name: squad-infra-cloud
 description: Squad Infra/Cloud ONCONAV — avaliação, orquestração e acionamento obrigatório de devops, aws e terraform (uma Task por agente). Use para Docker, CI/CD, AWS ou IaC.
+disable-model-invocation: false
 ---
 
 # Squad Infra/Cloud

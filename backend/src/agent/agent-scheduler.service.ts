@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { getAiServiceConfig } from '../common/utils/ai-service.util';
 import { Cron, CronExpression } from '@nestjs/schedule';
@@ -7,6 +7,7 @@ import { ChannelGatewayService } from '../channel-gateway/channel-gateway.servic
 import { ClinicalProtocolsService } from '../clinical-protocols/clinical-protocols.service';
 import { PatientStatus, ScheduledActionStatus } from '@generated/prisma/client';
 import { ChannelType, JourneyStage } from '@generated/prisma/client';
+import { OncologyNavigationService } from '../oncology-navigation/oncology-navigation.service';
 
 const FREQUENCY_DAYS: Record<string, number> = {
   daily: 1,
@@ -27,6 +28,8 @@ export class AgentSchedulerService {
     private readonly channelGateway: ChannelGatewayService,
     private readonly configService: ConfigService,
     private readonly clinicalProtocols: ClinicalProtocolsService,
+    @Inject(forwardRef(() => OncologyNavigationService))
+    private readonly oncologyNavigation: OncologyNavigationService,
   ) {}
 
   /**
@@ -221,6 +224,9 @@ export class AgentSchedulerService {
           case 'APPOINTMENT_REMINDER':
             await this.executeReminder(action);
             break;
+          case 'CONSULTATION_CONFIRMATION':
+            await this.executeConsultationConfirmation(action);
+            break;
           case 'FOLLOW_UP':
             await this.executeFollowUp(action);
             break;
@@ -306,6 +312,30 @@ export class AgentSchedulerService {
       action.channel,
       action.conversationId,
     );
+  }
+
+  private async executeConsultationConfirmation(action: {
+    tenantId: string;
+    id: string;
+    patientId: string;
+    payload: unknown;
+  }) {
+    const navigationStepId = (
+      action.payload as { navigationStepId?: string } | null
+    )?.navigationStepId;
+    if (!navigationStepId) {
+      throw new Error('CONSULTATION_CONFIRMATION: missing navigationStepId');
+    }
+    const { sent } = await this.oncologyNavigation.sendConsultationConfirmation(
+      navigationStepId,
+      action.tenantId,
+      { skipIfAlreadySent: true },
+    );
+    if (!sent) {
+      this.logger.log(
+        `CONSULTATION_CONFIRMATION ${action.id}: skipped for step ${navigationStepId}`
+      );
+    }
   }
 
   private async executeFollowUp(action: any) {

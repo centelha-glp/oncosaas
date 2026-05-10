@@ -1,6 +1,7 @@
 ---
 name: agente-database-engineer
 description: Ativa o subagente database-engineer (Prisma, schema, migrations, índices, performance SQL) no ONCONAV. Use para modelagem, query plans ou quando o usuário pedir otimização de banco.
+disable-model-invocation: false
 ---
 
 # Agente `database-engineer`

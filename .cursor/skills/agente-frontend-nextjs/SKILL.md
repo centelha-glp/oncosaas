@@ -1,6 +1,7 @@
 ---
 name: agente-frontend-nextjs
 description: Ativa o subagente frontend-nextjs (Next.js, React, React Query, UI) no ONCONAV. Use para páginas, componentes, hooks em frontend/ ou quando o usuário pedir frontend Next.
+disable-model-invocation: false
 ---
 
 # Agente `frontend-nextjs`

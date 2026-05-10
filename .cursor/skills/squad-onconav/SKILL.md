@@ -1,6 +1,7 @@
 ---
 name: squad-onconav
 description: Índice dos squads ONCONAV com ciclo análise-plano-Tasks-subtasks-to-dos, avaliação, orquestração e acionamento integral. Use para /squad-*, time por área ou alinhamento com .claude/squads.md.
+disable-model-invocation: false
 ---
 
 # Squads ONCONAV — índice

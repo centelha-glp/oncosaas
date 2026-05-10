@@ -1,6 +1,7 @@
 ---
 name: processo-feature-e2e
 description: Processo de nova feature end-to-end no ONCONAV usando squads em ordem; cada fase que usar skill squad aplica acionamento integral (avaliação + todos os agentes). Use para entrega completa ou full-stack guiado.
+disable-model-invocation: false
 ---
 
 # Processo: feature end-to-end

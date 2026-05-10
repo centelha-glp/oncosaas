@@ -1,6 +1,7 @@
 ---
 name: agente-terraform
 description: Ativa o subagente terraform (IaC, módulos, state, provisionamento) no ONCONAV. Use para .tf, workspaces ou drift de infra.
+disable-model-invocation: false
 ---
 
 # Agente `terraform`

@@ -1,6 +1,7 @@
 ---
 name: gerar-testes
 description: Gera/atualiza testes unitários e E2E para arquivos modificados antes do commit
+disable-model-invocation: false
 ---
 
 # Skill: /gerar-testes

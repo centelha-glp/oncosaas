@@ -1,6 +1,7 @@
 ---
 name: agente-rag-engineer
 description: Ativa o subagente rag-engineer (corpus oncológico, FAISS, embeddings, retrieval) no ONCONAV. Use para qualidade de passagens, top-k ou índice vetorial.
+disable-model-invocation: false
 ---
 
 # Agente `rag-engineer`

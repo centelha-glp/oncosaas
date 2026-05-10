@@ -9,6 +9,7 @@ import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { Eye, Edit } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { useAuthStore } from '@/stores/auth-store';
 
 interface PatientTableProps {
   patients: Patient[];
@@ -35,10 +36,14 @@ function calculateAge(birthDate: string): number {
 
 export function PatientTable({ patients, onPatientClick }: PatientTableProps) {
   const router = useRouter();
+  const user = useAuthStore((s) => s.user);
+  const isSecretary = user?.role === 'SECRETARY';
 
   const handleView = (patientId: string) => {
     if (onPatientClick) {
       onPatientClick(patientId);
+    } else if (isSecretary) {
+      router.push(`/patients/${patientId}/edit`);
     } else {
       router.push(`/patients/${patientId}`);
     }
@@ -146,7 +151,7 @@ export function PatientTable({ patients, onPatientClick }: PatientTableProps) {
                         variant="ghost"
                         size="sm"
                         onClick={() => handleView(patient.id)}
-                        title="Ver detalhes"
+                        title={isSecretary ? 'Abrir cadastro' : 'Ver detalhes'}
                       >
                         <Eye className="h-4 w-4" />
                       </Button>

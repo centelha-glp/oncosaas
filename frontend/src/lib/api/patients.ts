@@ -389,7 +389,10 @@ export interface CreatePatientDto {
   ehrId?: string;
 }
 
-export interface UpdatePatientDto extends Partial<CreatePatientDto> {
+export interface UpdatePatientDto
+  extends Partial<
+    Omit<CreatePatientDto, 'healthCoverageType' | 'healthPlanName' | 'insuranceMemberId'>
+  > {
   currentMedications?: CurrentMedication[];
   healthCoverageType?: HealthCoverageTypeApi | null;
   healthPlanName?: string | null;

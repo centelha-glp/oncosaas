@@ -6,8 +6,13 @@ import {
   IsEnum,
   IsObject,
   IsArray,
+  IsUUID,
 } from 'class-validator';
-import { JourneyStage, NavigationStepStatus } from '@generated/prisma/client';
+import {
+  AppointmentConfirmationStatus,
+  JourneyStage,
+  NavigationStepStatus,
+} from '@generated/prisma/client';
 import { IsPlainText } from '../../common/validators/is-plain-text.decorator';
 
 export class UpdateNavigationStepDto {
@@ -81,4 +86,13 @@ export class UpdateNavigationStepDto {
   @IsEnum(JourneyStage)
   @IsOptional()
   journeyStage?: JourneyStage;
+
+  @IsEnum(AppointmentConfirmationStatus)
+  @IsOptional()
+  appointmentConfirmationStatus?: AppointmentConfirmationStatus;
+
+  /** Profissional responsável pelo slot na agenda (consultas clínicas) */
+  @IsUUID()
+  @IsOptional()
+  scheduledProfessionalId?: string;
 }

@@ -1,6 +1,7 @@
 ---
 name: projeto-pesquisa
 description: Gerencia documentos do projeto de pesquisa CEP/EBSERH para câncer de bexiga
+disable-model-invocation: false
 ---
 
 # Skill: /projeto-pesquisa

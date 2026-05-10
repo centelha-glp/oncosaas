@@ -1,6 +1,7 @@
 ---
 name: agente-github-organizer
 description: Ativa o subagente github-organizer (commits atómicos, PRs estruturadas) no ONCONAV. Use após testes e segurança ou quando o usuário pedir organização de PR/commit.
+disable-model-invocation: false
 ---
 
 # Agente `github-organizer`

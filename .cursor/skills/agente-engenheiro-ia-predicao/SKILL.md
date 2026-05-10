@@ -1,6 +1,7 @@
 ---
 name: agente-engenheiro-ia-predicao
 description: Ativa o subagente engenheiro-ia-predicao (priorityScore, contrato API/backend, integração do modelo de priorização no produto) no ONCONAV. Use para scoring em produção, não para EDA pesada.
+disable-model-invocation: false
 ---
 
 # Agente `engenheiro-ia-predicao`

@@ -1,6 +1,7 @@
 ---
 name: edital-centelha-es-fase2
 description: Responde perguntas e detalha projetos para o Edital Centelha ES (Programa Centelha 3 – Espírito Santo) na segunda fase. Use quando o usuário perguntar sobre Centelha ES, fase 2, formulário Centelha, proposta técnica, elegibilidade, cronograma, subvenção, ou quando precisar redigir ou revisar textos do formulário (oportunidade, solução, diferenciais, impacto socioambiental, equipe) respeitando limites de caracteres e critérios do edital.
+disable-model-invocation: false
 ---
 
 # Edital Centelha ES – Segunda Fase

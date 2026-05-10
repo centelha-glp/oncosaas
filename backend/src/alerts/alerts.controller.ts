@@ -29,7 +29,8 @@ export class AlertsController {
     UserRole.ADMIN,
     UserRole.ONCOLOGIST,
     UserRole.NURSE,
-    UserRole.COORDINATOR
+    UserRole.COORDINATOR,
+    UserRole.SECRETARY
   )
   findAll(
     @CurrentUser() user: any,
@@ -44,7 +45,8 @@ export class AlertsController {
     UserRole.ADMIN,
     UserRole.ONCOLOGIST,
     UserRole.NURSE,
-    UserRole.COORDINATOR
+    UserRole.COORDINATOR,
+    UserRole.SECRETARY
   )
   getCriticalAlerts(@CurrentUser() user: any) {
     return this.alertsService.getCriticalAlerts(user.tenantId);
@@ -55,7 +57,8 @@ export class AlertsController {
     UserRole.ADMIN,
     UserRole.ONCOLOGIST,
     UserRole.NURSE,
-    UserRole.COORDINATOR
+    UserRole.COORDINATOR,
+    UserRole.SECRETARY
   )
   async getOpenAlertsCount(@CurrentUser() user: any) {
     const count = await this.alertsService.getOpenAlertsCount(user.tenantId);
@@ -67,7 +70,8 @@ export class AlertsController {
     UserRole.ADMIN,
     UserRole.ONCOLOGIST,
     UserRole.NURSE,
-    UserRole.COORDINATOR
+    UserRole.COORDINATOR,
+    UserRole.SECRETARY
   )
   async getCriticalAlertsCount(@CurrentUser() user: any) {
     const count = await this.alertsService.getCriticalAlertsCount(
@@ -81,7 +85,8 @@ export class AlertsController {
     UserRole.ADMIN,
     UserRole.ONCOLOGIST,
     UserRole.NURSE,
-    UserRole.COORDINATOR
+    UserRole.COORDINATOR,
+    UserRole.SECRETARY
   )
   async findOne(
     @Param('id', ParseUUIDPipe) id: string,
@@ -104,7 +109,8 @@ export class AlertsController {
     UserRole.ADMIN,
     UserRole.ONCOLOGIST,
     UserRole.NURSE,
-    UserRole.COORDINATOR
+    UserRole.COORDINATOR,
+    UserRole.SECRETARY
   )
   async update(
     @Param('id', ParseUUIDPipe) id: string,
@@ -119,7 +125,8 @@ export class AlertsController {
     UserRole.ADMIN,
     UserRole.ONCOLOGIST,
     UserRole.NURSE,
-    UserRole.COORDINATOR
+    UserRole.COORDINATOR,
+    UserRole.SECRETARY
   )
   async acknowledge(
     @Param('id', ParseUUIDPipe) id: string,
@@ -133,7 +140,8 @@ export class AlertsController {
     UserRole.ADMIN,
     UserRole.ONCOLOGIST,
     UserRole.NURSE,
-    UserRole.COORDINATOR
+    UserRole.COORDINATOR,
+    UserRole.SECRETARY
   )
   async resolve(
     @Param('id', ParseUUIDPipe) id: string,

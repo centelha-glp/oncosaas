@@ -30,7 +30,8 @@ export class MessagesController {
     UserRole.ADMIN,
     UserRole.ONCOLOGIST,
     UserRole.NURSE,
-    UserRole.COORDINATOR
+    UserRole.COORDINATOR,
+    UserRole.SECRETARY
   )
   findAll(
     @CurrentUser() user: any,
@@ -51,7 +52,8 @@ export class MessagesController {
     UserRole.ADMIN,
     UserRole.ONCOLOGIST,
     UserRole.NURSE,
-    UserRole.COORDINATOR
+    UserRole.COORDINATOR,
+    UserRole.SECRETARY
   )
   async getUnassumedCount(@CurrentUser() user: any) {
     const count = await this.messagesService.getUnassumedCount(user.tenantId);
@@ -63,7 +65,8 @@ export class MessagesController {
     UserRole.ADMIN,
     UserRole.ONCOLOGIST,
     UserRole.NURSE,
-    UserRole.COORDINATOR
+    UserRole.COORDINATOR,
+    UserRole.SECRETARY
   )
   async getUnassumedPatientIds(@CurrentUser() user: any) {
     const patientIds =
@@ -76,7 +79,8 @@ export class MessagesController {
     UserRole.ADMIN,
     UserRole.ONCOLOGIST,
     UserRole.NURSE,
-    UserRole.COORDINATOR
+    UserRole.COORDINATOR,
+    UserRole.SECRETARY
   )
   getConversation(
     @Param('patientId', ParseUUIDPipe) patientId: string,
@@ -95,7 +99,8 @@ export class MessagesController {
     UserRole.ADMIN,
     UserRole.ONCOLOGIST,
     UserRole.NURSE,
-    UserRole.COORDINATOR
+    UserRole.COORDINATOR,
+    UserRole.SECRETARY
   )
   findOne(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: any) {
     return this.messagesService.findOne(id, user.tenantId);
@@ -106,7 +111,8 @@ export class MessagesController {
     UserRole.ADMIN,
     UserRole.COORDINATOR,
     UserRole.NURSE,
-    UserRole.ONCOLOGIST
+    UserRole.ONCOLOGIST,
+    UserRole.SECRETARY
   ) // Permite enfermeiros e oncologistas enviarem mensagens quando assumem conversa
   create(@Body() createMessageDto: CreateMessageDto, @CurrentUser() user: any) {
     // Se processedBy é NURSING, adicionar assumedBy automaticamente
@@ -124,7 +130,8 @@ export class MessagesController {
     UserRole.ADMIN,
     UserRole.ONCOLOGIST,
     UserRole.NURSE,
-    UserRole.COORDINATOR
+    UserRole.COORDINATOR,
+    UserRole.SECRETARY
   )
   update(
     @Param('id', ParseUUIDPipe) id: string,
@@ -139,7 +146,8 @@ export class MessagesController {
     UserRole.ADMIN,
     UserRole.ONCOLOGIST,
     UserRole.NURSE,
-    UserRole.COORDINATOR
+    UserRole.COORDINATOR,
+    UserRole.SECRETARY
   )
   assumePatientConversation(
     @Param('patientId', ParseUUIDPipe) patientId: string,
@@ -157,7 +165,8 @@ export class MessagesController {
     UserRole.ADMIN,
     UserRole.ONCOLOGIST,
     UserRole.NURSE,
-    UserRole.COORDINATOR
+    UserRole.COORDINATOR,
+    UserRole.SECRETARY
   )
   assumeConversation(
     @Param('id', ParseUUIDPipe) id: string,

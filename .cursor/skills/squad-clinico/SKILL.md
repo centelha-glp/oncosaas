@@ -1,6 +1,7 @@
 ---
 name: squad-clinico
 description: Squad Clínico ONCONAV — avaliação, orquestração e acionamento obrigatório de clinical-domain, fhir-integration, whatsapp-integration e especialista-medico (uma Task por agente). Use para protocolos, FHIR, WhatsApp ou parecer clínico.
+disable-model-invocation: false
 ---
 
 # Squad Clínico

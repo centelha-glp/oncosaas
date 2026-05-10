@@ -33,6 +33,7 @@ const userSchema = z.object({
     'NURSE_CHIEF',
     'NURSE',
     'COORDINATOR',
+    'SECRETARY',
   ]),
   /** Vazio = não definido; ADMIN ou Coordenador */
   clinicalSubrole: z.enum(['', 'NURSING', 'MEDICAL']),
@@ -48,6 +49,7 @@ const roleOptions: { value: UserRole; label: string }[] = [
   { value: 'NURSE_CHIEF', label: 'Enfermeiro Chefe' },
   { value: 'NURSE', label: 'Enfermeiro' },
   { value: 'COORDINATOR', label: 'Coordenador' },
+  { value: 'SECRETARY', label: 'Secretaria' },
 ];
 
 const clinicalSubroleOptions: {

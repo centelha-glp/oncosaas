@@ -1,4 +1,4 @@
-import { getSafeRedirectTarget } from '../redirect';
+import { getSafeRedirectTarget, getPostLoginRedirectTarget } from '../redirect';
 
 describe('getSafeRedirectTarget', () => {
   it('uses dashboard as default destination', () => {
@@ -18,5 +18,25 @@ describe('getSafeRedirectTarget', () => {
     expect(getSafeRedirectTarget('//evil.site')).toBe('/dashboard');
     expect(getSafeRedirectTarget('/\\evil')).toBe('/dashboard');
     expect(getSafeRedirectTarget('/%5Cevil')).toBe('/dashboard');
+  });
+});
+
+describe('getPostLoginRedirectTarget', () => {
+  it('envia secretaria para a agenda quando não há redirect explícito', () => {
+    expect(getPostLoginRedirectTarget(null, 'SECRETARY')).toBe(
+      '/agenda'
+    );
+    expect(getPostLoginRedirectTarget(undefined, 'SECRETARY')).toBe(
+      '/agenda'
+    );
+  });
+
+  it('mantém dashboard como padrão para outros papéis', () => {
+    expect(getPostLoginRedirectTarget(null, 'NURSE')).toBe('/dashboard');
+    expect(getPostLoginRedirectTarget(null, undefined)).toBe('/dashboard');
+  });
+
+  it('prioriza redirect explícito válido (incluindo secretaria)', () => {
+    expect(getPostLoginRedirectTarget('/chat', 'SECRETARY')).toBe('/chat');
   });
 });

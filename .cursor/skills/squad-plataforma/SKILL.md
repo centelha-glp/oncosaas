@@ -1,6 +1,7 @@
 ---
 name: squad-plataforma
 description: Squad Plataforma ONCONAV — avaliação, orquestração e acionamento obrigatório de backend-nestjs, frontend-nextjs, database-engineer e ux-accessibility (uma Task por agente). Use para entregas em backend, frontend, DB ou UI.
+disable-model-invocation: false
 ---
 
 # Squad Plataforma

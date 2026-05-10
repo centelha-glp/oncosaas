@@ -1,6 +1,7 @@
 ---
 name: testar-modulo
 description: Executa testes de um módulo específico do backend ou frontend
+disable-model-invocation: false
 ---
 
 # Skill: /testar-modulo
