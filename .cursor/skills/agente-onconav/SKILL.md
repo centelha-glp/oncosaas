@@ -1,6 +1,7 @@
 ---
 name: agente-onconav
 description: Mapa de subagentes ONCONAV (skills agente-*), ciclo análise-plano-Tasks-subtasks-to-dos e modo strict. Use para escalar domínio, /agente-onconav strict ou plano de execução com Tasks.
+disable-model-invocation: false
 ---
 
 # Agentes ONCONAV — índice e ajuda transversal
@@ -92,6 +93,7 @@ Incluir sempre: pedido do utilizador, **passo k/N**, **modo strict**, paths `@` 
 
 ## Orquestração
 
+- **Router de tarefa** (analisar pedido e recomendar skills/agentes): [task-skill-agent-router](../task-skill-agent-router/SKILL.md)
 - **Squad completo e ordem entre squads**: [squad-onconav](../squad-onconav/SKILL.md)
 - **Processos**: [processo-dev-onconav](../processo-dev-onconav/SKILL.md)
 

@@ -1,6 +1,7 @@
 ---
 name: agente-clinical-domain
 description: Ativa o subagente clinical-domain (protocolos, regras de triagem, lógica clínica oncológica no código) no ONCONAV. Use quando o usuário pedir validação clínica de regras ou domínio oncológico em implementação.
+disable-model-invocation: false
 ---
 
 # Agente `clinical-domain`

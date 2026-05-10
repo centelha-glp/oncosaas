@@ -1,6 +1,7 @@
 ---
 name: agente-ai-ml-engineer
 description: Ativa o subagente ai-ml-engineer para entregas que cruzam conversação (ai-service) e modelo/score de priorização no ONCONAV. Use quando uma única tarefa exige ambos os domínios.
+disable-model-invocation: false
 ---
 
 # Agente `ai-ml-engineer`

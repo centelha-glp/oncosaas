@@ -1,0 +1,31 @@
+---
+description: Roteia tarefas ONCONAV via task-skill-agent-router: classificar, ler skills canónicas e acionar Tasks (subagent_type); não apenas recomendar.
+alwaysApply: true
+---
+
+# Router de tarefa → skills e agentes (sempre ativo)
+
+## Quando aplicar
+
+Em **pedidos que envolvem trabalho no repositório** (implementar, investigar código, planejar entrega, escolher quem executa, squads, PR/commit sensível): **ler e seguir** a skill canónica:
+
+`.cursor/skills/task-skill-agent-router/SKILL.md`
+
+Atalho de invocação pelo utilizador: **task-skill-agent-router** (mesmo conteúdo que o ficheiro acima).
+
+## Obrigações do agente principal
+
+1. **Classificar** o pedido: tipo (só explicação vs código), domínios (`backend`, `frontend`, `ai-service`, etc.), riscos (`tenant`, LGPD, endpoint novo, merge) e dependências (API antes de UI, migration antes de serviço).
+2. **Definir** o conjunto **mínimo** de skills (`.cursor/skills/agente-*`, `squad-*`, `processo-*` quando for fluxo de entrega) e de **`subagent_type`** para Tasks — **uma Task por `subagent_type`**; se uma skill **`squad-*`** for usada, acionar **todos** os membros desse squad (uma Task cada), salvo instrução explícita em contrário.
+3. **Acionar** (não só listar): **ler** cada `SKILL.md` relevante e **disparar** as Tasks do plano conforme a secção **«Acionamento obrigatório»** em `task-skill-agent-router/SKILL.md`, incluindo registo no bloco **«Acionamento (execução)»**. Concluir o turno apenas com «recomendações» sem `Read`/Tasks **é anti-padrão**, salvo **exceções** na própria skill.
+4. **Respeitar** o mapa e exceções já definidos em `.cursor/rules/onconav-core.mdc` (fronteiras frontend/backend/ai-service, multi-tenant).
+
+## Formato de resposta
+
+Produzir o bloco **«Formato de saída (obrigatório)»** definido em `task-skill-agent-router/SKILL.md` (Análise, skills recomendadas, plano de delegação, squads integral vs mínimo, **Acionamento (execução)**, próximo passo).
+
+## Exceções (sem router completo)
+
+- Pergunta **conceitual curta** sem alterar o repo, ou pedido explícito **«só explica / não mudes código»**: responder direto; não é obrigatório Tasks nem bloco completo de acionamento.
+- Utilizador pede **explicitamente** execução só pelo agente principal **sem** subagentes: não disparar Tasks; pode ler a skill `agente-*` aplicável para seguir o protocolo.
+- Escopo **já limitado** pelo utilizador (ex.: «só corrigir typo em X»): plano enxuto; não convocar squads inteiros; ver exceção de escopo trivial na skill (Task opcional mas skill do domínio deve ser lida se o principal executar).

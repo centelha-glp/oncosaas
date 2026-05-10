@@ -1,6 +1,7 @@
 ---
 name: agente-architect
 description: Ativa o subagente architect para decisões cross-layer, desenho e consistência arquitetural no ONCONAV. Use para fronteiras entre backend, frontend, ai-service e dados, ou quando o usuário pedir architect ou arquitetura.
+disable-model-invocation: false
 ---
 
 # Agente `architect`

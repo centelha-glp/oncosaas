@@ -1,6 +1,7 @@
 ---
 name: agente-performance
 description: Ativa o subagente performance (bundle Next.js, N+1 Prisma, Redis, Core Web Vitals, profiling) no ONCONAV. Use quando o usuário pedir lentidão ou otimização mensurável.
+disable-model-invocation: false
 ---
 
 # Agente `performance`

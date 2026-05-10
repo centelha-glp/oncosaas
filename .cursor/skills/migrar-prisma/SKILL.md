@@ -1,6 +1,7 @@
 ---
 name: migrar-prisma
 description: Cria e executa migrations Prisma para alterações no schema do banco
+disable-model-invocation: false
 ---
 
 # Skill: /migrar-prisma

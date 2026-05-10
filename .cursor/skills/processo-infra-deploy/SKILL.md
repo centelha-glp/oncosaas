@@ -1,6 +1,7 @@
 ---
 name: processo-infra-deploy
 description: Processo de infra e deploy no ONCONAV: squad infra integral, depois Plataforma/Qualidade conforme impacto. Use para Terraform, AWS, Docker, CI/CD ou ambientes.
+disable-model-invocation: false
 ---
 
 # Processo: infra e deploy

@@ -1,6 +1,7 @@
 ---
 name: agente-whatsapp-integration
 description: Ativa o subagente whatsapp-integration (WhatsApp Business API, webhooks, templates, canais) no ONCONAV. Use para channel-gateway, mensagens ou opt-in/opt-out.
+disable-model-invocation: false
 ---
 
 # Agente `whatsapp-integration`

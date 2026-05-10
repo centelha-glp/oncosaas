@@ -1,6 +1,7 @@
 ---
 name: agente-llm-context-engineer
 description: Ativa o subagente llm-context-engineer (prompts, context_builder, janela de contexto, prompt caching) no ONCONAV. Use para otimizar custo/qualidade sem redesenhar orchestrator completo.
+disable-model-invocation: false
 ---
 
 # Agente `llm-context-engineer`

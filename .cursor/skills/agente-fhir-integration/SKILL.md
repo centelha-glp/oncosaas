@@ -1,6 +1,7 @@
 ---
 name: agente-fhir-integration
 description: Ativa o subagente fhir-integration (HL7 FHIR R4, interoperabilidade) no ONCONAV. Use para mapeamento de recursos, bundles ou integração HIS/PEP.
+disable-model-invocation: false
 ---
 
 # Agente `fhir-integration`

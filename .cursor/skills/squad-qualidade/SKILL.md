@@ -1,6 +1,7 @@
 ---
 name: squad-qualidade
 description: Squad Qualidade ONCONAV — avaliação, orquestração e acionamento obrigatório de test-generator, seguranca-compliance, performance e github-organizer (uma Task por agente). Use antes de merge, auditoria ou PR.
+disable-model-invocation: false
 ---
 
 # Squad Qualidade

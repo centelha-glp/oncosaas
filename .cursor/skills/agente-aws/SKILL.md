@@ -1,6 +1,7 @@
 ---
 name: agente-aws
 description: Ativa o subagente aws (ECS, RDS, ElastiCache, VPC, IAM, CloudWatch) no ONCONAV. Use para recursos AWS ou quando o usuário pedir cloud AWS.
+disable-model-invocation: false
 ---
 
 # Agente `aws`

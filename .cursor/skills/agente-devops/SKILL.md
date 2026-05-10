@@ -1,6 +1,7 @@
 ---
 name: agente-devops
 description: Ativa o subagente devops (Docker, GitHub Actions, CI/CD, health checks, ambientes) no ONCONAV. Use para pipelines, compose ou configuração de deploy de aplicação.
+disable-model-invocation: false
 ---
 
 # Agente `devops`

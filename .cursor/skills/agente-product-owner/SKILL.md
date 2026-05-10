@@ -1,6 +1,7 @@
 ---
 name: agente-product-owner
 description: Ativa o subagente product-owner (backlog, milestones, issues GitHub) no ONCONAV. Use para desdobrar épicos, priorização de entrega ou quando o usuário pedir /po.
+disable-model-invocation: false
 ---
 
 # Agente `product-owner`

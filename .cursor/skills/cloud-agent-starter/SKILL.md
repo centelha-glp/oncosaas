@@ -1,6 +1,7 @@
 ---
 name: cloud-agent-starter
 description: Starter mínimo para Cloud agents do ONCONAV — como subir, autenticar e testar backend (NestJS), frontend (Next.js) e ai-service (FastAPI), com flags, mocks e atalhos de CI. Use no primeiro turno de qualquer Cloud agent que ainda não conhece este repositório.
+disable-model-invocation: false
 ---
 
 # Cloud Agent Starter — ONCONAV

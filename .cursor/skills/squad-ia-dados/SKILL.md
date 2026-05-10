@@ -1,6 +1,7 @@
 ---
 name: squad-ia-dados
 description: Squad IA/Dados ONCONAV — avaliação, orquestração e acionamento obrigatório dos 7 agentes de IA/ML (uma Task cada). Use para pipeline conversacional, RAG, prompts, modelo de priorização ou entrega cruzada conversa+score.
+disable-model-invocation: false
 ---
 
 # Squad IA/Dados

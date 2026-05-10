@@ -1,6 +1,7 @@
 ---
 name: agente-ux-accessibility
 description: Ativa o subagente ux-accessibility (WCAG 2.1 AA, UX para profissionais de saúde) no ONCONAV. Use para revisão de componentes, fluxos críticos ou quando o usuário pedir acessibilidade.
+disable-model-invocation: false
 ---
 
 # Agente `ux-accessibility`

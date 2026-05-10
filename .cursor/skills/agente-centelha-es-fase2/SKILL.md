@@ -1,6 +1,7 @@
 ---
 name: agente-centelha-es-fase2
 description: Ativa o subagente centelha-es-fase2 (edital Centelha ES, fase 2, proposta e limites de caracteres) no ONCONAV. Use quando o usuário pedir Centelha, subvenção ou formulário Fase 2 ES.
+disable-model-invocation: false
 ---
 
 # Agente `centelha-es-fase2`

@@ -1,6 +1,7 @@
 ---
 name: processo-mudanca-clinica-ia
 description: Processo para mudanças clínica + IA no ONCONAV: squads com acionamento integral (clínico → IA/Dados → Plataforma → Qualidade). Use para protocolos, agente, PRO-CTCAE/ESAS ou integração clínica + conversação.
+disable-model-invocation: false
 ---
 
 # Processo: mudança clínica + IA

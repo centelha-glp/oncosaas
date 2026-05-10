@@ -1,6 +1,7 @@
 ---
 name: processo-evolucao-ia-pipeline
 description: Processo para evoluir pipeline de IA no ONCONAV; primeira ronda com squad-ia-dados integral (7 agentes), depois Plataforma/Produto/Qualidade conforme contrato. Use para agente, RAG, prompts ou score.
+disable-model-invocation: false
 ---
 
 # Processo: evolução do pipeline de IA

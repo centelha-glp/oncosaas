@@ -1,6 +1,7 @@
 ---
 name: agente-llm-agent-architect
 description: Ativa o subagente llm-agent-architect (orchestrator multi-step, tool use, redesenho do pipeline do agente) no ONCONAV. Use quando mudar fluxo conversacional estrutural, não só texto de prompt.
+disable-model-invocation: false
 ---
 
 # Agente `llm-agent-architect`

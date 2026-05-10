@@ -1,6 +1,7 @@
 ---
 name: processo-gate-commit
 description: Gate obrigatório antes de commit/merge no ONCONAV: testes, segurança, PR. Orquestra squad-qualidade na ordem sugerida. Use antes de commit, ao pedir PR ready, revisão de segurança pré-merge ou checklist de entrega.
+disable-model-invocation: false
 ---
 
 # Processo: gate de commit / merge

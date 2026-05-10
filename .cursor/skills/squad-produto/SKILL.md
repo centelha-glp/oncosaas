@@ -1,6 +1,7 @@
 ---
 name: squad-produto
 description: Squad Produto ONCONAV — avaliação, orquestração e acionamento obrigatório de product-owner, architect, documentation e centelha-es-fase2 (uma Task por agente). Use para backlog, arquitetura, docs ou edital Centelha.
+disable-model-invocation: false
 ---
 
 # Squad Produto

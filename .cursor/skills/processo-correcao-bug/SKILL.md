@@ -1,6 +1,7 @@
 ---
 name: processo-correcao-bug
 description: Processo de correção de bug no ONCONAV: classificar origem, usar squad (acionamento integral) ou um único agente, fechar com Qualidade. Use para hotfix, regressão ou erro em produção.
+disable-model-invocation: false
 ---
 
 # Processo: correção de bug
