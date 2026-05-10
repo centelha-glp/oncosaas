@@ -6,8 +6,12 @@ import {
   IsOptional,
   MaxLength,
   IsEnum,
+  IsIn,
 } from 'class-validator';
 import { ClinicalSubrole } from '@generated/prisma/client';
+import { BRAZIL_UF_SIGLAS } from '@/common/constants/brazil-ufs';
+
+const UF_LIST = BRAZIL_UF_SIGLAS as unknown as string[];
 
 export class RegisterDto {
   @IsEmail()
@@ -31,6 +35,7 @@ export class RegisterDto {
   /** Obrigatório quando o convite for para médico — validado no serviço conforme role do convite */
   @IsOptional()
   @IsString()
+  @IsIn(UF_LIST)
   crmUf?: string;
 
   @IsOptional()
@@ -41,6 +46,7 @@ export class RegisterDto {
   /** Obrigatório quando o convite for para enfermeiro — validado no serviço conforme role do convite */
   @IsOptional()
   @IsString()
+  @IsIn(UF_LIST)
   corenUf?: string;
 
   @IsOptional()
