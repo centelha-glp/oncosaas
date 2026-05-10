@@ -1,5 +1,6 @@
 'use client';
 
+import { useMemo } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -11,6 +12,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import type { ConsultationAgendaScope } from '@/lib/api/oncology-navigation';
+import { useUsers } from '@/hooks/useUsers';
+import { userEligibleForAnyConsultationAgendaSlot } from '@/lib/utils/consultationAgenda';
 
 const dateInputClass =
   'flex h-10 w-full min-w-[10rem] rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2';
@@ -19,21 +22,37 @@ export interface ConsultationAgendaFiltersProps {
   from: string;
   to: string;
   scope: ConsultationAgendaScope;
+  /** ID do profissional agendado ou string vazia para todos. */
+  professionalId: string;
+  /** Secretaria e gestão: mostrar filtro; demais papéis a agenda já é só a própria no servidor. */
+  showProfessionalFilter?: boolean;
   onFromChange: (value: string) => void;
   onToChange: (value: string) => void;
   onScopeChange: (value: ConsultationAgendaScope) => void;
+  onProfessionalIdChange: (value: string) => void;
   onShiftWeek: (delta: -1 | 1) => void;
 }
+
+const ALL_PROFESSIONALS = '__all__';
 
 export function ConsultationAgendaFilters({
   from,
   to,
   scope,
+  professionalId,
+  showProfessionalFilter = true,
   onFromChange,
   onToChange,
   onScopeChange,
+  onProfessionalIdChange,
   onShiftWeek,
 }: ConsultationAgendaFiltersProps) {
+  const { data: users = [], isLoading: usersLoading } = useUsers();
+  const schedulableProfessionals = useMemo(
+    () => users.filter((u) => userEligibleForAnyConsultationAgendaSlot(u)),
+    [users]
+  );
+
   return (
     <Card>
       <CardHeader className="pb-4">
@@ -85,6 +104,44 @@ export function ConsultationAgendaFilters({
               </SelectContent>
             </Select>
           </div>
+          {showProfessionalFilter && (
+            <div className="flex flex-col gap-1.5">
+              <span
+                id="agenda-professional-label"
+                className="text-sm font-medium"
+              >
+                Profissional
+              </span>
+              <Select
+                value={professionalId || ALL_PROFESSIONALS}
+                onValueChange={(v) =>
+                  onProfessionalIdChange(v === ALL_PROFESSIONALS ? '' : v)
+                }
+                disabled={usersLoading}
+              >
+                <SelectTrigger
+                  className="w-[260px]"
+                  aria-labelledby="agenda-professional-label"
+                >
+                  <SelectValue
+                    placeholder={
+                      usersLoading ? 'Carregando…' : 'Filtrar por profissional'
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL_PROFESSIONALS}>
+                    Todos os profissionais
+                  </SelectItem>
+                  {schedulableProfessionals.map((u) => (
+                    <SelectItem key={u.id} value={u.id}>
+                      {u.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
         </div>
         <div className="flex flex-wrap gap-2">
           <Button

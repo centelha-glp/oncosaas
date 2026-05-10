@@ -37,7 +37,8 @@ export interface User {
     | 'DOCTOR'
     | 'NURSE_CHIEF'
     | 'NURSE'
-    | 'COORDINATOR';
+    | 'COORDINATOR'
+    | 'SECRETARY';
   /** Presente para coordenadores (prontuário) */
   clinicalSubrole?: 'NURSING' | 'MEDICAL' | null;
   tenantId: string;

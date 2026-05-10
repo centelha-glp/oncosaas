@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   patientsApi,
+  Patient,
   PatientDetail,
   PatientSummaryResponse,
 } from '@/lib/api/patients';
@@ -9,6 +10,16 @@ export const usePatientDetail = (id: string | null) => {
   return useQuery<PatientDetail>({
     queryKey: ['patient', id],
     queryFn: () => patientsApi.getDetail(id!),
+    enabled: !!id,
+    staleTime: 2 * 60 * 1000,
+  });
+};
+
+/** Resumo do paciente (GET /patients/:id) para telas que não precisam do bundle clínico completo. */
+export const usePatientBasic = (id: string | null) => {
+  return useQuery<Patient>({
+    queryKey: ['patient-basic', id],
+    queryFn: () => patientsApi.getById(id!),
     enabled: !!id,
     staleTime: 2 * 60 * 1000,
   });

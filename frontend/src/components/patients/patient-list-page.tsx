@@ -10,10 +10,13 @@ import { ChevronLeft, ChevronRight, Plus, Upload } from 'lucide-react';
 import { PatientImportDialog } from './patient-import-dialog';
 import { PatientCreateDialog } from './patient-create-dialog';
 import { Patient } from '@/lib/api/patients';
+import { useAuthStore } from '@/stores/auth-store';
 
 const PATIENTS_PAGE_SIZE = 100;
 
 export function PatientListPage() {
+  const user = useAuthStore((s) => s.user);
+  const isSecretary = user?.role === 'SECRETARY';
   const [page, setPage] = useState(1);
   const {
     data: patients = [],
@@ -105,19 +108,23 @@ export function PatientListPage() {
         <div>
           <h1 className="text-3xl font-bold">Pacientes</h1>
           <p className="text-muted-foreground mt-1">
-            Gerencie e monitore pacientes oncológicos
+            {isSecretary
+              ? 'Consulte pacientes e atualize apenas dados de cadastro administrativo.'
+              : 'Gerencie e monitore pacientes oncológicos'}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={() => setShowImportDialog(true)}>
-            <Upload className="h-4 w-4 mr-2" />
-            Importar CSV
-          </Button>
-          <Button onClick={() => setShowCreateDialog(true)}>
-            <Plus className="h-4 w-4 mr-2" />
-            Adicionar Paciente
-          </Button>
-        </div>
+        {!isSecretary && (
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={() => setShowImportDialog(true)}>
+              <Upload className="h-4 w-4 mr-2" />
+              Importar CSV
+            </Button>
+            <Button onClick={() => setShowCreateDialog(true)}>
+              <Plus className="h-4 w-4 mr-2" />
+              Adicionar Paciente
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* Filtros */}

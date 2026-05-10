@@ -60,7 +60,7 @@ const baseNavItems: NavItem[] = [
     icon: Navigation,
   },
   {
-    path: '/oncology-navigation/agenda',
+    path: '/agenda',
     label: 'Agenda',
     icon: CalendarDays,
   },
@@ -120,8 +120,33 @@ export function NavigationBar() {
     user?.role === 'NURSE_CHIEF' ||
     user?.role === 'COORDINATOR';
 
+  const isSecretary = user?.role === 'SECRETARY';
+
+  const secretaryNavItems: NavItem[] = [
+    {
+      path: '/agenda',
+      label: 'Agenda',
+      icon: CalendarDays,
+    },
+    {
+      path: '/patients',
+      label: 'Pacientes',
+      icon: UserCircle,
+    },
+    {
+      path: '/integrations',
+      label: 'Integrações',
+      icon: Settings,
+    },
+    {
+      path: '/chat',
+      label: 'Chat',
+      icon: MessageSquare,
+    },
+  ];
+
   // Montar lista de itens de navegação baseada nas permissões
-  const navItems = [...baseNavItems];
+  const navItems = isSecretary ? secretaryNavItems : [...baseNavItems];
 
   const isActive = (itemPath: string): boolean => {
     if (!pathname) return false;
@@ -142,13 +167,11 @@ export function NavigationBar() {
       return pathname === '/patients' || pathname.startsWith('/patients/');
     }
 
-    // Board de navegação: não marcar como ativo na rota dedicada da agenda
     if (itemPath === '/oncology-navigation') {
-      if (pathname === '/oncology-navigation') return true;
-      if (pathname.startsWith('/oncology-navigation/')) {
-        return !pathname.startsWith('/oncology-navigation/agenda');
-      }
-      return false;
+      return (
+        pathname === '/oncology-navigation' ||
+        pathname.startsWith('/oncology-navigation/')
+      );
     }
 
     // Para outras rotas, verificar se começa com o path
@@ -227,8 +250,9 @@ export function NavigationBar() {
       className="bg-white border-b px-3 py-3 sm:px-4"
       aria-label="Navegação principal"
     >
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex min-w-0 flex-wrap items-center gap-1">
+      <div className="flex flex-col gap-3 sm:grid sm:grid-cols-[1fr_auto_1fr] sm:items-center sm:gap-4">
+        <div className="hidden sm:block" aria-hidden />
+        <div className="flex min-w-0 flex-wrap items-center justify-center gap-1">
           {navItems.map((item) => renderMainNavButton(item))}
           {canManageUsers &&
             adminNavItems.map((item) => {
@@ -297,7 +321,7 @@ export function NavigationBar() {
               return <div key={item.path}>{button}</div>;
             })}
         </div>
-        <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+        <div className="flex shrink-0 items-center justify-end gap-2 sm:gap-3">
           {user && (
             <>
               <div className="text-sm text-gray-600 hidden md:block max-w-[200px] truncate lg:max-w-none">

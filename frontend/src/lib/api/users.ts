@@ -6,7 +6,8 @@ export type UserRole =
   | 'DOCTOR'
   | 'NURSE_CHIEF'
   | 'NURSE'
-  | 'COORDINATOR';
+  | 'COORDINATOR'
+  | 'SECRETARY';
 
 /** Subpapel clínico do coordenador (assinatura enfermagem vs médica no prontuário) */
 export type ClinicalSubrole = 'NURSING' | 'MEDICAL';

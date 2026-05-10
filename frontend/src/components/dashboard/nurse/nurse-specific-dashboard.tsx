@@ -3,7 +3,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/auth-store';
-import { NavigationBar } from '@/components/shared/navigation-bar';
 import { NurseMetricsPanel } from './nurse-metrics-panel';
 import { NavigationMetricsPanel } from './navigation-metrics-panel';
 import { PatientsCriticalStepsList } from './patients-critical-steps-list';
@@ -142,11 +141,9 @@ export function NurseSpecificDashboard({
     <div
       className={cn(
         'bg-gray-50 flex flex-col relative',
-        hideNavigationBar ? 'min-h-full w-full' : 'h-screen overflow-hidden'
+        hideNavigationBar ? 'min-h-full w-full' : 'h-full overflow-hidden'
       )}
     >
-      {!hideNavigationBar && <NavigationBar />}
-
       <div
         className={cn(
           'flex-1 flex flex-col min-h-0',
