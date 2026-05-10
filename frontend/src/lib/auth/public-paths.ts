@@ -2,6 +2,7 @@
 export const PUBLIC_PATHNAMES = new Set([
   '/login',
   '/register',
+  '/invite',
   '/',
   '/termos',
   '/privacidade',

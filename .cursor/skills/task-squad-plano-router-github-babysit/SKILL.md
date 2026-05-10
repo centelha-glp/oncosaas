@@ -15,11 +15,11 @@ disable-model-invocation: false
 
 | # | Skill / foco | O quê fazer |
 |---|----------------|-------------|
-| 1 | [squad-onconav](../squad-onconav/SKILL.md) | Preencher **análise**, **plano de ação**, **Tasks/subtasks/to-dos**; respeitar acionamento integral de squads quando uma skill `squad-*` for usada. |
-| 2 | Plano atomizado (`plano-atomizado-proximo-passo`) | Ler `~/.cursor/skills/plano-atomizado-proximo-passo/SKILL.md` se existir. Aplicar ao **único** próximo passo em curso (objetivo, contexto, tabela Tasks/subtasks/to-dos, riscos, critério de pronto, exclusões). |
-| 3 | [task-skill-agent-router](../task-skill-agent-router/SKILL.md) | Produzir o bloco **«Formato de saída (obrigatório)»**: análise router, skills recomendadas, plano de delegação `subagent_type`, squads integral vs mínimo, próximo passo. |
+| 1 | Plano atomizado (`plano-atomizado-proximo-passo`) | Ler `~/.cursor/skills/plano-atomizado-proximo-passo/SKILL.md` | Aplicar ao **único** próximo passo em curso (objetivo, contexto, tabela Tasks/subtasks/to-dos, riscos, critério de pronto, exclusões). |
+| 2 | [task-skill-agent-router](../task-skill-agent-router/SKILL.md) | Produzir o bloco **«Formato de saída (obrigatório)»**: análise router, skills recomendadas, plano de delegação `subagent_type`, squads integral vs mínimo, próximo passo. |
+| 3 | [squad-onconav](../squad-onconav/SKILL.md) | Preencher **análise**, **plano de ação**, **Tasks/subtasks/to-dos**; respeitar acionamento integral de squads quando uma skill `squad-*` for usada. |
 | 4 | [agente-github-organizer](../agente-github-organizer/SKILL.md) | Após código e testes alinhados ao pedido: commits atómicos, PR estruturada, conforme processo do projeto. |
-| 5 | Babysit | Ler `~/.cursor/skills-cursor/babysit/SKILL.md` se existir. Tratar comentários de review, conflitos quando seguro, CI até verde e PR pronta para merge. |
+| 5 | Babysit | Ler `~/.cursor/skills-cursor/babysit/SKILL.md` | Tratar comentários de review, conflitos quando seguro, CI até verde e PR pronta para merge. |
 
 ## Regras de junção
 

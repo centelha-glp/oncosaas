@@ -3,17 +3,19 @@
 import { useState } from 'react';
 import { useUsers, useDeleteUser } from '@/hooks/useUsers';
 import { User, UserRole } from '@/lib/api/users';
+import { useAuthStore } from '@/stores/auth-store';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Plus, Pencil, Trash2, Search, MailPlus } from 'lucide-react';
+import { UserFormDialog } from './user-form-dialog';
+import { InviteLinkDialog } from './invite-link-dialog';
 
 const clinicalSubroleLabels: Record<string, string> = {
   NURSING: 'Subpapel: Enfermagem',
   MEDICAL: 'Subpapel: Médica',
 };
-import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Skeleton } from '@/components/ui/skeleton';
-import { Plus, Pencil, Trash2, Search } from 'lucide-react';
-import { UserFormDialog } from './user-form-dialog';
 
 const roleLabels: Record<UserRole, string> = {
   ADMIN: 'Administrador',
@@ -42,8 +44,12 @@ interface UserListProps {
 export function UserList({ onEdit }: UserListProps) {
   const { data: users, isLoading } = useUsers();
   const deleteUserMutation = useDeleteUser();
+  const currentUser = useAuthStore((s) => s.user);
+  const canGenerateInvite =
+    currentUser?.role === 'ADMIN' || currentUser?.role === 'COORDINATOR';
   const [searchTerm, setSearchTerm] = useState('');
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
+  const [isInviteDialogOpen, setIsInviteDialogOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
 
   const filteredUsers = users?.filter(
@@ -98,10 +104,22 @@ export function UserList({ onEdit }: UserListProps) {
             className="w-full pl-10 pr-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
           />
         </div>
-        <Button onClick={() => setIsCreateDialogOpen(true)}>
-          <Plus className="h-4 w-4 mr-2" />
-          Novo Usuário
-        </Button>
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          {canGenerateInvite && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setIsInviteDialogOpen(true)}
+            >
+              <MailPlus className="h-4 w-4 mr-2" />
+              Link de convite
+            </Button>
+          )}
+          <Button onClick={() => setIsCreateDialogOpen(true)}>
+            <Plus className="h-4 w-4 mr-2" />
+            Novo Usuário
+          </Button>
+        </div>
       </div>
 
       {/* Lista de usuários */}
@@ -162,6 +180,10 @@ export function UserList({ onEdit }: UserListProps) {
       )}
 
       {/* Diálogos */}
+      <InviteLinkDialog
+        open={isInviteDialogOpen}
+        onOpenChange={setIsInviteDialogOpen}
+      />
       <UserFormDialog
         open={isCreateDialogOpen}
         onOpenChange={setIsCreateDialogOpen}

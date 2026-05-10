@@ -4,6 +4,7 @@ import {
   Post,
   Patch,
   Body,
+  Query,
   HttpCode,
   HttpStatus,
   Headers,
@@ -227,13 +228,32 @@ export class AuthController {
   }
 
   /**
+   * Pré-visualização do convite (papel + instituição) sem consumir o token.
+   */
+  @Public()
+  @Get('invite-preview')
+  async invitePreview(@Query('token') token: string | undefined) {
+    return this.authService.getInvitePreview(token);
+  }
+
+  /**
    * Registra um usuário usando um token de convite emitido via POST /auth/invite.
-   * O endpoint permanece público mas requer um token válido no body.
+   * Emite cookies de sessão como login / register-institution.
    */
   @Public()
   @Post('register')
-  async register(@Body() registerDto: RegisterDto) {
-    return this.authService.register(registerDto);
+  @HttpCode(HttpStatus.CREATED)
+  async register(
+    @Body() registerDto: RegisterDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const result = await this.authService.register(registerDto);
+    setRefreshTokenCookie(res, result.refresh_token);
+    setAccessTokenCookie(res, result.access_token);
+    return {
+      message: result.message,
+      user: result.user,
+    };
   }
 
   @Public()

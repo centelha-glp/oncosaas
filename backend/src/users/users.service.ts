@@ -9,6 +9,32 @@ import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import * as bcrypt from 'bcrypt';
 import { ClinicalSubrole, UserRole } from '@generated/prisma/client';
+import {
+  councilFieldsForRole,
+  councilValidationMessage,
+} from './utils/professional-council';
+import { assertCouncilUniqueInTenant } from './utils/professional-council-unique';
+
+const userPublicSelect = {
+  id: true,
+  email: true,
+  name: true,
+  role: true,
+  clinicalSubrole: true,
+  mfaEnabled: true,
+  crmUf: true,
+  crmNumber: true,
+  corenUf: true,
+  corenNumber: true,
+  createdAt: true,
+  updatedAt: true,
+  tenant: {
+    select: {
+      id: true,
+      name: true,
+    },
+  },
+} as const;
 
 @Injectable()
 export class UsersService {
@@ -24,22 +50,7 @@ export class UsersService {
 
     return this.prisma.user.findMany({
       where: { tenantId },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        role: true,
-        clinicalSubrole: true,
-        mfaEnabled: true,
-        createdAt: true,
-        updatedAt: true,
-        tenant: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-      },
+      select: userPublicSelect,
       orderBy: { createdAt: 'desc' },
       take: limit,
       skip: offset,
@@ -52,22 +63,7 @@ export class UsersService {
         id,
         tenantId,
       },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        role: true,
-        clinicalSubrole: true,
-        mfaEnabled: true,
-        createdAt: true,
-        updatedAt: true,
-        tenant: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-      },
+      select: userPublicSelect,
     });
 
     if (!user) {
@@ -116,6 +112,22 @@ export class UsersService {
         ? createUserDto.clinicalSubrole ?? null
         : null;
 
+    const councils = councilFieldsForRole(
+      createUserDto.role,
+      createUserDto,
+      clinicalSubrole
+    );
+    const councilErr = councilValidationMessage(
+      createUserDto.role,
+      councils,
+      clinicalSubrole
+    );
+    if (councilErr) {
+      throw new BadRequestException(councilErr);
+    }
+
+    await assertCouncilUniqueInTenant(this.prisma, tenantId, councils);
+
     // Criar usuário
     const user = await this.prisma.user.create({
       data: {
@@ -126,23 +138,12 @@ export class UsersService {
         tenantId,
         mfaEnabled: createUserDto.mfaEnabled || false,
         clinicalSubrole,
+        crmUf: councils.crmUf,
+        crmNumber: councils.crmNumber,
+        corenUf: councils.corenUf,
+        corenNumber: councils.corenNumber,
       },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        role: true,
-        clinicalSubrole: true,
-        mfaEnabled: true,
-        createdAt: true,
-        updatedAt: true,
-        tenant: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-      },
+      select: userPublicSelect,
     });
 
     return user;
@@ -203,13 +204,8 @@ export class UsersService {
       }
     }
 
-    // Hash da senha se fornecida
-    const updateData: Record<string, unknown> = { ...updateUserDto };
-    if (updateUserDto.password) {
-      updateData.password = await bcrypt.hash(updateUserDto.password, 10);
-    }
-
     const targetRole = updateUserDto.role ?? existingUser.role;
+
     if (
       updateUserDto.clinicalSubrole !== undefined &&
       targetRole !== UserRole.COORDINATOR &&
@@ -220,6 +216,59 @@ export class UsersService {
       );
     }
 
+    const targetClinicalSubrole =
+      updateUserDto.clinicalSubrole !== undefined
+        ? updateUserDto.clinicalSubrole
+        : existingUser.clinicalSubrole;
+
+    const mergedCouncilInput = {
+      crmUf:
+        updateUserDto.crmUf !== undefined
+          ? updateUserDto.crmUf
+          : existingUser.crmUf,
+      crmNumber:
+        updateUserDto.crmNumber !== undefined
+          ? updateUserDto.crmNumber
+          : existingUser.crmNumber,
+      corenUf:
+        updateUserDto.corenUf !== undefined
+          ? updateUserDto.corenUf
+          : existingUser.corenUf,
+      corenNumber:
+        updateUserDto.corenNumber !== undefined
+          ? updateUserDto.corenNumber
+          : existingUser.corenNumber,
+    };
+
+    const councils = councilFieldsForRole(
+      targetRole,
+      mergedCouncilInput,
+      targetClinicalSubrole
+    );
+    const councilErr = councilValidationMessage(
+      targetRole,
+      councils,
+      targetClinicalSubrole
+    );
+    if (councilErr) {
+      throw new BadRequestException(councilErr);
+    }
+
+    await assertCouncilUniqueInTenant(this.prisma, tenantId, councils, id);
+
+    // Hash da senha se fornecida
+    const updateData: Record<string, unknown> = {
+      ...updateUserDto,
+    };
+    delete updateData.crmUf;
+    delete updateData.crmNumber;
+    delete updateData.corenUf;
+    delete updateData.corenNumber;
+
+    if (updateUserDto.password) {
+      updateData.password = await bcrypt.hash(updateUserDto.password, 10);
+    }
+
     if (
       targetRole !== UserRole.COORDINATOR &&
       targetRole !== UserRole.ADMIN
@@ -227,26 +276,16 @@ export class UsersService {
       updateData.clinicalSubrole = null;
     }
 
+    updateData.crmUf = councils.crmUf;
+    updateData.crmNumber = councils.crmNumber;
+    updateData.corenUf = councils.corenUf;
+    updateData.corenNumber = councils.corenNumber;
+
     // Atualizar usuário
     const user = await this.prisma.user.update({
       where: { id, tenantId },
       data: updateData as Parameters<typeof this.prisma.user.update>[0]['data'],
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        role: true,
-        clinicalSubrole: true,
-        mfaEnabled: true,
-        createdAt: true,
-        updatedAt: true,
-        tenant: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-      },
+      select: userPublicSelect,
     });
 
     return user;

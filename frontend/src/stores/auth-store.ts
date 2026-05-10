@@ -1,7 +1,7 @@
 'use client';
 
 import { create } from 'zustand';
-import { authApi, RegisterInstitutionDto, User } from '@/lib/api/auth';
+import { authApi, RegisterDto, RegisterInstitutionDto, User } from '@/lib/api/auth';
 import { apiClient } from '@/lib/api/client';
 
 interface AuthState {
@@ -12,6 +12,7 @@ interface AuthState {
   isInitializing: boolean;
   login: (email: string, password: string) => Promise<void>;
   registerInstitution: (data: RegisterInstitutionDto) => Promise<void>;
+  registerWithInvite: (data: RegisterDto) => Promise<void>;
   logout: () => Promise<void>;
   setUser: (user: User) => void;
   setToken: (token: string) => void;
@@ -116,6 +117,17 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   registerInstitution: async (data: RegisterInstitutionDto) => {
     const response = await authApi.registerInstitution(data);
+
+    set({
+      user: response.user,
+      token: null,
+      isAuthenticated: true,
+      isInitializing: false,
+    });
+  },
+
+  registerWithInvite: async (data: RegisterDto) => {
+    const response = await authApi.register(data);
 
     set({
       user: response.user,

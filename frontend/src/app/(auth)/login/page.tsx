@@ -145,14 +145,25 @@ function LoginPageContent() {
             </Link>
           </div>
 
-          <div className="text-center text-sm text-gray-600">
-            Ainda não tem conta?{' '}
-            <Link
-              href="/register"
-              className="text-indigo-600 hover:text-indigo-500 font-medium"
-            >
-              Cadastre sua instituição
-            </Link>
+          <div className="text-center text-sm text-gray-600 space-y-2">
+            <div>
+              Ainda não tem conta?{' '}
+              <Link
+                href="/register"
+                className="text-indigo-600 hover:text-indigo-500 font-medium"
+              >
+                Cadastre sua instituição
+              </Link>
+            </div>
+            <div>
+              Tem um convite?{' '}
+              <Link
+                href="/invite"
+                className="text-indigo-600 hover:text-indigo-500 font-medium"
+              >
+                Ativar conta com token
+              </Link>
+            </div>
           </div>
         </form>
       </div>
