@@ -6,18 +6,18 @@ export interface LoginDto {
   tenantId?: string;
 }
 
+/** Registro via convite (POST /auth/register) — role vem do token, não do body. */
 export interface RegisterDto {
   email: string;
   password: string;
   name: string;
-  role:
-    | 'ADMIN'
-    | 'ONCOLOGIST'
-    | 'DOCTOR'
-    | 'NURSE_CHIEF'
-    | 'NURSE'
-    | 'COORDINATOR';
-  tenantId: string;
+  inviteToken: string;
+  crmUf?: string;
+  crmNumber?: string;
+  corenUf?: string;
+  corenNumber?: string;
+  /** Convite COORDINATOR/ADMIN — alinha ao backend */
+  clinicalSubrole?: 'NURSING' | 'MEDICAL' | null;
 }
 
 export interface RegisterInstitutionDto {
@@ -41,6 +41,10 @@ export interface User {
     | 'SECRETARY';
   /** Presente para coordenadores (prontuário) */
   clinicalSubrole?: 'NURSING' | 'MEDICAL' | null;
+  crmUf?: string | null;
+  crmNumber?: string | null;
+  corenUf?: string | null;
+  corenNumber?: string | null;
   tenantId: string;
   tenant?: {
     id: string;
@@ -50,6 +54,22 @@ export interface User {
       [key: string]: unknown;
     } | null;
   };
+}
+
+/** GET /auth/invite-preview — dados para montar o formulário sem consumir o token */
+export interface InvitePreviewResponse {
+  role: User['role'];
+  tenantName: string;
+}
+
+/** POST /auth/invite — apenas ADMIN ou COORDINATOR (backend) */
+export interface CreateInviteDto {
+  role: User['role'];
+}
+
+export interface CreateInviteResponse {
+  inviteToken: string;
+  expiresIn: string;
 }
 
 /** Login / register-institution: JWT só em cookies HttpOnly (sem access_token no JSON). */
@@ -69,12 +89,27 @@ export interface AuthProfileResponse {
   name: string;
   role: User['role'];
   clinicalSubrole: 'NURSING' | 'MEDICAL' | null;
+  crmUf?: string | null;
+  crmNumber?: string | null;
+  corenUf?: string | null;
+  corenNumber?: string | null;
   tenantId: string;
   tenant?: User['tenant'];
   mfaEnabled?: boolean;
 }
 
 export const authApi = {
+  async invitePreview(token: string): Promise<InvitePreviewResponse> {
+    const q = new URLSearchParams({ token });
+    return apiClient.get<InvitePreviewResponse>(
+      `/auth/invite-preview?${q.toString()}`
+    );
+  },
+
+  async createInvite(data: CreateInviteDto): Promise<CreateInviteResponse> {
+    return apiClient.post<CreateInviteResponse>('/auth/invite', data);
+  },
+
   async login(credentials: LoginDto): Promise<LoginResponse> {
     const response = await apiClient.post<LoginResponse>(
       '/auth/login',

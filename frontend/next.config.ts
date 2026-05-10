@@ -27,6 +27,16 @@ const nextConfig: NextConfig = {
         destination: '/agenda/settings',
         permanent: true,
       },
+      {
+        source: '/dashboard/users',
+        destination: '/users',
+        permanent: true,
+      },
+      {
+        source: '/dashboard/product-feedback',
+        destination: '/product-feedback',
+        permanent: true,
+      },
     ]
   },
   async rewrites() {

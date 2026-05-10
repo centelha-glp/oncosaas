@@ -19,6 +19,10 @@ export interface User {
   role: UserRole;
   clinicalSubrole?: ClinicalSubrole | null;
   mfaEnabled: boolean;
+  crmUf?: string | null;
+  crmNumber?: string | null;
+  corenUf?: string | null;
+  corenNumber?: string | null;
   createdAt: string;
   updatedAt: string;
   tenant?: {
@@ -35,6 +39,12 @@ export interface CreateUserDto {
   mfaEnabled?: boolean;
   /** Quando `role` é `COORDINATOR` ou `ADMIN` */
   clinicalSubrole?: ClinicalSubrole | null;
+  /** Obrigatório para ONCOLOGIST / DOCTOR */
+  crmUf?: string;
+  crmNumber?: string;
+  /** Obrigatório para NURSE / NURSE_CHIEF */
+  corenUf?: string;
+  corenNumber?: string;
 }
 
 export interface UpdateUserDto {
@@ -44,6 +54,10 @@ export interface UpdateUserDto {
   role?: UserRole;
   mfaEnabled?: boolean;
   clinicalSubrole?: ClinicalSubrole | null;
+  crmUf?: string;
+  crmNumber?: string;
+  corenUf?: string;
+  corenNumber?: string;
 }
 
 export const usersApi = {

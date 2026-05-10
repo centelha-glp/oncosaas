@@ -452,7 +452,7 @@ export function PatientProntuarioTab({
                   {' '}
                   ou em{' '}
                   <Link
-                    href="/dashboard/users"
+                    href="/users"
                     className="font-medium text-primary underline underline-offset-2"
                   >
                     Usuários

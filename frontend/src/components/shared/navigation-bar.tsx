@@ -83,7 +83,7 @@ const baseNavItems: NavItem[] = [
 
 const adminNavItems: NavItem[] = [
   {
-    path: '/dashboard/users',
+    path: '/users',
     label: 'Usuários',
     icon: Users,
   },
@@ -92,7 +92,7 @@ const adminNavItems: NavItem[] = [
 /** Listagem de feedbacks de produto — só ADMIN (não confundir com gestão de utilizadores). */
 const adminOnlyNavItems: NavItem[] = [
   {
-    path: '/dashboard/product-feedback',
+    path: '/product-feedback',
     label: 'Feedbacks',
     icon: Bug,
   },
@@ -154,11 +154,8 @@ export function NavigationBar() {
     // Match exato
     if (pathname === itemPath) return true;
 
-    // Caso especial: /dashboard ativo para /dashboard e subrotas (exceto página dedicada de feedback)
+    // Caso especial: /dashboard ativo para /dashboard e subrotas
     if (itemPath === '/dashboard') {
-      if (pathname?.startsWith('/dashboard/product-feedback')) {
-        return false;
-      }
       return pathname === '/dashboard' || pathname.startsWith('/dashboard/');
     }
 

@@ -17,28 +17,73 @@ import {
   ClinicalSubrole,
 } from '@/lib/api/users';
 import { useAuthStore } from '@/stores/auth-store';
+import { BRAZIL_UF_SIGLAS } from '@/lib/constants/brazil-ufs';
+import { needsCrm, needsCoren } from '@/lib/utils/user-professional-fields';
 
-const userSchema = z.object({
-  name: z.string().min(1, 'Nome é obrigatório'),
-  email: z.string().email('Email inválido'),
-  password: z
-    .string()
-    .min(6, 'Senha deve ter no mínimo 6 caracteres')
-    .optional()
-    .or(z.literal('')),
-  role: z.enum([
-    'ADMIN',
-    'ONCOLOGIST',
-    'DOCTOR',
-    'NURSE_CHIEF',
-    'NURSE',
-    'COORDINATOR',
-    'SECRETARY',
-  ]),
-  /** Vazio = não definido; ADMIN ou Coordenador */
-  clinicalSubrole: z.enum(['', 'NURSING', 'MEDICAL']),
-  mfaEnabled: z.boolean().default(false),
-});
+const UF_OPTIONS = BRAZIL_UF_SIGLAS as readonly string[];
+
+const userSchema = z
+  .object({
+    name: z.string().min(1, 'Nome é obrigatório'),
+    email: z.string().email('Email inválido'),
+    password: z
+      .string()
+      .min(6, 'Senha deve ter no mínimo 6 caracteres')
+      .optional()
+      .or(z.literal('')),
+    role: z.enum([
+      'ADMIN',
+      'ONCOLOGIST',
+      'DOCTOR',
+      'NURSE_CHIEF',
+      'NURSE',
+      'COORDINATOR',
+      'SECRETARY',
+    ]),
+    clinicalSubrole: z.enum(['', 'NURSING', 'MEDICAL']),
+    mfaEnabled: z.boolean().default(false),
+    crmUf: z.string().optional(),
+    crmNumber: z.string().optional(),
+    corenUf: z.string().optional(),
+    corenNumber: z.string().optional(),
+  })
+  .superRefine((data, ctx) => {
+    const sub = data.clinicalSubrole as '' | ClinicalSubrole;
+    if (needsCrm(data.role, sub)) {
+      const uf = data.crmUf?.trim() ?? '';
+      if (!UF_OPTIONS.includes(uf)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Selecione a UF do CRM.',
+          path: ['crmUf'],
+        });
+      }
+      if (!data.crmNumber?.trim()) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Informe o número do CRM.',
+          path: ['crmNumber'],
+        });
+      }
+    }
+    if (needsCoren(data.role, sub)) {
+      const uf = data.corenUf?.trim() ?? '';
+      if (!UF_OPTIONS.includes(uf)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Selecione a UF do COREN.',
+          path: ['corenUf'],
+        });
+      }
+      if (!data.corenNumber?.trim()) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Informe o número do COREN.',
+          path: ['corenNumber'],
+        });
+      }
+    }
+  });
 
 type UserFormData = z.infer<typeof userSchema>;
 
@@ -103,10 +148,17 @@ export function UserFormDialog({
       role: 'NURSE',
       clinicalSubrole: '',
       mfaEnabled: false,
+      crmUf: '',
+      crmNumber: '',
+      corenUf: '',
+      corenNumber: '',
     },
   });
 
   const role = useWatch({ control, name: 'role' });
+  const clinicalSubroleWatch = useWatch({ control, name: 'clinicalSubrole' });
+  const clinicalSubroleEffective =
+    (clinicalSubroleWatch ?? '') as '' | ClinicalSubrole;
 
   useEffect(() => {
     if (!isEditing && !canChangeRole) {
@@ -121,6 +173,21 @@ export function UserFormDialog({
   }, [role, setValue]);
 
   useEffect(() => {
+    if (needsCrm(role, clinicalSubroleEffective)) {
+      setValue('corenUf', '');
+      setValue('corenNumber', '');
+    } else if (needsCoren(role, clinicalSubroleEffective)) {
+      setValue('crmUf', '');
+      setValue('crmNumber', '');
+    } else {
+      setValue('crmUf', '');
+      setValue('crmNumber', '');
+      setValue('corenUf', '');
+      setValue('corenNumber', '');
+    }
+  }, [role, clinicalSubroleEffective, setValue]);
+
+  useEffect(() => {
     if (user) {
       reset({
         name: user.name,
@@ -129,6 +196,10 @@ export function UserFormDialog({
         role: user.role,
         clinicalSubrole: user.clinicalSubrole ?? '',
         mfaEnabled: user.mfaEnabled,
+        crmUf: user.crmUf ?? '',
+        crmNumber: user.crmNumber ?? '',
+        corenUf: user.corenUf ?? '',
+        corenNumber: user.corenNumber ?? '',
       });
     } else {
       reset({
@@ -138,6 +209,10 @@ export function UserFormDialog({
         role: canChangeRole ? 'NURSE' : 'NURSE',
         clinicalSubrole: '',
         mfaEnabled: false,
+        crmUf: '',
+        crmNumber: '',
+        corenUf: '',
+        corenNumber: '',
       });
     }
   }, [user, reset, open, canChangeRole]);
@@ -157,6 +232,18 @@ export function UserFormDialog({
         const sub = clinicalSubroleForApi(data.role, data.clinicalSubrole);
         if (sub !== undefined) {
           updateData.clinicalSubrole = sub;
+        }
+        const subVal = data.clinicalSubrole as '' | ClinicalSubrole;
+        if (needsCrm(data.role, subVal)) {
+          updateData.crmUf = data.crmUf?.trim();
+          updateData.crmNumber = data.crmNumber?.trim();
+          updateData.corenUf = undefined;
+          updateData.corenNumber = undefined;
+        } else if (needsCoren(data.role, subVal)) {
+          updateData.corenUf = data.corenUf?.trim();
+          updateData.corenNumber = data.corenNumber?.trim();
+          updateData.crmUf = undefined;
+          updateData.crmNumber = undefined;
         }
         await updateUserMutation.mutateAsync({
           id: user!.id,
@@ -178,12 +265,19 @@ export function UserFormDialog({
         if (sub !== undefined) {
           payload.clinicalSubrole = sub;
         }
+        const subVal = data.clinicalSubrole as '' | ClinicalSubrole;
+        if (needsCrm(data.role, subVal)) {
+          payload.crmUf = data.crmUf?.trim();
+          payload.crmNumber = data.crmNumber?.trim();
+        } else if (needsCoren(data.role, subVal)) {
+          payload.corenUf = data.corenUf?.trim();
+          payload.corenNumber = data.corenNumber?.trim();
+        }
         await createUserMutation.mutateAsync(payload);
       }
       onOpenChange(false);
       reset();
     } catch (error: unknown) {
-      console.error('Erro ao salvar usuário:', error);
       const errorMessage =
         error instanceof Error && 'response' in error
           ? (error as { response?: { data?: { message?: string } } }).response
@@ -199,6 +293,9 @@ export function UserFormDialog({
   const showClinicalSubrole =
     role === 'COORDINATOR' || role === 'ADMIN';
 
+  const showCrm = needsCrm(role, clinicalSubroleEffective);
+  const showCoren = needsCoren(role, clinicalSubroleEffective);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
@@ -206,16 +303,19 @@ export function UserFormDialog({
           {isEditing ? 'Editar Usuário' : 'Novo Usuário'}
         </h2>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
           <div>
             <Label htmlFor="name">Nome</Label>
             <Input
               id="name"
               {...register('name')}
               placeholder="Nome completo"
+              autoComplete="name"
             />
             {errors.name && (
-              <p className="text-sm text-red-600 mt-1">{errors.name.message}</p>
+              <p className="text-sm text-red-600 mt-1" role="alert">
+                {errors.name.message}
+              </p>
             )}
           </div>
 
@@ -226,9 +326,10 @@ export function UserFormDialog({
               type="email"
               {...register('email')}
               placeholder="email@exemplo.com"
+              autoComplete="email"
             />
             {errors.email && (
-              <p className="text-sm text-red-600 mt-1">
+              <p className="text-sm text-red-600 mt-1" role="alert">
                 {errors.email.message}
               </p>
             )}
@@ -243,9 +344,10 @@ export function UserFormDialog({
               type="password"
               {...register('password')}
               placeholder={isEditing ? 'Nova senha (opcional)' : 'Senha'}
+              autoComplete={isEditing ? 'new-password' : 'new-password'}
             />
             {errors.password && (
-              <p className="text-sm text-red-600 mt-1">
+              <p className="text-sm text-red-600 mt-1" role="alert">
                 {errors.password.message}
               </p>
             )}
@@ -262,6 +364,7 @@ export function UserFormDialog({
               id="role"
               {...register('role')}
               disabled={!canChangeRole}
+              aria-disabled={!canChangeRole}
               className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
                 !canChangeRole
                   ? 'bg-gray-100 cursor-not-allowed opacity-60'
@@ -282,7 +385,9 @@ export function UserFormDialog({
               </p>
             )}
             {errors.role && (
-              <p className="text-sm text-red-600 mt-1">{errors.role.message}</p>
+              <p className="text-sm text-red-600 mt-1" role="alert">
+                {errors.role.message}
+              </p>
             )}
           </div>
 
@@ -293,8 +398,8 @@ export function UserFormDialog({
               </Label>
               <p className="text-xs text-muted-foreground mb-2">
                 Define se este perfil pode assinar evoluções de enfermagem ou
-                médicas no prontuário (obrigatório para atuar clinicamente nesse
-                módulo).
+                médicas no prontuário. Se escolher competência médica ou de
+                enfermagem, informe o CRM ou COREN correspondente abaixo.
               </p>
               <select
                 id="clinicalSubrole"
@@ -308,11 +413,99 @@ export function UserFormDialog({
                 ))}
               </select>
               {errors.clinicalSubrole && (
-                <p className="text-sm text-red-600 mt-1">
+                <p className="text-sm text-red-600 mt-1" role="alert">
                   {errors.clinicalSubrole.message}
                 </p>
               )}
             </div>
+          )}
+
+          {showCrm && (
+            <fieldset className="space-y-3 rounded-md border border-border p-3">
+              <legend className="text-sm font-medium px-1">CRM</legend>
+              <div>
+                <Label htmlFor="crmUf">UF do CRM</Label>
+                <select
+                  id="crmUf"
+                  {...register('crmUf')}
+                  className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  aria-invalid={errors.crmUf ? true : undefined}
+                  aria-required
+                >
+                  <option value="">Selecione a UF</option>
+                  {BRAZIL_UF_SIGLAS.map((uf) => (
+                    <option key={uf} value={uf}>
+                      {uf}
+                    </option>
+                  ))}
+                </select>
+                {errors.crmUf && (
+                  <p className="text-sm text-red-600 mt-1" role="alert">
+                    {errors.crmUf.message}
+                  </p>
+                )}
+              </div>
+              <div>
+                <Label htmlFor="crmNumber">Número do CRM</Label>
+                <Input
+                  id="crmNumber"
+                  {...register('crmNumber')}
+                  placeholder="Número do registro"
+                  autoComplete="off"
+                  aria-invalid={errors.crmNumber ? true : undefined}
+                  aria-required
+                />
+                {errors.crmNumber && (
+                  <p className="text-sm text-red-600 mt-1" role="alert">
+                    {errors.crmNumber.message}
+                  </p>
+                )}
+              </div>
+            </fieldset>
+          )}
+
+          {showCoren && (
+            <fieldset className="space-y-3 rounded-md border border-border p-3">
+              <legend className="text-sm font-medium px-1">COREN</legend>
+              <div>
+                <Label htmlFor="corenUf">UF do COREN</Label>
+                <select
+                  id="corenUf"
+                  {...register('corenUf')}
+                  className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  aria-invalid={errors.corenUf ? true : undefined}
+                  aria-required
+                >
+                  <option value="">Selecione a UF</option>
+                  {BRAZIL_UF_SIGLAS.map((uf) => (
+                    <option key={uf} value={uf}>
+                      {uf}
+                    </option>
+                  ))}
+                </select>
+                {errors.corenUf && (
+                  <p className="text-sm text-red-600 mt-1" role="alert">
+                    {errors.corenUf.message}
+                  </p>
+                )}
+              </div>
+              <div>
+                <Label htmlFor="corenNumber">Número do COREN</Label>
+                <Input
+                  id="corenNumber"
+                  {...register('corenNumber')}
+                  placeholder="Número do registro"
+                  autoComplete="off"
+                  aria-invalid={errors.corenNumber ? true : undefined}
+                  aria-required
+                />
+                {errors.corenNumber && (
+                  <p className="text-sm text-red-600 mt-1" role="alert">
+                    {errors.corenNumber.message}
+                  </p>
+                )}
+              </div>
+            </fieldset>
           )}
 
           <div className="flex items-center gap-2">
