@@ -1,0 +1,2 @@
+-- RenameIndex
+ALTER INDEX "navigation_steps_tenantId_scheduledProfessionalId_expectedDate_" RENAME TO "navigation_steps_tenantId_scheduledProfessionalId_expectedD_idx";

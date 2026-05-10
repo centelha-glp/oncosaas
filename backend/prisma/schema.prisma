@@ -40,6 +40,12 @@ model User {
   /// Guias TISS SP/SADT emitidas
   tissSpsadtGuidesCreated TissSpsadtGuide[] @relation("TissSpsadtGuideCreatedBy")
   productFeedbacks             ProductFeedback[]
+  /// Consultas de navegação agendadas com este profissional (agenda por profissional)
+  scheduledNavigationSteps NavigationStep[] @relation("NavigationStepScheduledProfessional")
+  /// Configuração de dias, turnos e duração de consulta para slots
+  consultationAgendaConfig ConsultationAgendaConfig?
+  /// Bloqueios de agenda (indisponibilidade) deste profissional
+  consultationAgendaBlocks ConsultationAgendaBlock[]
 
   @@unique([tenantId, email])
   @@map("users")
@@ -52,6 +58,8 @@ enum UserRole {
   NURSE_CHIEF
   NURSE
   COORDINATOR
+  /// Secretaria — agenda operacional, integrações e chat (sem papel clínico)
+  SECRETARY
 }
 
 enum ClinicalSubrole {
@@ -437,11 +445,6 @@ enum PriorityCategory {
   LOW // Baixo (score 0-39)
 }
 
-enum HealthCoverageType {
-  PRIVATE // Particular
-  HEALTH_PLAN // Plano de saúde / convênio
-}
-
 enum PatientStatus {
   ACTIVE // Ativo
   IN_TREATMENT // Em tratamento
@@ -450,6 +453,11 @@ enum PatientStatus {
   DECEASED // Óbito
   INACTIVE // Inativo
   PALLIATIVE_CARE // Tratamento paliativo
+}
+
+enum HealthCoverageType {
+  PRIVATE // Particular
+  HEALTH_PLAN // Plano de saúde / convênio
 }
 
 // Jornada do Paciente (1:1 com Patient)
@@ -515,6 +523,9 @@ model NavigationStep {
   status      NavigationStepStatus @default(PENDING)
   isRequired  Boolean              @default(true) // Etapa obrigatória?
   isCompleted Boolean              @default(false)
+
+  /// Confirmação de consulta (especialmente etapas em CONSULTATION_STEP_KEYS com expectedDate)
+  appointmentConfirmationStatus AppointmentConfirmationStatus @default(NOT_APPLICABLE)
   completedAt DateTime?
   completedBy String? // userId que marcou como completa
 
@@ -522,6 +533,10 @@ model NavigationStep {
   expectedDate DateTime? // Data esperada para conclusão
   dueDate      DateTime? // Prazo máximo (data limite para gerar alarmes de atraso)
   actualDate   DateTime? // Data real de conclusão
+
+  /// Profissional responsável pelo slot na agenda (consultas clínicas); mesmo tenant que a etapa
+  scheduledProfessionalId String?
+  scheduledProfessional   User?   @relation("NavigationStepScheduledProfessional", fields: [scheduledProfessionalId], references: [id], onDelete: SetNull)
 
   // Dados da realização da etapa
   institutionName  String? // Instituição de saúde onde foi realizada
@@ -562,7 +577,48 @@ model NavigationStep {
   @@index([completedAt])
   @@index([patientId, stepKey])
   @@index([patientId, dependsOnStepKey])
+  @@index([tenantId, scheduledProfessionalId, expectedDate])
   @@map("navigation_steps")
+}
+
+/// Dias úteis, turnos, duração padrão da consulta e teto diário — um registo por profissional no tenant.
+model ConsultationAgendaConfig {
+  id                                 String   @id @default(uuid())
+  tenantId                           String
+  /// Um registo de config por utilizador (UUID globalmente único)
+  userId                             String   @unique
+  defaultConsultationDurationMinutes Int
+  maxConsultationsPerDay             Int?
+  weeklyPattern                      Json
+  /// Antecedência (horas) para envio automático da mensagem de confirmação por WhatsApp antes de `expectedDate`. 0 = ao registar a consulta.
+  whatsappConfirmationLeadHours      Int      @default(24)
+  createdAt                          DateTime @default(now())
+  updatedAt                          DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, userId])
+  @@index([tenantId])
+  @@map("consultation_agenda_configs")
+}
+
+/// Indisponibilidade: intervalo [startsAt, endsAt). userId null = bloqueio global do tenant (ex. feriado).
+model ConsultationAgendaBlock {
+  id        String    @id @default(uuid())
+  tenantId  String
+  userId    String?
+  startsAt  DateTime
+  endsAt    DateTime
+  reason    String?
+  createdAt DateTime  @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User?  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, startsAt, endsAt])
+  @@index([tenantId, userId, startsAt])
+  @@map("consultation_agenda_blocks")
 }
 
 /// Metadados de arquivos vinculados a etapas de navegação (ex.: bucket S3).
@@ -597,6 +653,14 @@ enum NavigationStepStatus {
   OVERDUE // Atrasada
   CANCELLED // Cancelada
   NOT_APPLICABLE // Não aplicável
+}
+
+/// Confirmação de comparecimento para consultas agendadas (agenda / WhatsApp)
+enum AppointmentConfirmationStatus {
+  NOT_APPLICABLE // Sem fluxo de confirmação ou etapa não é consulta agendada
+  AWAITING_RESPONSE // Mensagem enviada; aguardando resposta do paciente
+  CONFIRMED // Paciente confirmou comparecimento
+  DECLINED // Paciente indicou que não comparecerá
 }
 
 enum TreatmentType {
@@ -1007,6 +1071,8 @@ enum ScheduledActionType {
   QUESTIONNAIRE // Aplicar questionário
   MEDICATION_REMINDER // Lembrete de medicamento
   APPOINTMENT_REMINDER // Lembrete de consulta/exame
+  /// Envio agendado da mensagem de confirmação de comparecimento (agenda / WhatsApp)
+  CONSULTATION_CONFIRMATION
   FOLLOW_UP // Acompanhamento pós-consulta
   VOICE_CALL // Ligação automatizada via Vapi
 }
@@ -1667,6 +1733,8 @@ model Tenant {
   tissSpsadtGuideItems     TissSpsadtGuideItem[]
   patientConsents          PatientConsent[]
   productFeedbacks         ProductFeedback[]
+  consultationAgendaConfigs ConsultationAgendaConfig[]
+  consultationAgendaBlocks ConsultationAgendaBlock[]
 
   @@map("tenants")
 }
