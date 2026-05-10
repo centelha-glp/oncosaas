@@ -3,12 +3,13 @@ import {
   UnauthorizedException,
   ForbiddenException,
   ConflictException,
+  BadRequestException,
   ServiceUnavailableException,
   Logger,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { Prisma, UserRole } from '@generated/prisma/client';
+import { ClinicalSubrole, Prisma, UserRole } from '@generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
@@ -19,6 +20,11 @@ import { RegisterDto } from './dto/register.dto';
 import { RegisterInstitutionDto } from './dto/register-institution.dto';
 import { JwtPayload } from './strategies/jwt.strategy';
 import { EmailService } from './email.service';
+import {
+  councilFieldsForRole,
+  councilValidationMessage,
+} from '../users/utils/professional-council';
+import { assertCouncilUniqueInTenant } from '../users/utils/professional-council-unique';
 
 const MAX_FAILED_ATTEMPTS = 5;
 const LOCKOUT_TTL_SECONDS = 15 * 60; // 15 minutos
@@ -325,6 +331,10 @@ export class AuthService {
         clinicalSubrole: true,
         tenantId: true,
         mfaEnabled: true,
+        crmUf: true,
+        crmNumber: true,
+        corenUf: true,
+        corenNumber: true,
         createdAt: true,
         updatedAt: true,
         tenant: { select: { id: true, name: true, settings: true } },
@@ -537,6 +547,39 @@ export class AuthService {
     return `inv:${token}`;
   }
 
+  /**
+   * Pré-visualização pública do convite (Redis): papel e nome da instituição.
+   * Não invalida o token — uso pela página de aceitar convite para montar o formulário (CRM/COREN).
+   */
+  async getInvitePreview(token: string | undefined) {
+    const trimmed = token?.trim();
+    if (!trimmed) {
+      throw new BadRequestException('Token do convite é obrigatório');
+    }
+
+    const inviteRaw = await this.redisService.get(this.inviteKey(trimmed));
+    if (!inviteRaw) {
+      throw new UnauthorizedException('Convite inválido ou expirado');
+    }
+
+    let invitePayload: { tenantId: string; role: UserRole };
+    try {
+      invitePayload = JSON.parse(inviteRaw) as { tenantId: string; role: UserRole };
+    } catch {
+      throw new UnauthorizedException('Convite malformado');
+    }
+
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: invitePayload.tenantId },
+      select: { name: true },
+    });
+
+    return {
+      role: invitePayload.role,
+      tenantName: tenant?.name ?? 'Instituição',
+    };
+  }
+
   async createInvite(
     tenantId: string,
     role: UserRole,
@@ -578,9 +621,6 @@ export class AuthService {
 
     const { tenantId, role } = invitePayload;
 
-    // Invalidar o token antes de criar o usuário (evita replay)
-    await this.redisService.del(this.inviteKey(registerDto.inviteToken));
-
     const existingUser = await this.prisma.user.findFirst({
       where: { tenantId, email: registerDto.email },
     });
@@ -588,6 +628,29 @@ export class AuthService {
     if (existingUser) {
       throw new UnauthorizedException('Email já cadastrado neste tenant');
     }
+
+    const invitedClinicalSubrole: ClinicalSubrole | null =
+      role === UserRole.COORDINATOR || role === UserRole.ADMIN
+        ? registerDto.clinicalSubrole ?? null
+        : null;
+
+    const councils = councilFieldsForRole(
+      role,
+      registerDto,
+      invitedClinicalSubrole
+    );
+    const councilErr = councilValidationMessage(
+      role,
+      councils,
+      invitedClinicalSubrole
+    );
+    if (councilErr) {
+      throw new BadRequestException(councilErr);
+    }
+    await assertCouncilUniqueInTenant(this.prisma, tenantId, councils);
+
+    // Invalidar o token antes de criar o usuário (evita replay)
+    await this.redisService.del(this.inviteKey(registerDto.inviteToken));
 
     const hashedPassword = await bcrypt.hash(registerDto.password, 10);
 
@@ -598,15 +661,47 @@ export class AuthService {
         name: registerDto.name,
         role,
         tenantId,
+        clinicalSubrole: invitedClinicalSubrole,
+        crmUf: councils.crmUf,
+        crmNumber: councils.crmNumber,
+        corenUf: councils.corenUf,
+        corenNumber: councils.corenNumber,
       },
       include: { tenant: true },
     });
 
-    const { password: _, ...result } = user;
+    const payload: JwtPayload = {
+      sub: user.id,
+      email: user.email,
+      tenantId: user.tenantId,
+      role: user.role,
+    };
+
+    const accessToken = this.jwtService.sign(payload);
+    const refreshToken = await this.generateRefreshToken(user.id);
+
+    void this.auditLogService.log({
+      tenantId: user.tenantId,
+      userId: user.id,
+      action: 'CREATE',
+      resourceType: 'UserSession',
+      resourceId: user.id,
+      newValues: { event: 'REGISTER_INVITE', role: user.role },
+    });
 
     return {
       message: 'Usuário criado com sucesso',
-      user: result,
+      access_token: accessToken,
+      refresh_token: refreshToken,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        clinicalSubrole: user.clinicalSubrole,
+        tenantId: user.tenantId,
+        tenant: user.tenant,
+      },
     };
   }
 

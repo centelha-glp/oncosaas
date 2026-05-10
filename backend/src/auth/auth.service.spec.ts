@@ -2,7 +2,11 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { AuthService } from '@/auth/auth.service';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ServiceUnavailableException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '@/prisma/prisma.service';
@@ -436,13 +440,22 @@ describe('AuthService', () => {
         email: 'nova@example.com',
         name: 'Nova Enfermeira',
         password: 'Senha@123',
+        corenUf: 'SP',
+        corenNumber: '123456',
       } as any);
 
       expect(result.user.tenantId).toBe('tenant-1');
       expect(result.user.role).toBe('NURSE');
+      expect(result.access_token).toBe('mock-access-token');
+      expect(typeof result.refresh_token).toBe('string');
       expect(mockPrisma.user.create).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({ tenantId: 'tenant-1', role: 'NURSE' }),
+          data: expect.objectContaining({
+            tenantId: 'tenant-1',
+            role: 'NURSE',
+            corenUf: 'SP',
+            corenNumber: '123456',
+          }),
         })
       );
     });
@@ -480,7 +493,6 @@ describe('AuthService', () => {
     it('deve lançar UnauthorizedException e NÃO criar usuário quando email já cadastrado no tenant', async () => {
       const payload = JSON.stringify({ tenantId: 'tenant-1', role: 'NURSE' });
       mockRedis.get.mockResolvedValueOnce(payload);
-      mockRedis.del.mockResolvedValue(1);
       mockPrisma.user.findFirst.mockResolvedValue({ id: 'user-existente' }); // email duplicado
 
       await expect(
@@ -489,10 +501,13 @@ describe('AuthService', () => {
           email: 'duplicado@example.com',
           name: 'Duplicado',
           password: 'Senha@123',
+          corenUf: 'RJ',
+          corenNumber: '999',
         } as any)
       ).rejects.toThrow(UnauthorizedException);
 
       expect(mockPrisma.user.create).not.toHaveBeenCalled();
+      expect(mockRedis.del).not.toHaveBeenCalled();
     });
 
     it('deve invalidar o token (del) ANTES de criar o usuário (anti-replay)', async () => {
@@ -551,9 +566,49 @@ describe('AuthService', () => {
         email: 'a@b.com',
         name: 'A',
         password: 'Senha@123',
+        corenUf: 'MG',
+        corenNumber: '888888',
       } as any);
 
       expect(mockRedis.get).toHaveBeenCalledWith(INVITE_KEY);
+    });
+  });
+
+  // ─── getInvitePreview ───────────────────────────────────────────────────────
+
+  describe('getInvitePreview', () => {
+    it('deve retornar role e tenantName quando o token existe', async () => {
+      mockRedis.get.mockResolvedValueOnce(
+        JSON.stringify({ tenantId: 'tenant-1', role: 'NURSE' })
+      );
+      mockPrisma.tenant.findUnique.mockResolvedValue({
+        name: 'Hospital Teste',
+      });
+
+      const result = await service.getInvitePreview('tok123');
+
+      expect(result).toEqual({
+        role: 'NURSE',
+        tenantName: 'Hospital Teste',
+      });
+      expect(mockRedis.get).toHaveBeenCalledWith('inv:tok123');
+    });
+
+    it('deve lançar BadRequestException sem token', async () => {
+      await expect(service.getInvitePreview(undefined)).rejects.toThrow(
+        BadRequestException
+      );
+      await expect(service.getInvitePreview('   ')).rejects.toThrow(
+        BadRequestException
+      );
+    });
+
+    it('deve lançar UnauthorizedException quando convite não existe', async () => {
+      mockRedis.get.mockResolvedValueOnce(null);
+
+      await expect(service.getInvitePreview('x')).rejects.toThrow(
+        UnauthorizedException
+      );
     });
   });
 

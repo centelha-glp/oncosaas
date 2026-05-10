@@ -1,8 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { BadRequestException, ConflictException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+} from '@nestjs/common';
 import { UsersService } from './users.service';
 import { PrismaService } from '@/prisma/prisma.service';
-import { UserRole } from '@generated/prisma/client';
+import { ClinicalSubrole, UserRole } from '@generated/prisma/client';
 import * as bcrypt from 'bcrypt';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -39,7 +42,14 @@ describe('UsersService', () => {
 
     await expect(
       service.create(
-        { email: 'x@example.com', password: 'secret', role: UserRole.NURSE } as CreateUserDto,
+        {
+          name: 'N',
+          email: 'x@example.com',
+          password: 'secret12',
+          role: UserRole.NURSE,
+          corenUf: 'SP',
+          corenNumber: '123456',
+        } as CreateUserDto,
         'tenant-1',
         UserRole.ADMIN,
       ),
@@ -51,15 +61,145 @@ describe('UsersService', () => {
 
     await expect(
       service.create(
-        { email: 'x@example.com', password: 'secret', role: UserRole.ADMIN } as CreateUserDto,
+        {
+          name: 'A',
+          email: 'x@example.com',
+          password: 'secret12',
+          role: UserRole.ADMIN,
+        } as CreateUserDto,
         'tenant-1',
         UserRole.NURSE_CHIEF,
       ),
     ).rejects.toThrow(BadRequestException);
   });
 
+  it('should reject create NURSE without COREN data', async () => {
+    mockPrisma.user.findFirst.mockResolvedValue(null);
+
+    await expect(
+      service.create(
+        {
+          name: 'N',
+          email: 'x@example.com',
+          password: 'secret12',
+          role: UserRole.NURSE,
+        } as CreateUserDto,
+        'tenant-1',
+        UserRole.ADMIN,
+      ),
+    ).rejects.toThrow(BadRequestException);
+    expect(mockPrisma.user.create).not.toHaveBeenCalled();
+  });
+
+  it('should reject COORDINATOR with subpapel médico sem CRM', async () => {
+    mockPrisma.user.findFirst.mockResolvedValue(null);
+
+    await expect(
+      service.create(
+        {
+          name: 'Coord',
+          email: 'c@example.com',
+          password: 'secret12',
+          role: UserRole.COORDINATOR,
+          clinicalSubrole: ClinicalSubrole.MEDICAL,
+        } as CreateUserDto,
+        'tenant-1',
+        UserRole.ADMIN,
+      ),
+    ).rejects.toThrow(BadRequestException);
+    expect(mockPrisma.user.create).not.toHaveBeenCalled();
+  });
+
+  it('should create COORDINATOR with MEDICAL e CRM', async () => {
+    mockPrisma.user.findFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null);
+    mockPrisma.user.create.mockResolvedValue({
+      id: 'u-co',
+      role: UserRole.COORDINATOR,
+      clinicalSubrole: ClinicalSubrole.MEDICAL,
+      crmUf: 'SP',
+      crmNumber: '100',
+    });
+
+    await service.create(
+      {
+        name: 'Coord',
+        email: 'coord@example.com',
+        password: 'secret12',
+        role: UserRole.COORDINATOR,
+        clinicalSubrole: ClinicalSubrole.MEDICAL,
+        crmUf: 'SP',
+        crmNumber: '100',
+      } as CreateUserDto,
+      'tenant-1',
+      UserRole.ADMIN,
+    );
+
+    expect(mockPrisma.user.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          clinicalSubrole: ClinicalSubrole.MEDICAL,
+          crmUf: 'SP',
+          crmNumber: '100',
+          corenUf: null,
+          corenNumber: null,
+        }),
+      }),
+    );
+  });
+
+  it('should create ONCOLOGIST with CRM', async () => {
+    mockPrisma.user.findFirst.mockResolvedValue(null);
+    mockPrisma.user.create.mockResolvedValue({
+      id: 'u1',
+      email: 'd@example.com',
+      name: 'Dr',
+      role: UserRole.ONCOLOGIST,
+      crmUf: 'RJ',
+      crmNumber: '999',
+      corenUf: null,
+      corenNumber: null,
+    });
+
+    await service.create(
+      {
+        name: 'Dr',
+        email: 'd@example.com',
+        password: 'secret12',
+        role: UserRole.ONCOLOGIST,
+        crmUf: 'RJ',
+        crmNumber: '999',
+      } as CreateUserDto,
+      'tenant-1',
+      UserRole.ADMIN,
+    );
+
+    expect(mockPrisma.user.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          role: UserRole.ONCOLOGIST,
+          crmUf: 'RJ',
+          crmNumber: '999',
+          corenUf: null,
+          corenNumber: null,
+        }),
+      }),
+    );
+  });
+
   it('should hash password before update', async () => {
-    mockPrisma.user.findFirst.mockResolvedValue({ id: 'u1', role: UserRole.NURSE, email: 'a@b.com' });
+    mockPrisma.user.findFirst
+      .mockResolvedValueOnce({
+        id: 'u1',
+        role: UserRole.NURSE,
+        email: 'a@b.com',
+        crmUf: null,
+        crmNumber: null,
+        corenUf: 'SP',
+        corenNumber: '111',
+      })
+      .mockResolvedValueOnce(null);
     mockPrisma.user.update.mockResolvedValue({ id: 'u1' });
     const hashSpy = jest.spyOn(bcrypt, 'hash').mockResolvedValue('hashed-value' as never);
 
@@ -88,12 +228,12 @@ describe('UsersService', () => {
 
     await service.findAll('tenant-1');
     expect(mockPrisma.user.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ take: 100, skip: 0 })
+      expect.objectContaining({ take: 100, skip: 0 }),
     );
 
     await service.findAll('tenant-1', { limit: 9999 });
     expect(mockPrisma.user.findMany).toHaveBeenLastCalledWith(
-      expect.objectContaining({ take: 500 })
+      expect.objectContaining({ take: 500 }),
     );
   });
 });
