@@ -1,11 +1,20 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { JourneyStage, PatientStatus, NavigationStepStatus } from '@generated/prisma/client';
+import {
+  JourneyStage,
+  PatientStatus,
+  NavigationStepStatus,
+  AppointmentConfirmationStatus,
+  ClinicalSubrole,
+  UserRole,
+} from '@generated/prisma/client';
 import { AlertsService } from '../alerts/alerts.service';
+import { ChannelGatewayService } from '../channel-gateway/channel-gateway.service';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   OncologyNavigationService,
   StepConfig,
 } from './oncology-navigation.service';
+import { ConsultationAgendaAvailabilityService } from './consultation-agenda-availability.service';
 
 type MockPrisma = {
   $transaction: jest.Mock;
@@ -24,7 +33,27 @@ type MockPrisma = {
     aggregate: jest.Mock;
     count: jest.Mock;
   };
+  consultationAgendaConfig: {
+    findFirst: jest.Mock;
+    upsert: jest.Mock;
+  };
+  consultationAgendaBlock: {
+    findMany: jest.Mock;
+    create: jest.Mock;
+    deleteMany: jest.Mock;
+    count: jest.Mock;
+  };
   alert: {
+    findFirst: jest.Mock;
+  };
+  conversation: {
+    findFirst: jest.Mock;
+  };
+  scheduledAction: {
+    updateMany: jest.Mock;
+    create: jest.Mock;
+  };
+  user: {
     findFirst: jest.Mock;
   };
 };
@@ -33,6 +62,7 @@ const TENANT = 'tenant-abc';
 const OTHER_TENANT = 'tenant-xyz';
 const PATIENT_ID = 'patient-uuid-1';
 const JOURNEY_ID = 'journey-uuid-1';
+const PROFESSIONAL_ID = 'professional-uuid-1';
 
 const basePatient = {
   cancerType: 'bladder',
@@ -42,9 +72,21 @@ const basePatient = {
 
 const baseJourney = { id: JOURNEY_ID };
 
+const mockAgendaConfigRow = (whatsappConfirmationLeadHours: number) => ({
+  defaultConsultationDurationMinutes: 30,
+  maxConsultationsPerDay: null as number | null,
+  weeklyPattern: {
+    activeWeekdays: [1, 2, 3, 4, 5],
+    shifts: [{ startLocal: '08:00', endLocal: '12:00' }],
+  },
+  whatsappConfirmationLeadHours,
+});
+
 describe('OncologyNavigationService', () => {
   let service: OncologyNavigationService;
   let mockPrisma: MockPrisma;
+  let mockChannelGateway: { sendMessage: jest.Mock };
+  let consultationAgendaAvailability: ConsultationAgendaAvailabilityService;
 
   beforeEach((): void => {
     mockPrisma = {
@@ -57,7 +99,7 @@ describe('OncologyNavigationService', () => {
         findUnique: jest.fn(),
       },
       navigationStep: {
-        findMany: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
         findFirst: jest.fn(),
         create: jest.fn(),
         update: jest.fn(),
@@ -67,12 +109,47 @@ describe('OncologyNavigationService', () => {
       alert: {
         findFirst: jest.fn(),
       },
+      conversation: {
+        findFirst: jest.fn(),
+      },
+      scheduledAction: {
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+        create: jest.fn(),
+      },
+      user: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: PROFESSIONAL_ID,
+          role: UserRole.ONCOLOGIST,
+          clinicalSubrole: null,
+        }),
+      },
+      consultationAgendaConfig: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        upsert: jest.fn(),
+      },
+      consultationAgendaBlock: {
+        findMany: jest.fn().mockResolvedValue([]),
+        create: jest.fn(),
+        deleteMany: jest.fn(),
+        count: jest.fn().mockResolvedValue(0),
+      },
     };
 
     const mockAlertsService = {} as AlertsService;
+    consultationAgendaAvailability = new ConsultationAgendaAvailabilityService(
+      mockPrisma as unknown as PrismaService
+    );
+    mockChannelGateway = {
+      sendMessage: jest.fn().mockResolvedValue({
+        message: { id: 'msg-1' },
+        sendResult: { success: true, externalMessageId: 'ext-1' },
+      }),
+    };
     service = new OncologyNavigationService(
       mockPrisma as unknown as PrismaService,
-      mockAlertsService
+      mockAlertsService,
+      consultationAgendaAvailability,
+      mockChannelGateway as unknown as ChannelGatewayService
     );
   });
 
@@ -879,7 +956,13 @@ describe('OncologyNavigationService', () => {
       expectedDate: new Date('2026-05-10T00:00:00.000Z'),
       dueDate: new Date('2026-05-12T00:00:00.000Z'),
       actualDate: null,
+      appointmentConfirmationStatus:
+        AppointmentConfirmationStatus.NOT_APPLICABLE,
       patient: { id: PATIENT_ID, name: 'Paciente Teste' },
+      scheduledProfessional: {
+        id: PROFESSIONAL_ID,
+        name: 'Dr. Teste',
+      },
     };
 
     it('throws BadRequestException when from is after to', async () => {
@@ -1092,6 +1175,278 @@ describe('OncologyNavigationService', () => {
           dueDate: null,
         }),
       });
+    });
+  });
+
+  describe('createConsultationAppointment', () => {
+    const baseDto = {
+      patientId: PATIENT_ID,
+      cancerType: 'bladder',
+      journeyStage: JourneyStage.TREATMENT,
+      stepKey: 'specialist_consultation',
+      stepName: 'Consulta especializada',
+      expectedDate: '2026-06-20T12:00:00.000Z',
+      scheduledProfessionalId: PROFESSIONAL_ID,
+    };
+
+    it('throws BadRequestException when stepKey is not a clinical consultation', async () => {
+      await expect(
+        service.createConsultationAppointment(
+          { ...baseDto, stepKey: 'chemotherapy' },
+          TENANT
+        )
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('throws BadRequestException when expectedDate is missing', async () => {
+      await expect(
+        service.createConsultationAppointment(
+          { ...baseDto, expectedDate: undefined as unknown as string },
+          TENANT
+        )
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('throws when admin has no clinical subrole for specialist consultation', async () => {
+      mockPrisma.user.findFirst.mockResolvedValueOnce({
+        id: PROFESSIONAL_ID,
+        role: UserRole.ADMIN,
+        clinicalSubrole: null,
+      });
+      mockPrisma.patient.findFirst.mockResolvedValue({ id: PATIENT_ID } as never);
+
+      await expect(
+        service.createConsultationAppointment({ ...baseDto }, TENANT)
+      ).rejects.toThrow(BadRequestException);
+      expect(mockPrisma.navigationStep.create).not.toHaveBeenCalled();
+    });
+
+    it('creates specialist consultation when professional is admin with MEDICAL subrole', async () => {
+      mockPrisma.user.findFirst.mockResolvedValueOnce({
+        id: PROFESSIONAL_ID,
+        role: UserRole.ADMIN,
+        clinicalSubrole: ClinicalSubrole.MEDICAL,
+      });
+      mockPrisma.patient.findFirst.mockResolvedValue({ id: PATIENT_ID } as never);
+      mockPrisma.patientJourney.findUnique.mockResolvedValue(baseJourney as never);
+      mockPrisma.navigationStep.findMany.mockResolvedValue([]);
+      const created = {
+        id: 'spec-admin-step',
+        tenantId: TENANT,
+        patientId: PATIENT_ID,
+        stepKey: 'specialist_consultation',
+        dueDate: null,
+        isCompleted: false,
+      };
+      mockPrisma.navigationStep.create.mockResolvedValue(created as never);
+
+      const result = await service.createConsultationAppointment(
+        { ...baseDto },
+        TENANT
+      );
+
+      expect(result).toEqual(created);
+      expect(mockPrisma.navigationStep.create).toHaveBeenCalled();
+    });
+
+    it('throws when professional is not a doctor for specialist consultation', async () => {
+      mockPrisma.user.findFirst.mockResolvedValueOnce({
+        id: PROFESSIONAL_ID,
+        role: UserRole.NURSE,
+        clinicalSubrole: null,
+      });
+      mockPrisma.patient.findFirst.mockResolvedValue({ id: PATIENT_ID } as never);
+
+      await expect(
+        service.createConsultationAppointment({ ...baseDto }, TENANT)
+      ).rejects.toThrow(BadRequestException);
+      expect(mockPrisma.navigationStep.create).not.toHaveBeenCalled();
+    });
+
+    it('throws when professional is not nursing for navigation consultation', async () => {
+      mockPrisma.user.findFirst.mockResolvedValueOnce({
+        id: PROFESSIONAL_ID,
+        role: UserRole.ONCOLOGIST,
+        clinicalSubrole: null,
+      });
+      mockPrisma.patient.findFirst.mockResolvedValue({ id: PATIENT_ID } as never);
+
+      await expect(
+        service.createConsultationAppointment(
+          {
+            ...baseDto,
+            stepKey: 'navigation_consultation',
+            stepName: 'Consulta de navegação oncológica',
+          },
+          TENANT
+        )
+      ).rejects.toThrow(BadRequestException);
+      expect(mockPrisma.navigationStep.create).not.toHaveBeenCalled();
+    });
+
+    it('creates navigation consultation when professional is nurse', async () => {
+      mockPrisma.user.findFirst.mockResolvedValueOnce({
+        id: PROFESSIONAL_ID,
+        role: UserRole.NURSE,
+        clinicalSubrole: null,
+      });
+      mockPrisma.patient.findFirst.mockResolvedValue({ id: PATIENT_ID } as never);
+      mockPrisma.patientJourney.findUnique.mockResolvedValue(baseJourney as never);
+      mockPrisma.navigationStep.findMany.mockResolvedValue([]);
+      const created = {
+        id: 'nav-step',
+        tenantId: TENANT,
+        patientId: PATIENT_ID,
+        stepKey: 'navigation_consultation',
+        dueDate: null,
+        isCompleted: false,
+      };
+      mockPrisma.navigationStep.create.mockResolvedValue(created as never);
+
+      const result = await service.createConsultationAppointment(
+        {
+          ...baseDto,
+          stepKey: 'navigation_consultation',
+          stepName: 'Consulta de navegação oncológica',
+        },
+        TENANT
+      );
+
+      expect(result).toEqual(created);
+      expect(mockPrisma.navigationStep.create).toHaveBeenCalled();
+    });
+
+    it('throws when patient already has consultation in same minute', async () => {
+      mockPrisma.patient.findFirst.mockResolvedValue({ id: PATIENT_ID } as never);
+      mockPrisma.patientJourney.findUnique.mockResolvedValue(baseJourney as never);
+      mockPrisma.navigationStep.findMany
+        .mockResolvedValueOnce([
+          {
+            id: 'other-step',
+            expectedDate: new Date(baseDto.expectedDate),
+            scheduledProfessionalId: PROFESSIONAL_ID,
+          },
+        ])
+        .mockResolvedValueOnce([]);
+
+      await expect(
+        service.createConsultationAppointment({ ...baseDto }, TENANT)
+      ).rejects.toThrow(BadRequestException);
+      expect(mockPrisma.navigationStep.create).not.toHaveBeenCalled();
+    });
+
+    it('throws when professional already has consultation in same minute', async () => {
+      mockPrisma.patient.findFirst.mockResolvedValue({ id: PATIENT_ID } as never);
+      mockPrisma.patientJourney.findUnique.mockResolvedValue(baseJourney as never);
+      mockPrisma.navigationStep.findMany
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([
+          {
+            id: 'other-step',
+            expectedDate: new Date(baseDto.expectedDate),
+            scheduledProfessionalId: PROFESSIONAL_ID,
+          },
+        ]);
+
+      await expect(
+        service.createConsultationAppointment({ ...baseDto }, TENANT)
+      ).rejects.toThrow(BadRequestException);
+      expect(mockPrisma.navigationStep.create).not.toHaveBeenCalled();
+    });
+
+    it('schedules CONSULTATION_CONFIRMATION when lead hours > 0 and send time is in the future', async () => {
+      const assertSpy = jest
+        .spyOn(consultationAgendaAvailability, 'assertSlotWithinAgendaRules')
+        .mockResolvedValue(undefined as never);
+      mockPrisma.patient.findFirst.mockResolvedValue({ id: PATIENT_ID } as never);
+      mockPrisma.patientJourney.findUnique.mockResolvedValue(baseJourney as never);
+      mockPrisma.navigationStep.findMany.mockResolvedValue([]);
+      const expected = new Date('2026-06-22T15:00:00.000Z');
+      const created = {
+        id: 'new-step',
+        tenantId: TENANT,
+        patientId: PATIENT_ID,
+        stepKey: 'specialist_consultation',
+        stepName: 'Consulta especializada',
+        expectedDate: expected,
+        appointmentConfirmationStatus:
+          AppointmentConfirmationStatus.NOT_APPLICABLE,
+        status: NavigationStepStatus.PENDING,
+        dueDate: null,
+        isCompleted: false,
+      };
+      mockPrisma.navigationStep.create.mockResolvedValue(created as never);
+      mockPrisma.consultationAgendaConfig.findFirst.mockResolvedValue(
+        mockAgendaConfigRow(24) as never
+      );
+
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date('2026-01-01T12:00:00.000Z'));
+
+      const result = await service.createConsultationAppointment(
+        { ...baseDto, expectedDate: '2026-06-22T15:00:00.000Z' },
+        TENANT
+      );
+
+      jest.useRealTimers();
+
+      expect(result).toEqual(created);
+      expect(mockPrisma.navigationStep.create).toHaveBeenCalled();
+      expect(mockChannelGateway.sendMessage).not.toHaveBeenCalled();
+      expect(mockPrisma.scheduledAction.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          actionType: 'CONSULTATION_CONFIRMATION',
+          patientId: PATIENT_ID,
+          tenantId: TENANT,
+          status: 'PENDING',
+        }),
+      });
+      assertSpy.mockRestore();
+    });
+
+    it('sends confirmation immediately when whatsappConfirmationLeadHours is 0', async () => {
+      const assertSpy = jest
+        .spyOn(consultationAgendaAvailability, 'assertSlotWithinAgendaRules')
+        .mockResolvedValue(undefined as never);
+      mockPrisma.patient.findFirst.mockResolvedValue({ id: PATIENT_ID } as never);
+      mockPrisma.patientJourney.findUnique.mockResolvedValue(baseJourney as never);
+      const expected = new Date('2026-06-22T15:00:00.000Z');
+      const created = {
+        id: 'new-step',
+        tenantId: TENANT,
+        patientId: PATIENT_ID,
+        stepKey: 'specialist_consultation',
+        stepName: 'Consulta especializada',
+        expectedDate: expected,
+        appointmentConfirmationStatus:
+          AppointmentConfirmationStatus.NOT_APPLICABLE,
+        status: NavigationStepStatus.PENDING,
+        dueDate: null,
+        isCompleted: false,
+      };
+      mockPrisma.navigationStep.create.mockResolvedValue(created as never);
+      mockPrisma.navigationStep.findMany.mockResolvedValue([]);
+      mockPrisma.navigationStep.findFirst.mockResolvedValue(created as never);
+      mockPrisma.conversation.findFirst.mockResolvedValue(null);
+      mockPrisma.consultationAgendaConfig.findFirst.mockResolvedValue(
+        mockAgendaConfigRow(0) as never
+      );
+      const updated = {
+        ...created,
+        appointmentConfirmationStatus:
+          AppointmentConfirmationStatus.AWAITING_RESPONSE,
+      };
+      mockPrisma.navigationStep.update.mockResolvedValue(updated as never);
+
+      const result = await service.createConsultationAppointment(
+        { ...baseDto, expectedDate: '2026-06-22T15:00:00.000Z' },
+        TENANT
+      );
+
+      expect(mockChannelGateway.sendMessage).toHaveBeenCalled();
+      expect(mockPrisma.scheduledAction.create).toHaveBeenCalled();
+      expect(result).toEqual(updated);
+      assertSpy.mockRestore();
     });
   });
 });

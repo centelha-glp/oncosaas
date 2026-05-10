@@ -15,7 +15,7 @@ import { AgentSchedulerService } from './agent-scheduler.service';
     PrismaModule,
     GatewaysModule,
     forwardRef(() => ChannelGatewayModule),
-    OncologyNavigationModule,
+    forwardRef(() => OncologyNavigationModule),
     ClinicalProtocolsModule,
   ],
   controllers: [AgentController],

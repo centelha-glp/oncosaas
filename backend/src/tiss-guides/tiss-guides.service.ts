@@ -10,14 +10,14 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ClinicalNotesService, type ClinicalNoteActor } from '../clinical-notes/clinical-notes.service';
 import { CreateTissSpsadtGuideDto } from './dto/create-tiss-spsadt-guide.dto';
 
-const TISS_ROLES = [
+const TISS_ROLES_ALLOWED = new Set<UserRole>([
   UserRole.NURSE,
   UserRole.NURSE_CHIEF,
   UserRole.DOCTOR,
   UserRole.ONCOLOGIST,
   UserRole.COORDINATOR,
   UserRole.ADMIN,
-] as const;
+]);
 
 @Injectable()
 export class TissGuidesService {
@@ -27,7 +27,7 @@ export class TissGuidesService {
   ) {}
 
   private assertCanEmit(actor: ClinicalNoteActor) {
-    if (!TISS_ROLES.includes(actor.role)) {
+    if (!TISS_ROLES_ALLOWED.has(actor.role)) {
       throw new ForbiddenException('Sem permissão para emitir guia TISS');
     }
   }

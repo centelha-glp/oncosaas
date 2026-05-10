@@ -33,7 +33,8 @@ import { ConversationStatus, ChannelType } from '@generated/prisma/client';
   UserRole.DOCTOR,
   UserRole.NURSE_CHIEF,
   UserRole.NURSE,
-  UserRole.COORDINATOR
+  UserRole.COORDINATOR,
+  UserRole.SECRETARY
 )
 export class AgentController {
   private readonly logger = new Logger(AgentController.name);
@@ -156,6 +157,14 @@ export class AgentController {
   }
 
   @Post('decisions/:id/approve')
+  @Roles(
+    UserRole.ADMIN,
+    UserRole.ONCOLOGIST,
+    UserRole.DOCTOR,
+    UserRole.NURSE_CHIEF,
+    UserRole.NURSE,
+    UserRole.COORDINATOR
+  )
   async approveDecision(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: ApproveDecisionDto,
@@ -210,6 +219,14 @@ export class AgentController {
   // ==========================================
 
   @Get('observability/traces')
+  @Roles(
+    UserRole.ADMIN,
+    UserRole.ONCOLOGIST,
+    UserRole.DOCTOR,
+    UserRole.NURSE_CHIEF,
+    UserRole.NURSE,
+    UserRole.COORDINATOR
+  )
   async getObservabilityTraces(
     @Request() req: any,
     @Query('limit') limit?: string,
@@ -221,6 +238,14 @@ export class AgentController {
   }
 
   @Get('observability/stats')
+  @Roles(
+    UserRole.ADMIN,
+    UserRole.ONCOLOGIST,
+    UserRole.DOCTOR,
+    UserRole.NURSE_CHIEF,
+    UserRole.NURSE,
+    UserRole.COORDINATOR
+  )
   async getObservabilityStats(@Request() req: any) {
     return this.agentService.getObservabilityStats(req.user.tenantId);
   }

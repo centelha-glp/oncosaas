@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   getAiServiceConfig,
@@ -23,6 +23,7 @@ export class AgentService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
+    @Inject(forwardRef(() => ChannelGatewayService))
     private readonly channelGateway: ChannelGatewayService,
     private readonly conversationService: ConversationService,
     private readonly decisionGate: DecisionGateService,

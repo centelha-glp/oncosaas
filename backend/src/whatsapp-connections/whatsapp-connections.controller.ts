@@ -36,7 +36,8 @@ import { Response } from 'express';
   UserRole.DOCTOR,
   UserRole.NURSE_CHIEF,
   UserRole.NURSE,
-  UserRole.COORDINATOR
+  UserRole.COORDINATOR,
+  UserRole.SECRETARY
 )
 export class WhatsAppConnectionsController {
   private readonly logger = new Logger(WhatsAppConnectionsController.name);

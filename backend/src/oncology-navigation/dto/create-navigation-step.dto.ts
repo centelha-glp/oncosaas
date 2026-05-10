@@ -61,4 +61,9 @@ export class CreateNavigationStepDto {
   @IsUUID()
   @IsOptional()
   diagnosisId?: string; // Vincula a etapa a um diagnóstico (excluída em cascata com o diagnóstico)
+
+  /** Obrigatório quando stepKey é consulta clínica e expectedDate está definida */
+  @IsUUID()
+  @IsOptional()
+  scheduledProfessionalId?: string;
 }
