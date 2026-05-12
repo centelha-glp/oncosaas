@@ -90,22 +90,7 @@ class AgentOrchestrator:
     ) -> Dict[str, Any]:
         """Inner implementation of process(), called with an active trace."""
 
-        # 1. Check if we're in a questionnaire flow
-        if agent_state.get("active_questionnaire"):
-            trace.pipeline_path = "questionnaire"
-            return await self._process_questionnaire_answer(
-                {
-                    "message": message,
-                    "clinical_context": clinical_context,
-                    "protocol": protocol,
-                    "conversation_history": conversation_history,
-                    "agent_state": agent_state,
-                    "agent_config": agent_config,
-                },
-                has_llm_keys=has_llm_keys,
-            )
-
-        # 1.5. Classify intent for differentiated handling (with LLM fallback for ambiguous)
+        # 1. Classify intent for differentiated handling (with LLM fallback for ambiguous)
         span_intent = tracer.start_span(trace, "intent_classification")
         intent_result = await intent_classifier.classify_async(
             message, agent_state, agent_config
@@ -120,27 +105,129 @@ class AgentOrchestrator:
             emergency_meta = intent_result.get("metadata", {})
             if emergency_meta.get("escalate_immediately"):
                 trace.pipeline_path = "emergency"
-                # Run symptom analysis even for emergency path to register the symptom
-                cancer_type = clinical_context.get("patient", {}).get("cancerType")
-                use_llm_analysis = agent_config.get("use_llm_symptom_analysis", True) and has_llm_keys
-                symptom_analysis = await symptom_analyzer.analyze(
+                symptom_analysis, clinical_rules_result = await self._run_safety_triage(
+                    trace=trace,
                     message=message,
                     clinical_context=clinical_context,
-                    cancer_type=cancer_type,
-                    use_llm=use_llm_analysis,
-                    llm_config=agent_config or {},
+                    agent_config=agent_config,
+                    has_llm_keys=has_llm_keys,
                 )
-                return self._build_emergency_response(
+                response = self._build_emergency_response(
                     message, clinical_context, agent_state, symptom_analysis
                 )
+                rule_actions, rule_decisions = self._compile_clinical_rules_actions(
+                    clinical_rules_result,
+                    requires_escalation=True,
+                )
+                response["actions"] = self._merge_actions(response["actions"], rule_actions)
+                response["decisions"].extend(rule_decisions)
+                response["clinical_disposition"] = clinical_rules_result.disposition
+                response["clinical_disposition_reason"] = clinical_rules_result.reasoning
+                response["clinical_rules_findings"] = [
+                    {"rule_id": f.rule_id, "disposition": f.disposition, "reason": f.reason}
+                    for f in clinical_rules_result.findings
+                ]
+                response["intent"] = intent_result
+                trace.actions_generated = [a.get("type", "UNKNOWN") for a in response["actions"]]
+                return response
 
+        # Questionnaires never outrank emergency or deterministic clinical triage.
+        # A minimal safety pass can interrupt the questionnaire before recording answers.
+        if agent_state.get("active_questionnaire"):
+            symptom_analysis, clinical_rules_result = await self._run_safety_triage(
+                trace=trace,
+                message=message,
+                clinical_context=clinical_context,
+                agent_config=agent_config,
+                has_llm_keys=has_llm_keys,
+            )
+            if clinical_rules_result.is_immediate:
+                trace.pipeline_path = "questionnaire_safety_override"
+                response = self._build_layer1_override_response(
+                    message=message,
+                    clinical_context=clinical_context,
+                    agent_state=agent_state,
+                    symptom_analysis=symptom_analysis,
+                    clinical_rules_result=clinical_rules_result,
+                    intent_result=intent_result,
+                    interrupt_kind="questionnaire",
+                )
+                trace.actions_generated = [
+                    action.get("type", "UNKNOWN") for action in response["actions"]
+                ]
+                return response
+
+            trace.pipeline_path = "questionnaire"
+            return await self._process_questionnaire_answer(
+                {
+                    "message": message,
+                    "clinical_context": clinical_context,
+                    "protocol": protocol,
+                    "conversation_history": conversation_history,
+                    "agent_state": agent_state,
+                    "agent_config": agent_config,
+                },
+                has_llm_keys=has_llm_keys,
+            )
+
+        # Saudação/agenda: triagem mínima (Layer 1) antes do return rápido — não prevalece sobre ER.
         if intent == INTENT_GREETING and intent_result.get("skip_full_pipeline"):
             trace.pipeline_path = "greeting"
-            return self._build_greeting_response(clinical_context, agent_state)
+            symptom_analysis, clinical_rules_result = await self._run_safety_triage(
+                trace=trace,
+                message=message,
+                clinical_context=clinical_context,
+                agent_config=agent_config,
+                has_llm_keys=has_llm_keys,
+            )
+            if clinical_rules_result.is_er:
+                trace.pipeline_path = "greeting_safety_override"
+                response = self._build_layer1_override_response(
+                    message=message,
+                    clinical_context=clinical_context,
+                    agent_state=agent_state,
+                    symptom_analysis=symptom_analysis,
+                    clinical_rules_result=clinical_rules_result,
+                    intent_result=intent_result,
+                    interrupt_kind="fast_path",
+                )
+                trace.actions_generated = [
+                    a.get("type", "UNKNOWN") for a in response["actions"]
+                ]
+                return response
+            base = self._build_greeting_response(clinical_context, agent_state)
+            return self._attach_layer1_audit_fields(
+                base, symptom_analysis, clinical_rules_result, intent_result
+            )
 
         if intent == INTENT_APPOINTMENT_QUERY and intent_result.get("skip_full_pipeline"):
             trace.pipeline_path = "appointment_query"
-            return self._build_appointment_response(clinical_context, agent_state)
+            symptom_analysis, clinical_rules_result = await self._run_safety_triage(
+                trace=trace,
+                message=message,
+                clinical_context=clinical_context,
+                agent_config=agent_config,
+                has_llm_keys=has_llm_keys,
+            )
+            if clinical_rules_result.is_er:
+                trace.pipeline_path = "appointment_safety_override"
+                response = self._build_layer1_override_response(
+                    message=message,
+                    clinical_context=clinical_context,
+                    agent_state=agent_state,
+                    symptom_analysis=symptom_analysis,
+                    clinical_rules_result=clinical_rules_result,
+                    intent_result=intent_result,
+                    interrupt_kind="fast_path",
+                )
+                trace.actions_generated = [
+                    a.get("type", "UNKNOWN") for a in response["actions"]
+                ]
+                return response
+            base = self._build_appointment_response(clinical_context, agent_state)
+            return self._attach_layer1_audit_fields(
+                base, symptom_analysis, clinical_rules_result, intent_result
+            )
 
         trace.pipeline_path = "main"
 
@@ -152,40 +239,13 @@ class AgentOrchestrator:
             has_llm_keys, has_anthropic,
             [k for k in (agent_config or {}).keys()],
         )
-        use_llm_analysis = agent_config.get("use_llm_symptom_analysis", True) and has_llm_keys
-
-        span_symptoms = tracer.start_span(trace, "symptom_analysis")
-        symptom_analysis = await symptom_analyzer.analyze(
+        symptom_analysis, clinical_rules_result = await self._run_safety_triage(
+            trace=trace,
             message=message,
             clinical_context=clinical_context,
-            cancer_type=cancer_type,
-            use_llm=use_llm_analysis,
-            llm_config=agent_config,
+            agent_config=agent_config,
+            has_llm_keys=has_llm_keys,
         )
-        detected = symptom_analysis.get("detectedSymptoms", []) if isinstance(symptom_analysis, dict) else getattr(symptom_analysis, "detectedSymptoms", [])
-        severity = symptom_analysis.get("overallSeverity") if isinstance(symptom_analysis, dict) else getattr(symptom_analysis, "overallSeverity", None)
-        span_symptoms.finish(symptoms_count=len(detected), overall_severity=severity)
-        trace.symptoms_detected = len(detected)
-        trace.overall_severity = severity
-
-        # 2.5. Layer 1: deterministic clinical rules (pre-ML, cannot be overridden)
-        span_rules = tracer.start_span(trace, "clinical_rules")
-        clinical_rules_result = clinical_rules_engine.evaluate(
-            symptom_analysis=symptom_analysis,
-            clinical_context=clinical_context,
-        )
-        rules_fired = [f.rule_id for f in clinical_rules_result.findings]
-        span_rules.finish(disposition=clinical_rules_result.disposition, rules_fired=rules_fired)
-        trace.clinical_disposition = clinical_rules_result.disposition
-        trace.clinical_rules_fired = rules_fired
-        if clinical_rules_result.is_immediate:
-            logger.warning(
-                f"ClinicalRules ER_IMMEDIATE: {clinical_rules_result.reasoning[:120]}"
-            )
-        elif clinical_rules_result.is_er:
-            logger.info(
-                f"ClinicalRules ER_DAYS: {clinical_rules_result.reasoning[:120]}"
-            )
 
         # 3. Evaluate protocol rules (check-ins, questionnaire triggers, critical symptoms)
         span_protocol = tracer.start_span(trace, "protocol_evaluation")
@@ -416,6 +476,134 @@ class AgentOrchestrator:
             "symptom_analysis": None,
             "new_state": new_state,
             "decisions": decisions,
+        }
+
+    async def _run_safety_triage(
+        self,
+        *,
+        trace,
+        message: str,
+        clinical_context: Dict[str, Any],
+        agent_config: Dict[str, Any],
+        has_llm_keys: bool,
+    ) -> tuple:
+        """Run symptom analysis and Layer 1 rules before any patient-facing LLM step."""
+        cancer_type = clinical_context.get("patient", {}).get("cancerType")
+        use_llm_analysis = agent_config.get("use_llm_symptom_analysis", True) and has_llm_keys
+
+        span_symptoms = tracer.start_span(trace, "symptom_analysis")
+        symptom_analysis = await symptom_analyzer.analyze(
+            message=message,
+            clinical_context=clinical_context,
+            cancer_type=cancer_type,
+            use_llm=use_llm_analysis,
+            llm_config=agent_config,
+        )
+        if isinstance(symptom_analysis, dict):
+            detected = symptom_analysis.get("detectedSymptoms", [])
+            severity = symptom_analysis.get("overallSeverity")
+        else:
+            detected = getattr(symptom_analysis, "detectedSymptoms", [])
+            severity = getattr(symptom_analysis, "overallSeverity", None)
+        span_symptoms.finish(symptoms_count=len(detected), overall_severity=severity)
+        trace.symptoms_detected = len(detected)
+        trace.overall_severity = severity
+
+        span_rules = tracer.start_span(trace, "clinical_rules")
+        clinical_rules_result = clinical_rules_engine.evaluate(
+            symptom_analysis=symptom_analysis,
+            clinical_context=clinical_context,
+        )
+        rules_fired = [f.rule_id for f in clinical_rules_result.findings]
+        span_rules.finish(disposition=clinical_rules_result.disposition, rules_fired=rules_fired)
+        trace.clinical_disposition = clinical_rules_result.disposition
+        trace.clinical_rules_fired = rules_fired
+        if clinical_rules_result.is_immediate:
+            logger.warning(
+                f"ClinicalRules ER_IMMEDIATE: {clinical_rules_result.reasoning[:120]}"
+            )
+        elif clinical_rules_result.is_er:
+            logger.info(
+                f"ClinicalRules ER_DAYS: {clinical_rules_result.reasoning[:120]}"
+            )
+
+        return symptom_analysis, clinical_rules_result
+
+    def _attach_layer1_audit_fields(
+        self,
+        result: Dict[str, Any],
+        symptom_analysis: Any,
+        clinical_rules_result,
+        intent_result: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Anexa sintomas + Layer 1 a respostas rápidas (saudação/agenda) após triagem mínima."""
+        out = {**result}
+        out["symptom_analysis"] = symptom_analysis
+        out["clinical_disposition"] = clinical_rules_result.disposition
+        out["clinical_disposition_reason"] = clinical_rules_result.reasoning
+        out["clinical_rules_findings"] = [
+            {"rule_id": f.rule_id, "disposition": f.disposition, "reason": f.reason}
+            for f in clinical_rules_result.findings
+        ]
+        out["intent"] = intent_result
+        return out
+
+    def _build_layer1_override_response(
+        self,
+        *,
+        message: str,
+        clinical_context: Dict[str, Any],
+        agent_state: Dict[str, Any],
+        symptom_analysis: Dict[str, Any],
+        clinical_rules_result,
+        intent_result: Dict[str, Any],
+        interrupt_kind: str,
+    ) -> Dict[str, Any]:
+        """
+        Resposta quando Layer 1 exige interromper um fluxo rápido (questionário ou saudação/agenda).
+
+        interrupt_kind: 'questionnaire' (só ER_IMMEDIATE no caller) | 'fast_path' (is_er: ER_DAYS/ER_IMMEDIATE).
+        """
+        patient_name = clinical_context.get("patient", {}).get("name", "")
+        first_name = patient_name.split()[0] if patient_name else ""
+        greeting = f"{first_name}, " if first_name else ""
+        if interrupt_kind == "questionnaire":
+            response = (
+                f"{greeting}identifiquei um sinal que precisa de atenção imediata. "
+                "Vou interromper o questionário por segurança e encaminhar sua mensagem "
+                "com prioridade para a equipe. Se houver piora importante ou risco imediato, "
+                "procure o pronto-socorro ou ligue para o SAMU (192)."
+            )
+        else:
+            response = (
+                f"{greeting}identifiquei um sinal clínico que precisa de atenção prioritária. "
+                "Vou priorizar sua segurança em relação à resposta automática e encaminhar "
+                "sua mensagem à equipe. Se houver risco imediato, procure o pronto-socorro ou o SAMU (192)."
+            )
+
+        actions, decisions = self._compile_actions(
+            symptom_analysis=symptom_analysis,
+            agent_state=agent_state,
+            clinical_context=clinical_context,
+            protocol_actions=[],
+            questionnaire_to_start=None,
+            clinical_rules_result=clinical_rules_result,
+        )
+        new_state = self._update_state(agent_state, symptom_analysis, message)
+
+        return {
+            "response": response,
+            "actions": actions,
+            "symptom_analysis": symptom_analysis,
+            "clinical_disposition": clinical_rules_result.disposition,
+            "clinical_disposition_reason": clinical_rules_result.reasoning,
+            "clinical_rules_findings": [
+                {"rule_id": f.rule_id, "disposition": f.disposition, "reason": f.reason}
+                for f in clinical_rules_result.findings
+            ],
+            "new_state": new_state,
+            "decisions": decisions,
+            "intent": intent_result,
         }
 
     async def _run_multi_agent_pipeline(
@@ -1003,6 +1191,70 @@ class AgentOrchestrator:
 
         return (action_type, identifier)
 
+    def _compile_clinical_rules_actions(
+        self,
+        clinical_rules_result,
+        *,
+        requires_escalation: bool,
+    ) -> tuple:
+        actions = []
+        decisions = []
+
+        if not clinical_rules_result or clinical_rules_result.disposition == "REMOTE_NURSING":
+            return actions, decisions
+
+        disposition = clinical_rules_result.disposition
+        reasoning = clinical_rules_result.reasoning
+
+        actions.append({
+            "type": "UPDATE_CLINICAL_DISPOSITION",
+            "payload": {
+                "disposition": disposition,
+                "reason": reasoning,
+            },
+            "requiresApproval": False,
+            "source": "clinical_rules_engine",
+        })
+        decisions.append({
+            "decisionType": "CLINICAL_DISPOSITION_SET",
+            "reasoning": reasoning,
+            "confidence": clinical_rules_result.confidence,
+            "inputData": {
+                "rules_fired": [f.rule_id for f in clinical_rules_result.findings],
+                "disposition": disposition,
+            },
+            "outputAction": {
+                "type": "UPDATE_CLINICAL_DISPOSITION",
+                "payload": {"disposition": disposition, "reason": reasoning},
+            },
+            "requiresApproval": False,
+        })
+
+        # Auto-create alert for ER-level dispositions not yet covered by symptom analysis
+        if clinical_rules_result.is_er and not requires_escalation:
+            is_critical = disposition == ER_IMMEDIATE
+            alert_payload = {
+                "type": "CLINICAL_RULES_ALERT",
+                "severity": "CRITICAL" if is_critical else "HIGH",
+                "message": f"Disposição clínica: {disposition}. {reasoning[:200]}",
+            }
+            actions.append({
+                "type": "CREATE_HIGH_CRITICAL_ALERT",
+                "payload": alert_payload,
+                "requiresApproval": False,
+                "source": "clinical_rules_engine",
+            })
+            decisions.append({
+                "decisionType": "CRITICAL_ESCALATION" if is_critical else "ALERT_CREATED",
+                "reasoning": reasoning,
+                "confidence": clinical_rules_result.confidence,
+                "inputData": {"disposition": disposition},
+                "outputAction": {"type": "CREATE_HIGH_CRITICAL_ALERT", "payload": alert_payload},
+                "requiresApproval": False,
+            })
+
+        return actions, decisions
+
     def _compile_actions(
         self,
         symptom_analysis: Dict[str, Any],
@@ -1145,57 +1397,12 @@ class AgentOrchestrator:
                     "requiresApproval": False,
                 })
 
-        # Clinical rules: persist disposition to backend and escalate when needed
-        if clinical_rules_result and clinical_rules_result.disposition != "REMOTE_NURSING":
-            disposition = clinical_rules_result.disposition
-            reasoning = clinical_rules_result.reasoning
-
-            actions.append({
-                "type": "UPDATE_CLINICAL_DISPOSITION",
-                "payload": {
-                    "disposition": disposition,
-                    "reason": reasoning,
-                },
-                "requiresApproval": False,
-                "source": "clinical_rules_engine",
-            })
-            decisions.append({
-                "decisionType": "CLINICAL_DISPOSITION_SET",
-                "reasoning": reasoning,
-                "confidence": clinical_rules_result.confidence,
-                "inputData": {
-                    "rules_fired": [f.rule_id for f in clinical_rules_result.findings],
-                    "disposition": disposition,
-                },
-                "outputAction": {
-                    "type": "UPDATE_CLINICAL_DISPOSITION",
-                    "payload": {"disposition": disposition, "reason": reasoning},
-                },
-                "requiresApproval": False,
-            })
-
-            # Auto-create alert for ER-level dispositions not yet covered by symptom analysis
-            if clinical_rules_result.is_er and not requires_escalation:
-                is_critical = disposition == ER_IMMEDIATE
-                alert_payload = {
-                    "type": "CLINICAL_RULES_ALERT",
-                    "severity": "CRITICAL" if is_critical else "HIGH",
-                    "message": f"Disposição clínica: {disposition}. {reasoning[:200]}",
-                }
-                actions.append({
-                    "type": "CREATE_HIGH_CRITICAL_ALERT",
-                    "payload": alert_payload,
-                    "requiresApproval": False,
-                    "source": "clinical_rules_engine",
-                })
-                decisions.append({
-                    "decisionType": "CRITICAL_ESCALATION" if is_critical else "ALERT_CREATED",
-                    "reasoning": reasoning,
-                    "confidence": clinical_rules_result.confidence,
-                    "inputData": {"disposition": disposition},
-                    "outputAction": {"type": "CREATE_HIGH_CRITICAL_ALERT", "payload": alert_payload},
-                    "requiresApproval": False,
-                })
+        clinical_actions, clinical_decisions = self._compile_clinical_rules_actions(
+            clinical_rules_result,
+            requires_escalation=requires_escalation,
+        )
+        actions.extend(clinical_actions)
+        decisions.extend(clinical_decisions)
 
         # Protocol-driven actions
         if protocol_actions:

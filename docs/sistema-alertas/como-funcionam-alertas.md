@@ -261,24 +261,7 @@ INSERT INTO alerts (
 
 **Endpoint**: `POST http://localhost:3002/api/v1/alerts`
 
-**Código** (`ai-service/src/agent/whatsapp_agent.py`):
-
-```python
-from ..services.backend_client import backend_client
-
-async def process_message(self, message: str, patient_id: str, ...):
-    # Detectar sintomas críticos
-    critical_symptoms = self._detect_critical_symptoms(message)
-
-    if critical_symptoms:
-        # Criar alerta via API do backend
-        alert = await backend_client.create_critical_symptom_alert(
-            patient_id=patient_id,
-            symptoms=critical_symptoms,
-            message=f"Paciente relatou: {', '.join(critical_symptoms)}",
-            conversation_id=conversation_id,
-        )
-```
+**Código**: o fluxo produtivo passa pelo **`AgentOrchestrator`** (`ai-service/src/agent/orchestrator.py`). O backend Nest expõe **`POST /api/v1/agent/process`**, que encaminha ao AI Service (FastAPI, mesma rota versionada). O endpoint legado **`POST /api/v1/agent/message`** delega ao mesmo orquestrador. O módulo `whatsapp_agent.py` está **deprecado**. Alertas críticos são compilados no orquestrador e persistidos pelo backend quando aplicável (ver `agente-ia-criar-alerta.md`).
 
 **Fluxo**:
 
@@ -924,7 +907,7 @@ const alerts = await prisma.alert.findMany({
 - [AlertsService](../backend/src/alerts/alerts.service.ts)
 - [AlertsGateway](../backend/src/gateways/alerts.gateway.ts)
 - [OncologyNavigationService](../backend/src/oncology-navigation/oncology-navigation.service.ts)
-- [WhatsApp Agent](../ai-service/src/agent/whatsapp_agent.py)
+- [Agent Orchestrator](../ai-service/src/agent/orchestrator.py)
 
 ---
 

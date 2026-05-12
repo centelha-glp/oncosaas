@@ -10,7 +10,7 @@ from src.agent.intent_classifier import (
 from src.agent.protocol_engine import protocol_engine
 from src.agent.questionnaire_engine import questionnaire_engine
 from src.agent.symptom_analyzer import symptom_analyzer
-from src.agent.clinical_rules import ClinicalRulesEngine, REMOTE_NURSING
+from src.agent.clinical_rules import ClinicalRulesEngine, ER_IMMEDIATE, REMOTE_NURSING
 from src.agent.tracer import AgentTracer
 from src.agent.subagents import (
     SymptomAgent,
@@ -20,7 +20,9 @@ from src.agent.subagents import (
 )
 from src.agent.orchestrator import orchestrator
 from src.agent.llm_provider import llm_provider
-from src.routes import generate_checkin_message, nurse_assist
+# Importar sub-rotas diretamente — evita carregar `routes/__init__.py` (priority/LightGBM).
+from src.routes.agent import generate_checkin_message
+from src.routes.nurse import nurse_assist
 from src.models.schemas import CheckInMessageRequest, NurseAssistRequest
 
 
@@ -181,6 +183,129 @@ async def test_orchestrator_greeting_fast_path():
     assert isinstance(result, dict)
     assert "response" in result
     assert isinstance(result.get("actions", []), list)
+    assert result.get("clinical_disposition") == REMOTE_NURSING
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_greeting_fast_path_respects_layer1_er(monkeypatch):
+    async def _fake_intent(*args, **kwargs):
+        return {
+            "intent": INTENT_GREETING,
+            "confidence": 0.99,
+            "skip_full_pipeline": True,
+            "metadata": {},
+        }
+
+    monkeypatch.setattr(
+        "src.agent.orchestrator.intent_classifier.classify_async",
+        _fake_intent,
+    )
+
+    result = await orchestrator.process(
+        {
+            "message": "dor 9/10",
+            "patient_id": "p1",
+            "tenant_id": "t1",
+            "clinical_context": _minimal_clinical_context(),
+            "protocol": None,
+            "conversation_history": [],
+            "agent_state": {},
+            "agent_config": {"use_llm_symptom_analysis": False},
+        }
+    )
+
+    assert result["clinical_disposition"] == ER_IMMEDIATE
+    assert "priorizar sua segurança" in result["response"].lower()
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_appointment_fast_path_respects_layer1_er(monkeypatch):
+    async def _fake_intent(*args, **kwargs):
+        return {
+            "intent": INTENT_APPOINTMENT_QUERY,
+            "confidence": 0.99,
+            "skip_full_pipeline": True,
+            "metadata": {},
+        }
+
+    monkeypatch.setattr(
+        "src.agent.orchestrator.intent_classifier.classify_async",
+        _fake_intent,
+    )
+
+    result = await orchestrator.process(
+        {
+            "message": "dor 9/10",
+            "patient_id": "p1",
+            "tenant_id": "t1",
+            "clinical_context": _minimal_clinical_context(),
+            "protocol": None,
+            "conversation_history": [],
+            "agent_state": {},
+            "agent_config": {"use_llm_symptom_analysis": False},
+        }
+    )
+
+    assert result["clinical_disposition"] == ER_IMMEDIATE
+    assert "priorizar sua segurança" in result["response"].lower()
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_active_questionnaire_allows_normal_answer():
+    q_state = questionnaire_engine.build_initial_state("ESAS")
+
+    result = await orchestrator.process(
+        {
+            "message": "2",
+            "patient_id": "p1",
+            "tenant_id": "t1",
+            "clinical_context": _minimal_clinical_context(),
+            "protocol": None,
+            "conversation_history": [],
+            "agent_state": {"active_questionnaire": q_state},
+            "agent_config": {"use_llm_symptom_analysis": False},
+        }
+    )
+
+    assert result["new_state"].get("active_questionnaire")
+    assert isinstance(result.get("symptom_analysis"), (dict, type(None)))
+    assert any(
+        decision.get("outputAction", {}).get("type") == "CONTINUE_QUESTIONNAIRE"
+        for decision in result["decisions"]
+    )
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_active_questionnaire_triage_overrides_er_immediate():
+    q_state = questionnaire_engine.build_initial_state("ESAS")
+
+    result = await orchestrator.process(
+        {
+            "message": "dor 9/10",
+            "patient_id": "p1",
+            "tenant_id": "t1",
+            "clinical_context": _minimal_clinical_context(),
+            "protocol": None,
+            "conversation_history": [],
+            "agent_state": {"active_questionnaire": q_state},
+            "agent_config": {"use_llm_symptom_analysis": False},
+        }
+    )
+
+    assert result["clinical_disposition"] == ER_IMMEDIATE
+    assert any(
+        finding["rule_id"] == "R08_SEVERE_PAIN"
+        for finding in result["clinical_rules_findings"]
+    )
+    assert any(
+        action["type"] == "UPDATE_CLINICAL_DISPOSITION"
+        for action in result["actions"]
+    )
+    assert "interromper o questionário" in result["response"]
+    assert not any(
+        decision.get("outputAction", {}).get("type") == "CONTINUE_QUESTIONNAIRE"
+        for decision in result["decisions"]
+    )
 
 
 def test_orchestrator_appointment_response_supports_stepname_duedate():

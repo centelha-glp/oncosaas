@@ -5,7 +5,11 @@ import logging
 import os
 
 """
-Agente conversacional de IA para WhatsApp
+Agente conversacional legado para WhatsApp.
+
+DEPRECATED — O produto ONCONAV usa `AgentOrchestrator.process` (`orchestrator.py`).
+A rota `POST /api/v1/agent/message` em `routes/agent.py` delega ao orquestrador;
+não adicionar lógica clínica nova neste módulo.
 """
 
 class WhatsAppAgent:
