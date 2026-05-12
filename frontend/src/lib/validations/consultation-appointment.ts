@@ -13,8 +13,6 @@ export const consultationAppointmentFormSchema = z.object({
     .string()
     .min(1, 'Selecione o profissional responsável pelo horário')
     .uuid('Selecione o profissional responsável pelo horário'),
-  /** Usado quando o paciente ainda não tem `cancerType` no cadastro. */
-  cancerTypeFallback: z.string().optional(),
 });
 
 export type ConsultationAppointmentFormData = z.infer<

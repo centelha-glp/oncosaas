@@ -1,4 +1,11 @@
-import { format, parseISO } from 'date-fns';
+import {
+  endOfMonth,
+  endOfWeek,
+  format,
+  parseISO,
+  startOfMonth,
+  startOfWeek,
+} from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import type { User, UserRole } from '@/lib/api/users';
 
@@ -70,6 +77,30 @@ export function userEligibleForAnyConsultationAgendaSlot(user: User): boolean {
   );
 }
 
+/**
+ * `stepKey` para overview de disponibilidade: omitir quando o utilizador é elegível para ambos
+ * (o backend aceita sem `stepKey`). Caso contrário fixar o tipo único elegível.
+ */
+export function consultationAgendaOverviewStepKeyForUser(
+  user: ConsultationStepUserRef | undefined
+): ConsultationAppointmentStepKey | undefined {
+  if (!user) {
+    return undefined;
+  }
+  const spec = userEligibleForConsultationStep(user, 'specialist_consultation');
+  const nav = userEligibleForConsultationStep(user, 'navigation_consultation');
+  if (spec && nav) {
+    return undefined;
+  }
+  if (spec) {
+    return 'specialist_consultation';
+  }
+  if (nav) {
+    return 'navigation_consultation';
+  }
+  return undefined;
+}
+
 export function consultationAppointmentStepKeyFromString(
   stepKey: string
 ): ConsultationAppointmentStepKey | null {
@@ -77,6 +108,79 @@ export function consultationAppointmentStepKeyFromString(
     return stepKey;
   }
   return null;
+}
+
+/**
+ * Resolve o `scheduledProfessionalId` inicial do dialog «Nova consulta na agenda».
+ *
+ * Ordem de precedência:
+ * 1. `prefillProfessionalId` — clique num slot do calendário pré-define o profissional.
+ * 2. `defaultProfessionalId` — ex.: filtro de profissional na agenda da secretaria.
+ * 3. `currentUser.id` — quando o utilizador NÃO é secretaria e é elegível para o `stepKey`.
+ *
+ * Quando `schedulableProfessionals` está presente e não vazia, valida o candidato contra a
+ * lista; se não estiver lá ou não for elegível para o `stepKey`, devolve string vazia para
+ * evitar enviar UUID inválido ao servidor.
+ */
+/**
+ * Indica preenchimento completo a partir de um clique num slot vazio (profissional, tipo,
+ * data e hora já definidos). Usado para UX somente leitura e para não limpar o ID antes da
+ * lista de profissionais carregar.
+ */
+export function isConsultationAgendaSlotPrefillComplete(prefill: {
+  scheduledProfessionalId?: string;
+  stepKey?: ConsultationAppointmentStepKey;
+  expectedDate?: Date;
+  appointmentTime?: string;
+} | null | undefined): boolean {
+  if (!prefill) return false;
+  return (
+    !!prefill.scheduledProfessionalId &&
+    !!prefill.stepKey &&
+    !!prefill.expectedDate &&
+    prefill.expectedDate instanceof Date &&
+    !Number.isNaN(prefill.expectedDate.getTime()) &&
+    typeof prefill.appointmentTime === 'string' &&
+    /^([01]\d|2[0-3]):[0-5]\d$/.test(prefill.appointmentTime)
+  );
+}
+
+export function resolveInitialScheduledProfessionalId(params: {
+  prefillProfessionalId?: string | null;
+  defaultProfessionalId?: string | null;
+  currentUser?: (ConsultationStepUserRef & { id: string }) | null;
+  isSecretary: boolean;
+  stepKey: ConsultationAppointmentStepKey;
+  schedulableProfessionals?: Array<ConsultationStepUserRef & { id: string }>;
+}): string {
+  const {
+    prefillProfessionalId,
+    defaultProfessionalId,
+    currentUser,
+    isSecretary,
+    stepKey,
+    schedulableProfessionals,
+  } = params;
+
+  const candidate = (() => {
+    if (prefillProfessionalId) return prefillProfessionalId;
+    if (isSecretary) return defaultProfessionalId ?? '';
+    if (currentUser && userEligibleForConsultationStep(currentUser, stepKey)) {
+      return currentUser.id;
+    }
+    return '';
+  })();
+
+  if (!candidate) return '';
+
+  if (schedulableProfessionals && schedulableProfessionals.length > 0) {
+    const eligible = schedulableProfessionals.find(
+      (u) => u.id === candidate && userEligibleForConsultationStep(u, stepKey)
+    );
+    return eligible ? candidate : '';
+  }
+
+  return candidate;
 }
 
 /** Metadados alinhados ao `mergeUniversalStepConfigs` do backend. */
@@ -98,6 +202,34 @@ export const CONSULTATION_APPOINTMENT_STEP_META: Record<
 
 export function toYmd(d: Date): string {
   return format(d, 'yyyy-MM-dd');
+}
+
+/** Vista do painel de disponibilidade na página Agenda (intervalo do overview na API). */
+export type ConsultationAgendaCalendarView = 'month' | 'week' | 'day';
+
+export function consultationAgendaOverviewIsoRange(
+  view: ConsultationAgendaCalendarView,
+  anchor: Date
+): { fromIso: string; toIso: string } {
+  if (view === 'month') {
+    const start = startOfMonth(anchor);
+    start.setHours(0, 0, 0, 0);
+    const end = endOfMonth(anchor);
+    end.setHours(23, 59, 59, 999);
+    return { fromIso: start.toISOString(), toIso: end.toISOString() };
+  }
+  if (view === 'week') {
+    const start = startOfWeek(anchor, { locale: ptBR });
+    start.setHours(0, 0, 0, 0);
+    const end = endOfWeek(anchor, { locale: ptBR });
+    end.setHours(23, 59, 59, 999);
+    return { fromIso: start.toISOString(), toIso: end.toISOString() };
+  }
+  const start = new Date(anchor);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(anchor);
+  end.setHours(23, 59, 59, 999);
+  return { fromIso: start.toISOString(), toIso: end.toISOString() };
 }
 
 /** Alinhado ao backend (`consultation-agenda-slot.utils`). */

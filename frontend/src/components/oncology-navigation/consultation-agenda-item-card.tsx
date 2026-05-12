@@ -438,7 +438,7 @@ export function ConsultationAgendaItemCard({ item }: ConsultationAgendaItemCardP
                 aria-label="Horário da consulta"
               />
               <p className="mt-1 text-xs text-muted-foreground">
-                Use os botões acima quando existir grelha; ou ajuste aqui manualmente.
+                Use os botões acima quando existir; ou ajuste aqui manualmente.
               </p>
             </div>
           </div>

@@ -643,18 +643,26 @@ function unwrapPatientDetailPayload(raw: unknown): PatientDetail {
 export type PatientsListParams = {
   limit?: number;
   offset?: number;
+  /** Inclui diagnósticos oncológicos ativos (ex.: Navegação Oncológica). */
+  includeCancerDiagnoses?: boolean;
 };
 
 export const patientsApi = {
   async getAll(params?: PatientsListParams): Promise<Patient[]> {
+    const hasParams =
+      params?.limit != null ||
+      params?.offset != null ||
+      params?.includeCancerDiagnoses === true;
     const data = await apiClient.get<Patient[] | null>('/patients', {
-      params:
-        params?.limit != null || params?.offset != null
-          ? {
-              ...(params.limit != null ? { limit: params.limit } : {}),
-              ...(params.offset != null ? { offset: params.offset } : {}),
-            }
-          : undefined,
+      params: hasParams
+        ? {
+            ...(params?.limit != null ? { limit: params.limit } : {}),
+            ...(params?.offset != null ? { offset: params.offset } : {}),
+            ...(params?.includeCancerDiagnoses === true
+              ? { includeCancerDiagnoses: true }
+              : {}),
+          }
+        : undefined,
     });
     return data ?? [];
   },

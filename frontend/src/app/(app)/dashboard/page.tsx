@@ -272,15 +272,15 @@ function NursingDashboard() {
   );
 }
 
-// Componente do Dashboard Gerencial (Oncologistas)
+// Componente do Dashboard Clínico (Oncologistas)
 function ManagementDashboard() {
   const router = useRouter();
   const { user, isAuthenticated, isInitializing } = useAuthStore();
   const [statisticsPeriod, setStatisticsPeriod] = useState<
     '7d' | '30d' | '90d'
   >('7d');
-  const [activeTab, setActiveTab] = useState<'gerencial' | 'enfermeira'>(
-    'gerencial'
+const [activeTab, setActiveTab] = useState<'clinico' | 'enfermagem'>(
+    'clinico'
   );
 
   // Estado do modal de drill-down
@@ -411,7 +411,7 @@ function ManagementDashboard() {
           <Tabs
             value={activeTab}
             onValueChange={(value) =>
-              setActiveTab(value as 'gerencial' | 'enfermeira')
+              setActiveTab(value as 'clinico' | 'enfermagem')
             }
             className="w-full"
           >
@@ -419,11 +419,11 @@ function ManagementDashboard() {
               <div className="flex items-center gap-4">
                 <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
                 <TabsList>
-                  <TabsTrigger value="gerencial">Gerencial</TabsTrigger>
-                  <TabsTrigger value="enfermeira">Enfermeira</TabsTrigger>
+                  <TabsTrigger value="clinico">Clínico</TabsTrigger>
+                  <TabsTrigger value="enfermagem">Enfermagem</TabsTrigger>
                 </TabsList>
               </div>
-              {activeTab === 'gerencial' && (
+              {activeTab === 'clinico' && (
                 <div className="flex items-center gap-4">
                   <div className="flex items-center gap-2">
                     <Calendar className="h-4 w-4 text-gray-400" />
@@ -454,8 +454,8 @@ function ManagementDashboard() {
               )}
             </div>
 
-            {/* Conteúdo da aba Gerencial */}
-            <TabsContent value="gerencial" className="space-y-6">
+            {/* Conteúdo da aba Clínico */}
+            <TabsContent value="clinico" className="space-y-6">
               {/* Mensagens de erro */}
               {(metricsError || statisticsError) && (
                 <div className="bg-red-50 border border-red-200 rounded-lg p-4">
@@ -595,8 +595,8 @@ function ManagementDashboard() {
               <CriticalTimelinesSection />
             </TabsContent>
 
-            {/* Conteúdo da aba Enfermeira */}
-            <TabsContent value="enfermeira" className="mt-0 -m-6 p-0">
+            {/* Conteúdo da aba Enfermagem */}
+            <TabsContent value="enfermagem" className="mt-0 -m-6 p-0">
               <div className="w-full">
                 <NurseSpecificDashboard hideNavigationBar={true} />
               </div>

@@ -65,7 +65,7 @@ export function ConsultationFreeSlotsField({
     <div
       className="space-y-3 rounded-lg border-2 border-primary/20 bg-primary/5 p-4"
       role="region"
-      aria-label="Horários livres na grelha da agenda"
+      aria-label="Horários livres da agenda"
     >
       <div className="flex flex-wrap items-center gap-2">
         <CalendarClock className="h-5 w-5 shrink-0 text-primary" aria-hidden />
@@ -98,7 +98,7 @@ export function ConsultationFreeSlotsField({
       )}
       {range && !isFetching && slots.length === 0 && (
         <p className="text-sm text-muted-foreground">
-          <strong className="text-foreground">Sem vagas na grelha</strong> para este dia e
+          <strong className="text-foreground">Sem vagas</strong> para este dia e
           profissional. Isto é normal se ainda não existir configuração em{' '}
           <span className="whitespace-nowrap">Agenda → Configuração da agenda</span>. Pode
           indicar o horário manualmente no campo seguinte.

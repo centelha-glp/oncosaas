@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
   oncologyNavigationApi,
+  type ConsultationAgendaDayOverviewQuery,
   type ConsultationAgendaQuery,
   type ConsultationAvailableSlotsQuery,
   type CreateConsultationAppointmentDto,
@@ -21,6 +22,19 @@ export const useConsultationAgenda = (
       Boolean(params.from) &&
       Boolean(params.to),
     staleTime: 30 * 1000,
+  });
+};
+
+/** Profissionais do tenant elegíveis para slots na agenda (ex.: filtro da secretária). */
+export const useConsultationAgendaSchedulableProfessionals = (options?: {
+  enabled?: boolean;
+}) => {
+  return useQuery({
+    queryKey: ['consultation-agenda-schedulable-professionals'],
+    queryFn: () =>
+      oncologyNavigationApi.listConsultationAgendaSchedulableProfessionals(),
+    enabled: options?.enabled ?? true,
+    staleTime: 5 * 60 * 1000,
   });
 };
 
@@ -98,6 +112,7 @@ export const useCreateConsultationAppointment = () => {
       oncologyNavigationApi.createConsultationAppointment(data),
     onSuccess: (step) => {
       queryClient.invalidateQueries({ queryKey: ['consultation-agenda'] });
+      queryClient.invalidateQueries({ queryKey: ['consultation-agenda-day-overview'] });
       queryClient.invalidateQueries({ queryKey: ['navigation-steps'] });
       queryClient.invalidateQueries({ queryKey: ['patient', step.patientId] });
       toast.success('Consulta registrada na agenda.');
@@ -151,6 +166,7 @@ export const useUpdateNavigationStep = () => {
       queryClient.invalidateQueries({ queryKey: ['navigation-steps'] });
       queryClient.invalidateQueries({ queryKey: ['patient', updatedStep.patientId] });
       queryClient.invalidateQueries({ queryKey: ['consultation-agenda'] });
+      queryClient.invalidateQueries({ queryKey: ['consultation-agenda-day-overview'] });
     },
     onError: (error: Error) => {
       console.error('Erro ao atualizar etapa:', error);
@@ -193,6 +209,7 @@ export const useDeleteNavigationStep = () => {
       queryClient.invalidateQueries({ queryKey: ['navigation-steps'] });
       queryClient.invalidateQueries({ queryKey: ['patient', variables.patientId] });
       queryClient.invalidateQueries({ queryKey: ['consultation-agenda'] });
+      queryClient.invalidateQueries({ queryKey: ['consultation-agenda-day-overview'] });
     },
     onError: (error: Error) => {
       toast.error('Falha ao excluir etapa.', {
@@ -241,6 +258,23 @@ export const useConsultationAvailableSlots = (
   });
 };
 
+export const useConsultationAgendaDayOverview = (
+  params: ConsultationAgendaDayOverviewQuery | null,
+  options?: { enabled?: boolean }
+) => {
+  return useQuery({
+    queryKey: ['consultation-agenda-day-overview', params],
+    queryFn: () => oncologyNavigationApi.getConsultationAgendaDayOverview(params!),
+    enabled:
+      (options?.enabled ?? true) &&
+      !!params &&
+      !!params.professionalId &&
+      !!params.from &&
+      !!params.to,
+    staleTime: 15_000,
+  });
+};
+
 export const useConsultationAgendaConfig = (userId: string | null) => {
   return useQuery({
     queryKey: ['consultation-agenda-config', userId],
@@ -262,6 +296,7 @@ export const useUpsertConsultationAgendaConfig = () => {
     onSuccess: (_, v) => {
       queryClient.invalidateQueries({ queryKey: ['consultation-agenda-config', v.userId] });
       queryClient.invalidateQueries({ queryKey: ['consultation-available-slots'] });
+      queryClient.invalidateQueries({ queryKey: ['consultation-agenda-day-overview'] });
       toast.success('Configuração da agenda guardada.');
     },
     onError: (error: Error) => {
@@ -289,6 +324,7 @@ export const useCreateConsultationAgendaBlock = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['consultation-agenda-blocks'] });
       queryClient.invalidateQueries({ queryKey: ['consultation-available-slots'] });
+      queryClient.invalidateQueries({ queryKey: ['consultation-agenda-day-overview'] });
       toast.success('Bloqueio criado.');
     },
     onError: (error: Error) => {
@@ -306,6 +342,7 @@ export const useDeleteConsultationAgendaBlock = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['consultation-agenda-blocks'] });
       queryClient.invalidateQueries({ queryKey: ['consultation-available-slots'] });
+      queryClient.invalidateQueries({ queryKey: ['consultation-agenda-day-overview'] });
       toast.success('Bloqueio removido.');
     },
     onError: (error: Error) => {
