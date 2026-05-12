@@ -74,6 +74,27 @@ function formatDatePt(d: Date | null | undefined): string {
   }
 }
 
+/**
+ * Rótulo do exame para texto de evolução (copiar/colar): nome + sigla/código TUSS
+ * ou LOINC quando existir — alinhado ao catálogo no frontend (`Nome (código)`).
+ */
+export function formatComplementaryExamDisplayName(ex: {
+  name: string;
+  code?: string | null;
+  loincCode?: string | null;
+}): string {
+  const name = ex.name?.trim() || 'Exame';
+  const code = ex.code?.trim();
+  if (code) {
+    return `${name} (${code})`;
+  }
+  const loinc = ex.loincCode?.trim();
+  if (loinc) {
+    return `${name} (LOINC ${loinc})`;
+  }
+  return name;
+}
+
 export interface SectionSuggestionsOptions {
   /** Etapa à qual a evolução será vinculada — ajusta foco e dicas por tipo de exame/consulta */
   navigationStepId?: string;
@@ -339,8 +360,9 @@ export class ClinicalNoteSectionSuggestionService {
           ? String(last.valueNumeric)
           : (last.valueText?.trim() ?? '');
       const unit = last.unit?.trim() ? ` ${last.unit.trim()}` : '';
+      const examLabel = formatComplementaryExamDisplayName(ex);
       examChunks.push(
-        `• ${ex.name} (${formatDatePt(last.performedAt)}): ${val}${unit}`
+        `• ${examLabel} (${formatDatePt(last.performedAt)}): ${val}${unit}`
       );
     }
     out.examesComplementares = examChunks.join('\n');
