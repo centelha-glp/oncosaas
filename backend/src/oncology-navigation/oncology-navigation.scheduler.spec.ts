@@ -15,6 +15,7 @@ const mockPrisma = {
 
 const mockNavigationService = {
   checkOverdueSteps: jest.fn(),
+  applyConsultationAutoNoShowEndOfDay: jest.fn(),
 };
 
 const mockAlertsService = {
@@ -73,6 +74,22 @@ describe('OncologyNavigationScheduler', () => {
 
       await expect(scheduler.handleOverdueStepsCheck()).resolves.not.toThrow();
       expect(mockNavigationService.checkOverdueSteps).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('handleConsultationAutoNoShowEod', () => {
+    it('chama applyConsultationAutoNoShowEndOfDay por tenant', async () => {
+      mockPrisma.tenant.findMany.mockResolvedValue([
+        { id: TENANT_ID, name: TENANT_NAME },
+      ]);
+      mockNavigationService.applyConsultationAutoNoShowEndOfDay.mockResolvedValue(2);
+
+      await scheduler.handleConsultationAutoNoShowEod();
+
+      expect(mockNavigationService.applyConsultationAutoNoShowEndOfDay).toHaveBeenCalledWith(
+        TENANT_ID,
+        expect.any(Date)
+      );
     });
   });
 

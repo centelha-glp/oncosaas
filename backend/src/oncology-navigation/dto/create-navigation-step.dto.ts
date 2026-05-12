@@ -8,6 +8,7 @@ import {
   IsObject,
   IsUUID,
 } from 'class-validator';
+import { Transform } from 'class-transformer';
 import { JourneyStage } from '@generated/prisma/client';
 import { IsPlainText } from '../../common/validators/is-plain-text.decorator';
 
@@ -16,9 +17,14 @@ export class CreateNavigationStepDto {
   @IsNotEmpty()
   patientId: string;
 
+  /** Se omitido ou vazio, o serviço resolve a partir do paciente, diagnóstico ativo ou `"other"`. */
+  @IsOptional()
+  @Transform(({ value }) =>
+    typeof value === 'string' && value.trim() === '' ? undefined : value
+  )
   @IsString()
-  @IsNotEmpty()
-  cancerType: string; // Ex: "colorectal"
+  @IsPlainText()
+  cancerType?: string; // Ex: "colorectal"
 
   @IsEnum(JourneyStage)
   @IsNotEmpty()
