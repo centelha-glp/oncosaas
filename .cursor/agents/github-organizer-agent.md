@@ -1,6 +1,6 @@
 ---
 tools: Bash, Read, Grep, Glob
-name: github-organizer
+name: github-organizer-agent
 model: inherit
 description: OBRIGATÓRIO para TODA operação de commit e PR. Nunca commitar diretamente — sempre delegar a este agent. Use para organizar commits atômicos, criar PRs bem estruturadas, analisar mudanças no repositório e dividir mudanças grandes em commits lógicos. Acione sempre que houver mudanças para commitar, abrir PR, ou revisar alterações pendentes.
 is_background: true
