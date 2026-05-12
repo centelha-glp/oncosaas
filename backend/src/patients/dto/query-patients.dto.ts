@@ -19,8 +19,12 @@ export class QueryPatientsDto {
   /** Inclui diagnósticos oncológicos ativos (limite no service) — ex.: Navegação Oncológica. */
   @IsOptional()
   @Transform(({ value }) => {
-    if (value === true || value === 'true') return true;
-    if (value === false || value === 'false') return false;
+    if (value === true || value === 'true') {
+      return true;
+    }
+    if (value === false || value === 'false') {
+      return false;
+    }
     return undefined;
   })
   @IsBoolean()
