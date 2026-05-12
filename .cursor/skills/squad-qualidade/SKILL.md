@@ -38,7 +38,7 @@ Acionar **todos** os quatro — **uma Task por agente**.
 | **1** | `test-generator` | `.cursor/agents/test-generator.md` | Falhas de teste antes de auditar segurança e PR. |
 | **2** | `seguranca-compliance` | `.cursor/agents/seguranca-compliance.md` | LGPD, tenant e superfície de ataque sobre código já testado. |
 | **3** | `performance` | `.cursor/agents/performance.md` | Bundle, queries, Redis — depois de estabilidade funcional e segurança; senão N/A breve. |
-| **4** | `github-organizer` | `.cursor/agents/github-organizer.md` | Commits e PR **por último**, quando o código já passou testes e revisão de risco. |
+| **4** | `github-organizer` | `.cursor/agents/github-organizer-agent.md` | Commits e PR **por último**, quando o código já passou testes e revisão de risco. |
 
 Para **auditoria parcial** (sem merge imediato), manter a **mesma ordem**; no passo **4** pode ser só sugestão de estrutura de PR.
 
