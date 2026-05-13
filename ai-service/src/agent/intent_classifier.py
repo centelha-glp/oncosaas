@@ -10,6 +10,8 @@ import re
 import logging
 from typing import Any, Dict, List, Optional
 
+from src.config.llm_defaults import merge_agent_llm_config
+
 from .llm_provider import llm_provider
 
 logger = logging.getLogger(__name__)
@@ -237,11 +239,15 @@ class IntentClassifier:
             return self._no_llm_result(reason)
 
         try:
+            merged = merge_agent_llm_config(
+                agent_config,
+                has_anthropic_key=llm_provider.has_anthropic_key(agent_config),
+            )
             llm_config = {
-                "anthropic_api_key": agent_config.get("anthropic_api_key"),
-                "openai_api_key": agent_config.get("openai_api_key"),
-                "llm_provider": agent_config.get("llm_provider", "anthropic"),
-                "llm_model": agent_config.get("llm_model", "claude-sonnet-4-6"),
+                "anthropic_api_key": merged.get("anthropic_api_key"),
+                "openai_api_key": merged.get("openai_api_key"),
+                "llm_provider": merged.get("llm_provider"),
+                "llm_model": merged.get("llm_model"),
             }
             intent_messages = self._build_intent_messages(
                 text, conversation_history, agent_config
@@ -288,10 +294,14 @@ class IntentClassifier:
             return out
         except Exception as e:  # noqa: BLE001
             logger.warning("Intent LLM classification failed: %s", e)
+            merged_err = merge_agent_llm_config(
+                agent_config,
+                has_anthropic_key=llm_provider.has_anthropic_key(agent_config),
+            )
             err = self._llm_error_result(
                 str(e),
-                llm_provider_name=agent_config.get("llm_provider", "anthropic"),
-                llm_model_name=agent_config.get("llm_model", "claude-sonnet-4-6"),
+                llm_provider_name=merged_err.get("llm_provider"),
+                llm_model_name=merged_err.get("llm_model"),
             )
             err["token_usage_events"] = []
             return err

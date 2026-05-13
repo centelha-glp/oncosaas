@@ -212,6 +212,7 @@ async def generate_checkin_message(
     _: None = Depends(require_service_token),
 ):
     from ..agent.llm_provider import llm_provider
+    from src.config.llm_defaults import merge_agent_llm_config
 
     patient = request.clinical_context.get("patient", {})
     patient_name = patient.get("name", "").split()[0] if patient.get("name") else ""
@@ -249,11 +250,11 @@ async def generate_checkin_message(
 
     if api_key:
         try:
-            llm_cfg = dict(config) if config else {}
-            if "llm_provider" not in llm_cfg:
-                llm_cfg["llm_provider"] = "anthropic" if llm_provider.has_anthropic_key(llm_cfg) else "openai"
-            if "llm_model" not in llm_cfg:
-                llm_cfg["llm_model"] = "claude-sonnet-4-6" if llm_cfg["llm_provider"] == "anthropic" else "gpt-4o-mini"
+            raw_cfg = dict(config) if config else {}
+            llm_cfg = merge_agent_llm_config(
+                raw_cfg,
+                has_anthropic_key=llm_provider.has_anthropic_key(raw_cfg),
+            )
 
             result = await llm_provider.generate(
                 system_prompt=system_prompt,

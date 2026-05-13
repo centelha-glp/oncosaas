@@ -2,9 +2,11 @@ import { JourneyStage } from '@generated/prisma/client';
 import { AgentDecision } from './interfaces/agent-decision.interface';
 import {
   CANCEL_CONSULTATION_APPOINTMENT,
+  CHECK_CONSULTATION_AVAILABILITY,
   CONFIRM_CONSULTATION_APPOINTMENT,
   CREATE_CONSULTATION_APPOINTMENT,
   RESCHEDULE_CONSULTATION_APPOINTMENT,
+  SCHEDULING_SECRETARY_AVAILABILITY_MAX_RANGE_DAYS,
   isSchedulingSecretaryOutputActionType,
 } from './scheduling-secretary.constants';
 import { isConsultationStepKey } from '../oncology-navigation/consultation-step-keys';
@@ -38,6 +40,35 @@ function validIsoDateString(value: unknown): boolean {
   }
   const t = Date.parse(value);
   return !Number.isNaN(t);
+}
+
+function scheduledProfessionalIdFromPayload(
+  p: Record<string, unknown>
+): string | null {
+  const raw =
+    p.scheduledProfessionalId ??
+    p.scheduled_professional_id ??
+    p.professionalId ??
+    p.professional_id;
+  return typeof raw === 'string' && isUuid(raw) ? raw : null;
+}
+
+/** Valida `from`/`to` ISO e janela ≤ SCHEDULING_SECRETARY_AVAILABILITY_MAX_RANGE_DAYS. */
+function consultationAvailabilityRangeValid(
+  fromRaw: unknown,
+  toRaw: unknown
+): boolean {
+  if (!validIsoDateString(fromRaw) || !validIsoDateString(toRaw)) {
+    return false;
+  }
+  const fromMs = Date.parse(String(fromRaw));
+  const toMs = Date.parse(String(toRaw));
+  if (fromMs > toMs) {
+    return false;
+  }
+  const maxMs =
+    SCHEDULING_SECRETARY_AVAILABILITY_MAX_RANGE_DAYS * 24 * 60 * 60 * 1000;
+  return toMs - fromMs <= maxMs;
 }
 
 function payloadRecord(
@@ -124,6 +155,17 @@ export function schedulingSecretaryPayloadValidForAutoApprove(
     case CANCEL_CONSULTATION_APPOINTMENT:
     case CONFIRM_CONSULTATION_APPOINTMENT:
       return !!navigationStepIdFromPayload(p);
+    case CHECK_CONSULTATION_AVAILABILITY: {
+      const profId = scheduledProfessionalIdFromPayload(p);
+      if (
+        !profId ||
+        !nonEmptyString(p.stepKey) ||
+        !isConsultationStepKey(String(p.stepKey))
+      ) {
+        return false;
+      }
+      return consultationAvailabilityRangeValid(p.from, p.to);
+    }
     default:
       return false;
   }

@@ -10,6 +10,8 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+from src.config.llm_defaults import merge_agent_llm_config
+
 from ..llm_provider import llm_provider as global_llm_provider
 
 logger = logging.getLogger(__name__)
@@ -72,10 +74,14 @@ class BaseSubAgent:
             SubAgentResult with response text and collected tool_calls
         """
         config = config or {}
+        merged = merge_agent_llm_config(
+            config,
+            has_anthropic_key=global_llm_provider.has_anthropic_key(config),
+        )
 
         subagent_config = {
-            **config,
-            "llm_model": config.get("subagent_model", "claude-sonnet-4-6"),
+            **merged,
+            "llm_model": merged.get("subagent_model"),
             "max_tokens": 1024,
         }
 

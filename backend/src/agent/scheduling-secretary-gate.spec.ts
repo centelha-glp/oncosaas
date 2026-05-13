@@ -3,6 +3,7 @@ import { schedulingSecretaryPayloadValidForAutoApprove } from './scheduling-secr
 import { AgentDecision } from './interfaces/agent-decision.interface';
 import {
   CANCEL_CONSULTATION_APPOINTMENT,
+  CHECK_CONSULTATION_AVAILABILITY,
   CONFIRM_CONSULTATION_APPOINTMENT,
   CREATE_CONSULTATION_APPOINTMENT,
   RESCHEDULE_CONSULTATION_APPOINTMENT,
@@ -133,5 +134,83 @@ describe('schedulingSecretaryPayloadValidForAutoApprove', () => {
       })
     );
     expect(ok).toBe(true);
+  });
+
+  it('aceita CHECK_CONSULTATION_AVAILABILITY com janela válida', () => {
+    const ok = schedulingSecretaryPayloadValidForAutoApprove(
+      CHECK_CONSULTATION_AVAILABILITY,
+      decision(CHECK_CONSULTATION_AVAILABILITY, {
+        scheduledProfessionalId: '550e8400-e29b-41d4-a716-446655440000',
+        stepKey: 'navigation_consultation',
+        from: '2026-06-01T00:00:00.000Z',
+        to: '2026-06-20T23:59:59.000Z',
+      })
+    );
+    expect(ok).toBe(true);
+  });
+
+  it('aceita CHECK com professionalId (alias)', () => {
+    const ok = schedulingSecretaryPayloadValidForAutoApprove(
+      CHECK_CONSULTATION_AVAILABILITY,
+      decision(CHECK_CONSULTATION_AVAILABILITY, {
+        professionalId: '550e8400-e29b-41d4-a716-446655440000',
+        stepKey: 'specialist_consultation',
+        from: '2026-06-01T00:00:00.000Z',
+        to: '2026-06-10T00:00:00.000Z',
+      })
+    );
+    expect(ok).toBe(true);
+  });
+
+  it('rejeita CHECK com intervalo > 30 dias', () => {
+    const ok = schedulingSecretaryPayloadValidForAutoApprove(
+      CHECK_CONSULTATION_AVAILABILITY,
+      decision(CHECK_CONSULTATION_AVAILABILITY, {
+        scheduledProfessionalId: '550e8400-e29b-41d4-a716-446655440000',
+        stepKey: 'navigation_consultation',
+        from: '2026-06-01T00:00:00.000Z',
+        to: '2026-07-05T00:00:00.000Z',
+      })
+    );
+    expect(ok).toBe(false);
+  });
+
+  it('rejeita CHECK com from > to', () => {
+    const ok = schedulingSecretaryPayloadValidForAutoApprove(
+      CHECK_CONSULTATION_AVAILABILITY,
+      decision(CHECK_CONSULTATION_AVAILABILITY, {
+        scheduledProfessionalId: '550e8400-e29b-41d4-a716-446655440000',
+        stepKey: 'navigation_consultation',
+        from: '2026-06-10T00:00:00.000Z',
+        to: '2026-06-01T00:00:00.000Z',
+      })
+    );
+    expect(ok).toBe(false);
+  });
+
+  it('rejeita CHECK quando stepKey não é etapa de consulta válida', () => {
+    const ok = schedulingSecretaryPayloadValidForAutoApprove(
+      CHECK_CONSULTATION_AVAILABILITY,
+      decision(CHECK_CONSULTATION_AVAILABILITY, {
+        scheduledProfessionalId: '550e8400-e29b-41d4-a716-446655440000',
+        stepKey: 'random_step_key',
+        from: '2026-06-01T00:00:00.000Z',
+        to: '2026-06-10T00:00:00.000Z',
+      })
+    );
+    expect(ok).toBe(false);
+  });
+
+  it('rejeita CHECK com datas ISO inválidas', () => {
+    const ok = schedulingSecretaryPayloadValidForAutoApprove(
+      CHECK_CONSULTATION_AVAILABILITY,
+      decision(CHECK_CONSULTATION_AVAILABILITY, {
+        scheduledProfessionalId: '550e8400-e29b-41d4-a716-446655440000',
+        stepKey: 'navigation_consultation',
+        from: 'não-é-iso',
+        to: '2026-06-10T00:00:00.000Z',
+      })
+    );
+    expect(ok).toBe(false);
   });
 });

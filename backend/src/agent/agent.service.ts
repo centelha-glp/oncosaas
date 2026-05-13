@@ -36,9 +36,12 @@ import {
 } from '@generated/prisma/client';
 import {
   CANCEL_CONSULTATION_APPOINTMENT,
+  CHECK_CONSULTATION_AVAILABILITY,
   CONFIRM_CONSULTATION_APPOINTMENT,
   CREATE_CONSULTATION_APPOINTMENT,
   RESCHEDULE_CONSULTATION_APPOINTMENT,
+  SCHEDULING_SECRETARY_AVAILABILITY_OFFERED_SLOTS_MAX,
+  SCHEDULING_SECRETARY_AVAILABILITY_STATE_TTL_MS,
 } from './scheduling-secretary.constants';
 import { AgentSchedulingSecretaryError } from './scheduling-secretary.errors';
 import {
@@ -50,6 +53,12 @@ import { mergeOutboundStructuredData } from './merge-outbound-structured-data';
 
 /** Paciente mínimo criado pelo channel-gateway para conversas WhatsApp antes do cadastro completo (secretária). */
 const WHATSAPP_INTAKE_STUB_PATIENT_NAME = 'Cadastro WhatsApp (incompleto)';
+
+/** Efeitos colaterais de `executeDecision` (ex.: resposta determinística da secretária). */
+type AgentDecisionExecuteSideEffect = {
+  overridePatientResponse?: string;
+  schedulingAvailableSlots?: Record<string, unknown>;
+};
 
 @Injectable()
 export class AgentService {
@@ -238,9 +247,18 @@ export class AgentService {
       decisions
     );
 
-    // 8. Execute auto-approved actions
+    // 8. Execute auto-approved actions (pode devolver resposta determinística p/ CHECK de vagas)
+    let executeSideEffect: AgentDecisionExecuteSideEffect | undefined;
     for (const decision of autoApproved) {
-      await this.executeDecision(decision, tenantId, patientId, conversationId);
+      const side = await this.executeDecision(
+        decision,
+        tenantId,
+        patientId,
+        conversationId
+      );
+      if (side) {
+        executeSideEffect = side;
+      }
     }
 
     // 9. Log all decisions
@@ -253,21 +271,27 @@ export class AgentService {
       );
     }
 
-    // 10. Update conversation state
-    if (aiResponse.newState) {
-      await this.conversationService.updateState(
-        conversationId,
-        aiResponse.newState
+    // 10. Update conversation state (mescla `new_state` do ai-service com cache de vagas da secretária)
+    if (aiResponse.newState || executeSideEffect?.schedulingAvailableSlots) {
+      const merged = this.mergeAgentStateForPersistence(
+        conversation.agentState as Record<string, any> | null,
+        aiResponse.newState,
+        executeSideEffect?.schedulingAvailableSlots
       );
+      await this.conversationService.updateState(conversationId, merged);
     }
 
     // 11. Send response to patient
     const responseText =
-      aiResponse.response && aiResponse.response.trim().length > 0
+      executeSideEffect?.overridePatientResponse?.trim() ||
+      (aiResponse.response && aiResponse.response.trim().length > 0
         ? aiResponse.response
-        : 'Sua mensagem foi registrada. Um membro da equipe de enfermagem será notificado para dar continuidade ao seu atendimento.';
+        : 'Sua mensagem foi registrada. Um membro da equipe de enfermagem será notificado para dar continuidade ao seu atendimento.');
 
-    if (!aiResponse.response || aiResponse.response.trim().length === 0) {
+    if (
+      !executeSideEffect?.overridePatientResponse?.trim() &&
+      (!aiResponse.response || aiResponse.response.trim().length === 0)
+    ) {
       this.logger.warn(
         `AI service returned empty response for conversation ${conversationId}. Using fallback.`
       );
@@ -588,7 +612,7 @@ export class AgentService {
     tenantId: string,
     patientId: string,
     conversationId: string
-  ) {
+  ): Promise<AgentDecisionExecuteSideEffect | undefined> {
     const actionType = decision.outputAction?.type;
 
     try {
@@ -672,7 +696,8 @@ export class AgentService {
           await this.executeRescheduleConsultationAppointment(
             decision,
             tenantId,
-            patientId
+            patientId,
+            conversationId
           );
           break;
         case CANCEL_CONSULTATION_APPOINTMENT:
@@ -689,6 +714,12 @@ export class AgentService {
             patientId
           );
           break;
+        case CHECK_CONSULTATION_AVAILABILITY:
+          return await this.executeCheckConsultationAvailability(
+            decision,
+            tenantId,
+            conversationId
+          );
         case 'UPDATE_CLINICAL_DISPOSITION':
           await this.updateClinicalDisposition(decision, tenantId, patientId);
           break;
@@ -703,6 +734,7 @@ export class AgentService {
         default:
           this.logger.log(`No handler for action type: ${actionType}`);
       }
+      return undefined;
     } catch (error) {
       if (error instanceof AgentSchedulingSecretaryError) {
         this.logger.warn(
@@ -711,6 +743,255 @@ export class AgentService {
       } else {
         this.logger.error(`Failed to execute decision ${actionType}`, error);
       }
+      return undefined;
+    }
+  }
+
+  private mergeAgentStateForPersistence(
+    previous: Record<string, any> | null | undefined,
+    aiNewState: Record<string, any> | undefined,
+    availabilitySlots: Record<string, unknown> | undefined
+  ): Record<string, any> {
+    const out: Record<string, any> =
+      previous && typeof previous === 'object' && !Array.isArray(previous)
+        ? { ...previous }
+        : {};
+    if (
+      aiNewState &&
+      typeof aiNewState === 'object' &&
+      !Array.isArray(aiNewState)
+    ) {
+      for (const key of Object.keys(aiNewState)) {
+        if (key === 'scheduling') {
+          const incoming = aiNewState.scheduling;
+          if (
+            incoming &&
+            typeof incoming === 'object' &&
+            !Array.isArray(incoming)
+          ) {
+            out.scheduling = {
+              ...(typeof out.scheduling === 'object' && out.scheduling
+                ? out.scheduling
+                : {}),
+              ...incoming,
+            };
+          }
+        } else {
+          out[key] = aiNewState[key];
+        }
+      }
+    }
+    if (availabilitySlots) {
+      out.scheduling = {
+        ...(typeof out.scheduling === 'object' && out.scheduling
+          ? out.scheduling
+          : {}),
+        availableSlots: availabilitySlots,
+      };
+    }
+    return out;
+  }
+
+  private normalizeUtcInstant(iso: string): string {
+    const t = new Date(iso).getTime();
+    if (Number.isNaN(t)) {
+      return '';
+    }
+    return new Date(t).toISOString();
+  }
+
+  private availabilityCacheFromAgentState(agentState: unknown): {
+    slots: string[];
+    expiresAt: string;
+  } | null {
+    if (
+      !agentState ||
+      typeof agentState !== 'object' ||
+      Array.isArray(agentState)
+    ) {
+      return null;
+    }
+    const root = agentState as Record<string, unknown>;
+    const sched = root.scheduling as Record<string, unknown> | undefined;
+    if (!sched || typeof sched !== 'object' || Array.isArray(sched)) {
+      return null;
+    }
+    const block = sched.availableSlots as Record<string, unknown> | undefined;
+    if (!block || typeof block !== 'object' || Array.isArray(block)) {
+      return null;
+    }
+    const expiresAt =
+      typeof block.expiresAt === 'string' ? block.expiresAt : null;
+    if (!expiresAt) {
+      return null;
+    }
+    const raw = block.slots;
+    const slots = Array.isArray(raw)
+      ? raw.filter((s): s is string => typeof s === 'string')
+      : [];
+    return { slots, expiresAt };
+  }
+
+  /**
+   * Se existir cache recente de vagas no `agentState`, garante que o horário ainda é ofertável
+   * ou reconsulta a agenda num intervalo curto antes de mutar.
+   */
+  private async assertConsultationExpectedTimeFreshOrThrow(
+    tenantId: string,
+    expectedIso: string,
+    professionalId: string,
+    stepKey: string,
+    agentState: unknown
+  ): Promise<void> {
+    const cache = this.availabilityCacheFromAgentState(agentState);
+    if (!cache) {
+      return;
+    }
+    const expectedN = this.normalizeUtcInstant(expectedIso);
+    if (!expectedN) {
+      throw new AgentSchedulingSecretaryError(
+        'Data do agendamento inválida.',
+        'INCOMPLETE_PAYLOAD'
+      );
+    }
+    const nowMs = Date.now();
+    const expMs = new Date(cache.expiresAt).getTime();
+    const cacheStillValid =
+      !Number.isNaN(expMs) && expMs > nowMs && cache.slots.length > 0;
+    if (
+      cacheStillValid &&
+      cache.slots.some((s) => this.normalizeUtcInstant(s) === expectedN)
+    ) {
+      return;
+    }
+    const day = new Date(expectedIso);
+    if (Number.isNaN(day.getTime())) {
+      return;
+    }
+    const from = new Date(day);
+    from.setUTCHours(0, 0, 0, 0);
+    const to = new Date(from);
+    to.setUTCDate(to.getUTCDate() + 2);
+    const fresh =
+      await this.oncologyNavigationService.getConsultationAvailableSlots(
+        tenantId,
+        {
+          professionalId,
+          stepKey,
+          from: from.toISOString(),
+          to: to.toISOString(),
+        }
+      );
+    if (
+      !fresh.slots.some((s) => this.normalizeUtcInstant(s) === expectedN)
+    ) {
+      throw new AgentSchedulingSecretaryError(
+        'Esse horário não está mais disponível na agenda. Peça novas vagas antes de confirmar.',
+        'INVALID_STATE'
+      );
+    }
+  }
+
+  private formatAvailabilityReplyToPatient(slotIsos: string[]): string {
+    const lines = slotIsos.map((iso, i) => {
+      const d = new Date(iso);
+      const label = d.toLocaleString('pt-BR', {
+        timeZone: 'America/Sao_Paulo',
+        weekday: 'short',
+        day: '2-digit',
+        month: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+      return `${i + 1}) ${label}`;
+    });
+    return `Encontrei estas vagas na agenda (horário de Brasília):\n${lines.join(
+      '\n'
+    )}\n\nQual horário você prefere? Se precisar de outro período, é só dizer.`;
+  }
+
+  private async executeCheckConsultationAvailability(
+    decision: { outputAction?: { payload?: unknown } },
+    tenantId: string,
+    _conversationId: string
+  ): Promise<AgentDecisionExecuteSideEffect> {
+    const payload = this.schedulingPayload(decision);
+    const professionalId =
+      typeof payload.scheduledProfessionalId === 'string' &&
+      this.isUuidString(payload.scheduledProfessionalId)
+        ? payload.scheduledProfessionalId
+        : typeof payload.professionalId === 'string' &&
+            this.isUuidString(payload.professionalId)
+          ? payload.professionalId
+          : '';
+    const stepKey =
+      typeof payload.stepKey === 'string' ? payload.stepKey.trim() : '';
+    const from =
+      typeof payload.from === 'string' ? payload.from.trim() : '';
+    const to = typeof payload.to === 'string' ? payload.to.trim() : '';
+
+    if (!professionalId || !stepKey || !from || !to) {
+      return {
+        overridePatientResponse:
+          'Não foi possível consultar a agenda: faltam profissional, tipo de consulta ou período. Reformule o pedido, por favor.',
+      };
+    }
+
+    try {
+      const { slots: rawSlots } =
+        await this.oncologyNavigationService.getConsultationAvailableSlots(
+          tenantId,
+          {
+            professionalId,
+            stepKey,
+            from,
+            to,
+          }
+        );
+
+      const sorted = [...rawSlots].sort(
+        (a, b) => new Date(a).getTime() - new Date(b).getTime()
+      );
+      const offered = sorted.slice(
+        0,
+        SCHEDULING_SECRETARY_AVAILABILITY_OFFERED_SLOTS_MAX
+      );
+      const now = new Date();
+      const expiresAt = new Date(
+        now.getTime() + SCHEDULING_SECRETARY_AVAILABILITY_STATE_TTL_MS
+      );
+
+      const schedulingAvailableSlots = {
+        slots: offered,
+        query: {
+          professionalId,
+          stepKey,
+          from,
+          to,
+        },
+        fetchedAt: now.toISOString(),
+        expiresAt: expiresAt.toISOString(),
+      };
+
+      const overridePatientResponse =
+        offered.length === 0
+          ? 'No período informado não há horários livres na agenda desse profissional. Você pode informar outras datas (até 30 dias de intervalo) ou outro profissional, se houver.'
+          : this.formatAvailabilityReplyToPatient(offered);
+
+      return {
+        overridePatientResponse,
+        schedulingAvailableSlots,
+      };
+    } catch (err) {
+      this.logger.warn(
+        `CHECK_CONSULTATION_AVAILABILITY falhou: ${
+          err instanceof Error ? err.message : String(err)
+        }`
+      );
+      return {
+        overridePatientResponse:
+          'Não consegui consultar as vagas agora. Tente de novo em instantes ou informe outro período.',
+      };
     }
   }
 
@@ -969,6 +1250,18 @@ export class AgentService {
       );
     }
 
+    const conv = await this.prisma.conversation.findFirst({
+      where: { id: conversationId, tenantId },
+      select: { agentState: true },
+    });
+    await this.assertConsultationExpectedTimeFreshOrThrow(
+      tenantId,
+      String(payload.expectedDate),
+      String(payload.scheduledProfessionalId),
+      String(payload.stepKey).trim(),
+      conv?.agentState
+    );
+
     const dto = {
       patientId: targetPatientId,
       journeyStage,
@@ -1008,7 +1301,8 @@ export class AgentService {
   private async executeRescheduleConsultationAppointment(
     decision: { outputAction?: { payload?: unknown } },
     tenantId: string,
-    patientId: string
+    patientId: string,
+    conversationId: string
   ) {
     const payload = this.schedulingPayload(decision);
     const stepId = this.navigationStepIdFromPayload(payload);
@@ -1022,7 +1316,11 @@ export class AgentService {
         'INCOMPLETE_PAYLOAD'
       );
     }
-    await this.assertConsultationStepOwned(stepId, tenantId, patientId);
+    const step = await this.assertConsultationStepOwned(
+      stepId,
+      tenantId,
+      patientId
+    );
 
     const updateDto: UpdateNavigationStepDto = {
       expectedDate: whenRaw.trim(),
@@ -1032,6 +1330,27 @@ export class AgentService {
       this.isUuidString(payload.scheduledProfessionalId)
     ) {
       updateDto.scheduledProfessionalId = payload.scheduledProfessionalId;
+    }
+
+    const conv = await this.prisma.conversation.findFirst({
+      where: { id: conversationId, tenantId },
+      select: { agentState: true },
+    });
+    const profForSlot =
+      typeof payload.scheduledProfessionalId === 'string' &&
+      this.isUuidString(payload.scheduledProfessionalId)
+        ? payload.scheduledProfessionalId
+        : step.scheduledProfessionalId
+          ? String(step.scheduledProfessionalId)
+          : '';
+    if (profForSlot) {
+      await this.assertConsultationExpectedTimeFreshOrThrow(
+        tenantId,
+        whenRaw.trim(),
+        profForSlot,
+        String(step.stepKey),
+        conv?.agentState
+      );
     }
 
     try {
