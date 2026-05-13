@@ -66,6 +66,7 @@ export class AgentService {
     private readonly priorityRecalculationService: PriorityRecalculationService,
     @Inject(forwardRef(() => OncologyNavigationService))
     private readonly oncologyNavigationService: OncologyNavigationService,
+    @Inject(forwardRef(() => PatientsService))
     private readonly patientsService: PatientsService
   ) {}
 
