@@ -1,11 +1,22 @@
 from typing import Any, Dict, List
 
+from .system_prompt import LAYER1_PRECALCULATED_ORCHESTRATOR_NOTE
+
 """
 Orchestrator prompts and routing tool definitions for the multi-agent pipeline.
 
 The orchestrator uses Claude Opus with adaptive thinking to route patient messages
 to specialized subagents, then synthesizes their analyses into a final patient response.
 """
+
+APPOINTMENT_QUERY_ORCHESTRATOR_NOTE = """## CONSULTA DE AGENDA (RAMO APPOINTMENT_QUERY)
+
+Neste turno a intenção é **consulta sobre datas/horários** de consultas, exames ou retornos.
+- **Não há bloco de triagem Layer 1** no contexto — **não simule** avaliação R01–R23 nem disposição clínica.
+- **Invoque `consultar_agente_navegacao`** para usar as etapas do plano; o subagente deve chamar a ferramenta
+  **`informar_agenda_navegacao`** ao concluir a orientação sobre agenda/prazos (auditoria).
+- Distinga **prazo meta** da etapa de **agendamento confirmado** (ver diretrizes do subagente de navegação).
+- Se a mensagem parecer misturar urgência clínica grave com pergunta de agenda, oriente buscar ajuda presencial/SAMU quando aplicável, sem inventar resultado de triagem."""
 
 # Routing tools: each tool represents a specialized subagent
 ORCHESTRATOR_ROUTING_TOOLS: List[Dict[str, Any]] = [
@@ -39,8 +50,10 @@ ORCHESTRATOR_ROUTING_TOOLS: List[Dict[str, Any]] = [
             "Invoca o agente de navegação oncológica. "
             "Use quando o paciente: perguntar sobre próximas etapas do tratamento, "
             "mencionar que realizou algum exame ou consulta, "
-            "querer saber o que vem depois no seu plano de tratamento, "
-            "ou quando for necessário agendar acompanhamento ou recomendar consulta especializada."
+            "quiser saber o que vem depois no plano, **perguntar sobre datas/horários de consultas, "
+            "exames ou retornos**, ou quando for necessário agendar acompanhamento ou recomendar consulta. "
+            "Em dúvidas de **agenda ou prazos**, invoque este agente e peça que use `informar_agenda_navegacao` "
+            "para registrar a resposta na auditoria."
         ),
         "input_schema": {
             "type": "object",
@@ -98,10 +111,45 @@ ORCHESTRATOR_ROUTING_TOOLS: List[Dict[str, Any]] = [
             "required": [],
         },
     },
+    {
+        "name": "consultar_agente_secretaria",
+        "description": (
+            "Invoca a secretária eletrônica para AGENDAR, REAGENDAR, CANCELAR ou "
+            "CONFIRMAR uma consulta. Use SOMENTE quando o paciente pedir explicitamente "
+            "uma dessas mutações de agenda (ex.: 'quero marcar consulta com Dr. João', "
+            "'preciso remarcar minha consulta', 'cancela minha consulta', 'confirmo "
+            "presença'). NÃO use para consultas informativas sobre datas/prazos — "
+            "essas vão para `consultar_agente_navegacao`."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "acao": {
+                    "type": "string",
+                    "enum": ["criar", "reagendar", "cancelar", "confirmar", "auto"],
+                    "description": (
+                        "Ação solicitada pelo paciente. 'auto' permite a secretária decidir."
+                    ),
+                },
+                "foco": {
+                    "type": "string",
+                    "description": (
+                        "Pistas relevantes para a secretária (ex.: profissional citado, "
+                        "data sugerida, indicação de paciente novo)."
+                    ),
+                },
+            },
+            "required": [],
+        },
+    },
 ]
 
 
-def build_orchestrator_prompt(clinical_context: str) -> str:
+def build_orchestrator_prompt(
+    clinical_context: str,
+    *,
+    appointment_query: bool = False,
+) -> str:
     """
     Build the orchestrator system prompt with full clinical context.
 
@@ -110,10 +158,14 @@ def build_orchestrator_prompt(clinical_context: str) -> str:
 
     Args:
         clinical_context: Formatted clinical context string (from context_builder + RAG)
-
-    Returns:
+        appointment_query: Se True, omite a nota de Layer 1 pré-calculada e insere instruções do ramo agenda.
         Complete orchestrator system prompt
     """
+    layer_note = (
+        APPOINTMENT_QUERY_ORCHESTRATOR_NOTE
+        if appointment_query
+        else LAYER1_PRECALCULATED_ORCHESTRATOR_NOTE
+    )
     return f"""# Orquestrador Principal - ONCONAV
 
 Você é o orquestrador inteligente do sistema de navegação oncológica ONCONAV.
@@ -128,16 +180,18 @@ para oferecer o melhor atendimento clínico e humano possível.
 
 ## SUBAGENTES DISPONÍVEIS
 - **Agente de Sintomas** (`consultar_agente_sintomas`): análise de sintomas, alertas, escalação
-- **Agente de Navegação** (`consultar_agente_navegacao`): etapas do tratamento, check-ins, encaminhamentos
+- **Agente de Navegação** (`consultar_agente_navegacao`): etapas do tratamento, check-ins, encaminhamentos, **consulta informativa** de datas/prazos (tool `informar_agenda_navegacao` no subagente)
 - **Agente de Questionários** (`consultar_agente_questionario`): ESAS e PRO-CTCAE
 - **Agente de Suporte Emocional** (`consultar_agente_suporte_emocional`): apoio psicológico
+- **Secretária Eletrônica** (`consultar_agente_secretaria`): **mutações de agenda** — marcar, reagendar, cancelar e confirmar consulta; cuida de coleta de dados para paciente novo
 
 ## DIRETRIZES DE ROTEAMENTO
 - Sintoma físico de qualquer natureza → **SEMPRE** invocar agente de sintomas
-- Pergunta sobre etapas, exames ou procedimentos → agente de navegação
+- **Consultar/perguntar sobre** datas, prazos, próximas etapas, "quando é minha consulta" → agente de **navegação** (e `informar_agenda_navegacao` quando for só agenda/prazos)
+- **Marcar / agendar / criar nova consulta**, **reagendar**, **cancelar**, **confirmar presença** → **secretária eletrônica** (`consultar_agente_secretaria`)
 - Sofrimento emocional explícito → agente de suporte emocional
 - Múltiplos sintomas vagos ou avaliação periódica → agente de questionários
-- Mensagens podem precisar de **múltiplos subagentes** — invoque todos os necessários
+- Mensagens podem precisar de **múltiplos subagentes** — invoque todos os necessários (ex.: sintoma + pedido de remarcar → sintomas têm prioridade; a secretária só age depois que o tópico clínico estiver resolvido)
 - Mensagens simples (sem domínio clínico específico) → responda diretamente sem subagentes
 
 ## RESPOSTA FINAL AO PACIENTE
@@ -154,6 +208,10 @@ Após consultar os subagentes necessários, formule a resposta seguindo estes pr
 - Conclua o tópico atual antes de iniciar outro
 - Se o paciente confirma algo (sim, ok, é isso), continue exatamente o mesmo tópico
 - Febre ≥38°C em quimioterapia = orientação de urgência + escalação, sem mudar de assunto
+
+---
+
+{layer_note}
 
 ---
 

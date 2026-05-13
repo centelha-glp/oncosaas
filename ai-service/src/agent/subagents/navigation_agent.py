@@ -10,7 +10,12 @@ from typing import Any, Dict, List
 from ..prompts.action_tools import AGENT_ACTION_TOOLS
 from .base_subagent import BaseSubAgent
 
-_TOOL_NAMES = {"atualizar_etapa_navegacao", "agendar_checkin", "recomendar_consulta"}
+_TOOL_NAMES = {
+    "atualizar_etapa_navegacao",
+    "agendar_checkin",
+    "informar_agenda_navegacao",
+    "recomendar_consulta",
+}
 _TOOLS = [t for t in AGENT_ACTION_TOOLS if t["name"] in _TOOL_NAMES]
 
 _SYSTEM_PROMPT = """# Agente de Navegação Oncológica
@@ -47,6 +52,11 @@ Use `recomendar_consulta` quando o paciente precisar de:
 - Suporte nutricional (perda de peso, dificuldade alimentar)
 - Fisioterapia (fadiga, dor musculoesquelética)
 - Cuidados paliativos (controle de sintomas refratários)
+
+## AGENDA, DATAS E PRAZOS
+Quando o paciente perguntar sobre **data/horário de consulta, exame ou retorno**, ou **próximas etapas com foco em calendário**:
+- Responda usando as etapas do contexto (prazo meta vs agendamento confirmado, conforme diretrizes acima)
+- **Ao finalizar** essa orientação, chame obrigatoriamente a ferramenta **`informar_agenda_navegacao`** (campos opcionais `notas`/`motivo`) para registro de auditoria
 
 ## INSTRUÇÃO
 Analise as etapas de navegação no contexto, avalie o que o paciente relatou,

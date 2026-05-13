@@ -1,9 +1,7 @@
 import logging
 import os
-from typing import Dict, List
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
 
 from ..auth import require_service_token
 from ..agent.context_builder import context_builder
@@ -11,11 +9,6 @@ from ..agent.orchestrator import orchestrator
 from ..agent.protocol_engine import protocol_engine
 from ..agent.questionnaire_engine import questionnaire_engine
 from ..agent.symptom_analyzer import symptom_analyzer
-from .legacy_agent_adapter import (
-    AgentMessageRequest,
-    agent_process_dict_to_message_response,
-    message_request_to_process_payload,
-)
 from ..models.schemas import (
     AgentProcessRequest,
     AgentProcessResponse,
@@ -34,32 +27,6 @@ from ..models.schemas import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-
-
-class AgentMessageResponse(BaseModel):
-    response: str
-    critical_symptoms: List[str]
-    structured_data: Dict
-    should_alert: bool
-
-
-@router.post("/agent/message", response_model=AgentMessageResponse)
-async def process_agent_message(
-    request: AgentMessageRequest,
-    _: None = Depends(require_service_token),
-):
-    """Legado: mesmo pipeline que `/agent/process` (orquestrador). Requer `tenant_id`."""
-    try:
-        payload = message_request_to_process_payload(request)
-        result = await orchestrator.process(payload)
-        body = agent_process_dict_to_message_response(result)
-        return AgentMessageResponse(**body)
-    except Exception:
-        logger.exception("Erro ao processar mensagem (orchestrator, rota legada /agent/message)")
-        raise HTTPException(
-            status_code=500,
-            detail="Erro ao processar mensagem",
-        )
 
 
 @router.get("/debug/llm-status")
@@ -106,9 +73,13 @@ async def process_message(
             clinical_rules_findings=result.get("clinical_rules_findings", []),
             new_state=result.get("new_state", {}),
             decisions=result.get("decisions", []),
+            pipeline_trace=result.get("pipeline_trace"),
         )
-    except Exception:
-        logger.exception("Erro ao processar mensagem pelo agente (orchestrator)")
+    except Exception as exc:
+        logger.exception(
+            "Erro ao processar mensagem pelo agente (orchestrator): %s",
+            exc,
+        )
         raise HTTPException(
             status_code=500,
             detail="Erro ao processar mensagem pelo agente",

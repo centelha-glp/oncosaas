@@ -5,6 +5,7 @@ from .symptom_agent import SymptomAgent
 from .navigation_agent import NavigationAgent
 from .questionnaire_agent import QuestionnaireAgent
 from .emotional_support_agent import EmotionalSupportAgent
+from .scheduling_secretary_agent import SchedulingSecretaryAgent
 
 __all__ = [
     "BaseSubAgent",
@@ -13,4 +14,5 @@ __all__ = [
     "NavigationAgent",
     "QuestionnaireAgent",
     "EmotionalSupportAgent",
+    "SchedulingSecretaryAgent",
 ]

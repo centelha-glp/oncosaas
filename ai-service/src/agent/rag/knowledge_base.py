@@ -1,18 +1,22 @@
-import json
-import logging
-import os
-import numpy as np
-from pathlib import Path
-from typing import Any, Dict, List, Optional
 """
 RAG (Retrieval-Augmented Generation) module for oncology knowledge.
 Uses sentence-transformers for embeddings and FAISS for vector search
 to retrieve relevant oncology knowledge before calling the LLM.
 """
 
+import json
+import logging
+import os
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
+import numpy as np
 
-
+from .defaults import (
+    DEFAULT_EMBEDDING_MODEL,
+    DEFAULT_SCORE_THRESHOLD,
+    DEFAULT_TOP_K,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -32,8 +36,30 @@ def _get_index_dir() -> Path:
             return Path(base) / "OncoNav" / "rag_index_cache"
     return default
 
-_INDEX_DIR = _get_index_dir()
-_MODEL_NAME = os.getenv("RAG_EMBEDDING_MODEL", "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
+
+def _rag_embedding_model() -> str:
+    v = (os.getenv("RAG_EMBEDDING_MODEL") or "").strip()
+    return v if v else DEFAULT_EMBEDDING_MODEL
+
+
+def _rag_top_k() -> int:
+    raw = (os.getenv("RAG_TOP_K") or "").strip()
+    if not raw:
+        return DEFAULT_TOP_K
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return DEFAULT_TOP_K
+
+
+def _rag_score_threshold() -> float:
+    raw = (os.getenv("RAG_SCORE_THRESHOLD") or "").strip()
+    if not raw:
+        return DEFAULT_SCORE_THRESHOLD
+    try:
+        return float(raw)
+    except ValueError:
+        return DEFAULT_SCORE_THRESHOLD
 
 
 class _FastEmbedWrapper:
@@ -47,10 +73,6 @@ class _FastEmbedWrapper:
         # fastembed yields per-document numpy arrays; stack into a 2-D array
         embeddings = list(self._model.embed(texts))
         return np.array(embeddings, dtype=np.float32)
-
-
-_TOP_K = int(os.getenv("RAG_TOP_K", "4"))
-_SCORE_THRESHOLD = float(os.getenv("RAG_SCORE_THRESHOLD", "0.30"))
 
 
 class OncologyKnowledgeRAG:
@@ -92,7 +114,7 @@ class OncologyKnowledgeRAG:
             if self._ready:
                 logger.info(
                     f"RAG initialized: {len(self._documents)} documents, "
-                    f"model={_MODEL_NAME}"
+                    f"model={_rag_embedding_model()}"
                 )
             return self._ready
 
@@ -116,7 +138,7 @@ class OncologyKnowledgeRAG:
             if not self.initialize():
                 return []
 
-        k = top_k or _TOP_K
+        k = top_k or _rag_top_k()
 
         try:
             query_embedding = self._model.encode([query], normalize_embeddings=True)
@@ -136,7 +158,7 @@ class OncologyKnowledgeRAG:
                         continue
 
                 similarity = float(score)
-                if similarity < _SCORE_THRESHOLD:
+                if similarity < _rag_score_threshold():
                     continue
 
                 results.append({
@@ -183,12 +205,13 @@ class OncologyKnowledgeRAG:
         return data
 
     def _load_embedding_model(self):
+        model_name = _rag_embedding_model()
         # Try fastembed first (lighter, used in production Docker image)
         try:
             from fastembed import TextEmbedding
 
-            model = TextEmbedding(_MODEL_NAME)
-            logger.info(f"Embedding model loaded (fastembed): {_MODEL_NAME}")
+            model = TextEmbedding(model_name)
+            logger.info(f"Embedding model loaded (fastembed): {model_name}")
             return _FastEmbedWrapper(model)
         except ImportError:
             logger.info("fastembed not installed, trying sentence-transformers...")
@@ -199,8 +222,8 @@ class OncologyKnowledgeRAG:
         try:
             from sentence_transformers import SentenceTransformer
 
-            model = SentenceTransformer(_MODEL_NAME)
-            logger.info(f"Embedding model loaded (sentence-transformers): {_MODEL_NAME}")
+            model = SentenceTransformer(model_name)
+            logger.info(f"Embedding model loaded (sentence-transformers): {model_name}")
             return model
         except ImportError:
             logger.error(
@@ -220,18 +243,19 @@ class OncologyKnowledgeRAG:
             return None
 
         # Garantir que o diretório existe antes de qualquer operação FAISS
-        index_dir = _INDEX_DIR.resolve()
+        index_dir = _get_index_dir().resolve()
         index_dir.mkdir(parents=True, exist_ok=True)
 
         cache_file = index_dir / "faiss.index"
         meta_file = index_dir / "meta.json"
 
         corpus_hash = self._corpus_hash()
+        model_name = _rag_embedding_model()
         if cache_file.exists() and meta_file.exists():
             try:
                 with open(meta_file, "r", encoding="utf-8") as f:
                     meta = json.load(f)
-                if meta.get("hash") == corpus_hash and meta.get("model") == _MODEL_NAME:
+                if meta.get("hash") == corpus_hash and meta.get("model") == model_name:
                     index = faiss.read_index(str(cache_file))
                     logger.info("Loaded FAISS index from cache")
                     return index
@@ -249,7 +273,7 @@ class OncologyKnowledgeRAG:
 
         faiss.write_index(index, str(cache_file))
         with open(meta_file, "w", encoding="utf-8") as f:
-            json.dump({"hash": corpus_hash, "model": _MODEL_NAME, "n_docs": len(texts)}, f)
+            json.dump({"hash": corpus_hash, "model": model_name, "n_docs": len(texts)}, f)
         logger.info(f"Built and cached FAISS index: dim={dimension}, n={len(texts)}")
 
         return index

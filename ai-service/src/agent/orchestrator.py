@@ -8,11 +8,37 @@ from .context_builder import context_builder
 from .symptom_analyzer import symptom_analyzer
 from .protocol_engine import protocol_engine
 from .questionnaire_engine import questionnaire_engine
-from .intent_classifier import intent_classifier, INTENT_GREETING, INTENT_EMERGENCY, INTENT_APPOINTMENT_QUERY, INTENT_EMOTIONAL_SUPPORT
+from .intent_classifier import (
+    intent_classifier,
+    INTENT_GREETING,
+    INTENT_EMERGENCY,
+    INTENT_APPOINTMENT_QUERY,
+    INTENT_EMOTIONAL_SUPPORT,
+    INTENT_SYMPTOM_REPORT,
+)
 from .prompts.orchestrator_prompt import build_orchestrator_prompt, ORCHESTRATOR_ROUTING_TOOLS
-from .subagents import SymptomAgent, NavigationAgent, QuestionnaireAgent, EmotionalSupportAgent
-from .clinical_rules import clinical_rules_engine, ER_IMMEDIATE
-from .tracer import tracer
+from .subagents import (
+    SymptomAgent,
+    NavigationAgent,
+    QuestionnaireAgent,
+    EmotionalSupportAgent,
+    SchedulingSecretaryAgent,
+)
+from .clinical_rules import (
+    ClinicalRulesResult,
+    ER_IMMEDIATE,
+    REMOTE_NURSING,
+    clinical_rules_engine,
+)
+from .tracer import (
+    TRACE_ORCH_MESSAGE_MAX_CHARS,
+    TRACE_ORCH_SYSTEM_MAX_CHARS,
+    TRACE_RAG_CONTEXT_MAX_CHARS,
+    TRACE_SUBAGENT_RESPONSE_MAX_CHARS,
+    pack_trace_text,
+    tracer,
+)
+from .llm_pricing import sum_usage_events
 
 """
 Agent Orchestrator.
@@ -21,6 +47,18 @@ Receives message + context → returns response + actions.
 """
 
 logger = logging.getLogger(__name__)
+
+
+def _pending_navigation_steps(clinical_context: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Etapas de navegação ainda não concluídas (PENDING, SCHEDULED, IN_PROGRESS)."""
+    if not clinical_context:
+        return []
+    nav_steps = clinical_context.get("navigationSteps") or []
+    return [
+        s
+        for s in nav_steps
+        if s.get("status") in ("PENDING", "SCHEDULED", "IN_PROGRESS")
+    ]
 
 
 class AgentOrchestrator:
@@ -73,6 +111,7 @@ class AgentOrchestrator:
             raise
         else:
             tracer.finish_trace(trace)
+            result["pipeline_trace"] = trace.to_dict()
             return result
 
     async def _process_with_trace(
@@ -90,12 +129,21 @@ class AgentOrchestrator:
     ) -> Dict[str, Any]:
         """Inner implementation of process(), called with an active trace."""
 
-        # 1. Classify intent for differentiated handling (with LLM fallback for ambiguous)
+        # Estado no início do turno — usado para fase pós-main de questionário (sem fast-path de coleta).
+        had_active_questionnaire = bool(agent_state.get("active_questionnaire"))
+
+        # 1. Classify intent (LLM via classify_async quando há chaves; senão GENERAL)
         span_intent = tracer.start_span(trace, "intent_classification")
         intent_result = await intent_classifier.classify_async(
-            message, agent_state, agent_config
+            message,
+            agent_state,
+            agent_config,
+            conversation_history=conversation_history,
         )
         intent = intent_result["intent"]
+        tu = intent_result.pop("token_usage_events", None)
+        if tu:
+            trace.token_usage_events.extend(tu)
         span_intent.finish(intent=intent, confidence=intent_result.get("confidence"))
         trace.intent = intent
         trace.intent_confidence = intent_result.get("confidence")
@@ -131,46 +179,10 @@ class AgentOrchestrator:
                 trace.actions_generated = [a.get("type", "UNKNOWN") for a in response["actions"]]
                 return response
 
-        # Questionnaires never outrank emergency or deterministic clinical triage.
-        # A minimal safety pass can interrupt the questionnaire before recording answers.
-        if agent_state.get("active_questionnaire"):
-            symptom_analysis, clinical_rules_result = await self._run_safety_triage(
-                trace=trace,
-                message=message,
-                clinical_context=clinical_context,
-                agent_config=agent_config,
-                has_llm_keys=has_llm_keys,
-            )
-            if clinical_rules_result.is_immediate:
-                trace.pipeline_path = "questionnaire_safety_override"
-                response = self._build_layer1_override_response(
-                    message=message,
-                    clinical_context=clinical_context,
-                    agent_state=agent_state,
-                    symptom_analysis=symptom_analysis,
-                    clinical_rules_result=clinical_rules_result,
-                    intent_result=intent_result,
-                    interrupt_kind="questionnaire",
-                )
-                trace.actions_generated = [
-                    action.get("type", "UNKNOWN") for action in response["actions"]
-                ]
-                return response
+        # Questionário ativo: não há fast-path de coleta antes do main (plano pós-pipeline).
+        # ER imediato é tratado após o main com merge por precedência de urgência (ver fim do ramo main).
 
-            trace.pipeline_path = "questionnaire"
-            return await self._process_questionnaire_answer(
-                {
-                    "message": message,
-                    "clinical_context": clinical_context,
-                    "protocol": protocol,
-                    "conversation_history": conversation_history,
-                    "agent_state": agent_state,
-                    "agent_config": agent_config,
-                },
-                has_llm_keys=has_llm_keys,
-            )
-
-        # Saudação/agenda: triagem mínima (Layer 1) antes do return rápido — não prevalece sobre ER.
+        # Saudação: triagem mínima (Layer 1) antes do return rápido — não prevalece sobre ER.
         if intent == INTENT_GREETING and intent_result.get("skip_full_pipeline"):
             trace.pipeline_path = "greeting"
             symptom_analysis, clinical_rules_result = await self._run_safety_triage(
@@ -200,8 +212,33 @@ class AgentOrchestrator:
                 base, symptom_analysis, clinical_rules_result, intent_result
             )
 
-        if intent == INTENT_APPOINTMENT_QUERY and intent_result.get("skip_full_pipeline"):
+        appointment_query_branch = intent == INTENT_APPOINTMENT_QUERY
+
+        if appointment_query_branch:
             trace.pipeline_path = "appointment_query"
+            # Contrato SymptomAnalysisResult / AgentProcessResponse: overallSeverity é str obrigatória.
+            symptom_analysis = {
+                "detectedSymptoms": [],
+                "overallSeverity": "LOW",
+                "requiresEscalation": False,
+                "structuredData": {},
+            }
+            clinical_rules_result = ClinicalRulesResult(
+                disposition=REMOTE_NURSING,
+                reasoning=(
+                    "Ramo appointment_query: análise de sintomas e Layer 1 não executadas neste turno; "
+                    "resposta produzida pelo pipeline multi-agente com foco em navegação/agenda."
+                ),
+                findings=[],
+                requires_immediate_action=False,
+                confidence=1.0,
+            )
+            trace.symptoms_detected = 0
+            trace.overall_severity = None
+            trace.clinical_disposition = clinical_rules_result.disposition
+            trace.clinical_rules_fired = []
+        else:
+            trace.pipeline_path = "main"
             symptom_analysis, clinical_rules_result = await self._run_safety_triage(
                 trace=trace,
                 message=message,
@@ -209,42 +246,14 @@ class AgentOrchestrator:
                 agent_config=agent_config,
                 has_llm_keys=has_llm_keys,
             )
-            if clinical_rules_result.is_er:
-                trace.pipeline_path = "appointment_safety_override"
-                response = self._build_layer1_override_response(
-                    message=message,
-                    clinical_context=clinical_context,
-                    agent_state=agent_state,
-                    symptom_analysis=symptom_analysis,
-                    clinical_rules_result=clinical_rules_result,
-                    intent_result=intent_result,
-                    interrupt_kind="fast_path",
-                )
-                trace.actions_generated = [
-                    a.get("type", "UNKNOWN") for a in response["actions"]
-                ]
-                return response
-            base = self._build_appointment_response(clinical_context, agent_state)
-            return self._attach_layer1_audit_fields(
-                base, symptom_analysis, clinical_rules_result, intent_result
-            )
 
-        trace.pipeline_path = "main"
-
-        # 2. Analyze symptoms (keyword + optional LLM for nuanced detection)
         cancer_type = clinical_context.get("patient", {}).get("cancerType")
         journey_stage = clinical_context.get("patient", {}).get("currentStage")
         logger.info(
             "LLM key check: has_any=%s has_anthropic=%s agent_config_keys=%s",
-            has_llm_keys, has_anthropic,
+            has_llm_keys,
+            has_anthropic,
             [k for k in (agent_config or {}).keys()],
-        )
-        symptom_analysis, clinical_rules_result = await self._run_safety_triage(
-            trace=trace,
-            message=message,
-            clinical_context=clinical_context,
-            agent_config=agent_config,
-            has_llm_keys=has_llm_keys,
         )
 
         # 3. Evaluate protocol rules (check-ins, questionnaire triggers, critical symptoms)
@@ -268,7 +277,11 @@ class AgentOrchestrator:
             conversation_history=conversation_history,
             agent_state=agent_state,
         )
-        span_rag.finish()
+        trace.rag_context_output = pack_trace_text(rag_context, TRACE_RAG_CONTEXT_MAX_CHARS)
+        span_rag.finish(
+            total_chars=len(rag_context or ""),
+            truncated=trace.rag_context_output.get("truncated", False),
+        )
 
         # 5. Build protocol context string
         # 7. Multi-agent pipeline: orchestrator (Opus) routes to specialized subagents
@@ -278,6 +291,13 @@ class AgentOrchestrator:
         intent_hint = ""
         if intent == INTENT_EMOTIONAL_SUPPORT:
             intent_hint = "\n[CONTEXTO: O paciente está em sofrimento emocional. Responda com empatia e acolhimento.]\n"
+        elif intent == INTENT_APPOINTMENT_QUERY:
+            intent_hint = (
+                "\n[CONTEXTO: Intenção APPOINTMENT_QUERY — consulta sobre datas/horários de consultas, "
+                "exames ou retornos. Invoque `consultar_agente_navegacao` e, ao concluir a orientação, "
+                "use a ferramenta `informar_agenda_navegacao` no subagente de navegação para registro "
+                "de auditoria.]\n"
+            )
         elif intent_result.get("metadata", {}).get("emotional_component"):
             intent_hint = "\n[CONTEXTO: O paciente relata sintomas com componente emocional. Aborde ambos.]\n"
 
@@ -285,6 +305,7 @@ class AgentOrchestrator:
 
         # Multi-agent pipeline: Anthropic preferred, OpenAI fallback (handled inside run_agentic_loop).
         if has_llm_keys:
+            trace.main_multi_agent_llm_used = True
             span_llm = tracer.start_span(trace, "multi_agent_pipeline")
             llm_start = time.monotonic()
             response_text, all_tool_calls, llm_meta = await self._run_multi_agent_pipeline(
@@ -293,6 +314,7 @@ class AgentOrchestrator:
                 conversation_history=conversation_history,
                 agent_config=agent_config,
                 trace=trace,
+                appointment_query=appointment_query_branch,
             )
             llm_dur = (time.monotonic() - llm_start) * 1000
             span_llm.finish(tool_calls=len(all_tool_calls))
@@ -304,10 +326,13 @@ class AgentOrchestrator:
                 llm_dur,
             )
             if all_tool_calls:
-                llm_actions, llm_decisions = self._parse_tool_calls_to_actions(all_tool_calls)
+                llm_actions, llm_decisions = self._parse_tool_calls_to_actions(
+                    all_tool_calls,
+                    clinical_context=clinical_context,
+                )
                 logger.info(
                     f"Multi-agent tool calls ({len(all_tool_calls)}): "
-                    f"{[tc['name'] for tc in all_tool_calls]}"
+                    f"{[tc.get('name') or (tc.get('function') or {}).get('name') for tc in all_tool_calls]}"
                 )
         else:
             response_text = llm_provider._fallback_response()
@@ -327,6 +352,16 @@ class AgentOrchestrator:
                 "questionnaire_type": llm_questionnaire.get("payload", {}).get("questionnaireType", "ESAS"),
                 "reason": "LLM decided to start questionnaire",
             }
+
+        # Já existe questionário em andamento: não reiniciar nem sobrescrever resposta com novo START.
+        if had_active_questionnaire and questionnaire_to_start:
+            questionnaire_to_start = None
+
+        # Ramo agenda (APPOINTMENT_QUERY): exclusão mútua com arranque de questionário neste turno —
+        # preserva a resposta do multi-agent e não emite START_QUESTIONNAIRE na mesma mensagem.
+        if appointment_query_branch:
+            questionnaire_to_start = None
+            llm_actions = [a for a in llm_actions if a.get("type") != "START_QUESTIONNAIRE"]
 
         if questionnaire_to_start:
             q_type = questionnaire_to_start.get("questionnaire_type", "ESAS")
@@ -348,6 +383,29 @@ class AgentOrchestrator:
         actions = self._merge_actions(llm_actions, rule_actions)
         decisions = llm_decisions + rule_decisions
 
+        # Agenda: se o subagente não chamou `informar_agenda_navegacao`, ainda registramos decisão
+        # mínima para auditoria / decision gate (auto-aprovada como APPOINTMENT_RESPONSE).
+        if appointment_query_branch and not any(
+            d.get("decisionType") == "APPOINTMENT_QUERY_HANDLED" for d in llm_decisions
+        ):
+            pending = _pending_navigation_steps(clinical_context)
+            decisions.append(
+                {
+                    "decisionType": "APPOINTMENT_QUERY_HANDLED",
+                    "reasoning": (
+                        "Consulta de agenda respondida em texto; o subagente não invocou "
+                        "`informar_agenda_navegacao` neste turno (registro mínimo de auditoria)."
+                    )[:500],
+                    "confidence": 0.75,
+                    "inputData": {
+                        "source": "appointment_query_no_navigation_tool",
+                        "pending_navigation_steps_count": len(pending),
+                    },
+                    "outputAction": {"type": "APPOINTMENT_RESPONSE"},
+                    "requiresApproval": False,
+                }
+            )
+
         # 10. Update agent state
         new_state = self._update_state(
             agent_state, symptom_analysis, message,
@@ -357,6 +415,60 @@ class AgentOrchestrator:
         )
 
         trace.actions_generated = [a.get("type", "UNKNOWN") for a in actions]
+
+        # Pós-main — questionário ativo: fusão com precedência de urgência (Layer 1 imediato > ESAS).
+        # Contrato HTTP: uma única `response` por request. Com urgência imediata, não consumimos
+        # a mensagem como resposta ao item do questionário; a continuação ESAS fica para o
+        # próximo turno (duas bolhas / segundo envio: ver todo contract-two-messages no plano).
+        if had_active_questionnaire and clinical_rules_result.is_immediate:
+            merged = self._build_layer1_override_response(
+                message=message,
+                clinical_context=clinical_context,
+                agent_state=agent_state,
+                symptom_analysis=symptom_analysis,
+                clinical_rules_result=clinical_rules_result,
+                intent_result=intent_result,
+                interrupt_kind="questionnaire",
+            )
+            trace.actions_generated = [a.get("type", "UNKNOWN") for a in merged["actions"]]
+            return {**merged, "intent": intent_result}
+
+        # Continuação literal do ESAS: não consumir o turno como próxima pergunta quando o paciente
+        # mudou de assunto (agenda) ou fez relato explícito de sintoma (prioriza multi-agent / triagem).
+        # Respostas numéricas curtas ao item costumam classificar como GENERAL/outro intent e seguem aqui.
+        if (
+            had_active_questionnaire
+            and not clinical_rules_result.is_immediate
+            and not appointment_query_branch
+            and intent != INTENT_SYMPTOM_REPORT
+        ):
+            q_out = await self._process_questionnaire_answer(
+                {
+                    "message": message,
+                    "clinical_context": clinical_context,
+                    "protocol": protocol,
+                    "conversation_history": conversation_history,
+                    "agent_state": new_state,
+                    "agent_config": agent_config,
+                },
+                has_llm_keys=has_llm_keys,
+            )
+            merged_actions = self._merge_actions(actions, q_out["actions"])
+            trace.actions_generated = [a.get("type", "UNKNOWN") for a in merged_actions]
+            return {
+                "response": q_out["response"],
+                "actions": merged_actions,
+                "symptom_analysis": symptom_analysis,
+                "clinical_disposition": clinical_rules_result.disposition,
+                "clinical_disposition_reason": clinical_rules_result.reasoning,
+                "clinical_rules_findings": [
+                    {"rule_id": f.rule_id, "disposition": f.disposition, "reason": f.reason}
+                    for f in clinical_rules_result.findings
+                ],
+                "new_state": q_out["new_state"],
+                "decisions": decisions + q_out["decisions"],
+                "intent": intent_result,
+            }
 
         return {
             "response": response_text,
@@ -500,6 +612,9 @@ class AgentOrchestrator:
             llm_config=agent_config,
         )
         if isinstance(symptom_analysis, dict):
+            sym_tok = symptom_analysis.pop("_symptomTokenUsageEvents", None)
+            if sym_tok:
+                trace.token_usage_events.extend(sym_tok)
             detected = symptom_analysis.get("detectedSymptoms", [])
             severity = symptom_analysis.get("overallSeverity")
         else:
@@ -536,7 +651,7 @@ class AgentOrchestrator:
         clinical_rules_result,
         intent_result: Dict[str, Any],
     ) -> Dict[str, Any]:
-        """Anexa sintomas + Layer 1 a respostas rápidas (saudação/agenda) após triagem mínima."""
+        """Anexa sintomas + Layer 1 a respostas rápidas (saudação) após triagem mínima."""
         out = {**result}
         out["symptom_analysis"] = symptom_analysis
         out["clinical_disposition"] = clinical_rules_result.disposition
@@ -560,9 +675,9 @@ class AgentOrchestrator:
         interrupt_kind: str,
     ) -> Dict[str, Any]:
         """
-        Resposta quando Layer 1 exige interromper um fluxo rápido (questionário ou saudação/agenda).
+        Resposta quando Layer 1 exige interromper um fluxo rápido (questionário ou saudação).
 
-        interrupt_kind: 'questionnaire' (só ER_IMMEDIATE no caller) | 'fast_path' (is_er: ER_DAYS/ER_IMMEDIATE).
+        interrupt_kind: 'questionnaire' (só ER_IMMEDIATE no caller) | 'fast_path' (saudação: is_er ER_DAYS/ER_IMMEDIATE).
         """
         patient_name = clinical_context.get("patient", {}).get("name", "")
         first_name = patient_name.split()[0] if patient_name else ""
@@ -613,6 +728,8 @@ class AgentOrchestrator:
         conversation_history: List[Dict[str, str]],
         agent_config: Dict[str, Any],
         trace=None,
+        *,
+        appointment_query: bool = False,
     ) -> tuple:
         """
         Run the multi-agent pipeline:
@@ -643,10 +760,35 @@ class AgentOrchestrator:
             "consultar_agente_navegacao": NavigationAgent(),
             "consultar_agente_questionario": QuestionnaireAgent(),
             "consultar_agente_suporte_emocional": EmotionalSupportAgent(),
+            "consultar_agente_secretaria": SchedulingSecretaryAgent(),
         }
 
         all_tool_calls: List[Dict[str, Any]] = []
         conv_messages = conversation_history + [{"role": "user", "content": message}]
+
+        orchestrator_system = build_orchestrator_prompt(
+            rag_context,
+            appointment_query=appointment_query,
+        )
+
+        if trace is not None:
+            trace.subagent_outputs = []
+            trace.orchestrator_input = {
+                "system_prompt": pack_trace_text(
+                    orchestrator_system, TRACE_ORCH_SYSTEM_MAX_CHARS
+                ),
+                "messages": [
+                    {
+                        "role": m.get("role"),
+                        "content": pack_trace_text(
+                            (m.get("content") or ""), TRACE_ORCH_MESSAGE_MAX_CHARS
+                        ),
+                    }
+                    for m in conv_messages
+                ],
+                "orchestrator_model": orch_config.get("llm_model"),
+                "subagent_model": subagent_config.get("llm_model"),
+            }
 
         async def routing_tool_executor(tool_name: str, tool_input: Dict[str, Any]) -> str:
             agent = agents.get(tool_name)
@@ -654,10 +796,13 @@ class AgentOrchestrator:
                 logger.warning(f"Unknown routing tool: {tool_name}")
                 return json.dumps({"error": f"Subagente desconhecido: {tool_name}"})
 
+            sub_ev: List[Dict[str, Any]] = []
             result = await agent.run(
                 context=rag_context,
                 conversation_history=conv_messages,
                 config=subagent_config,
+                usage_events=sub_ev if trace is not None else None,
+                usage_step=f"subagent:{tool_name}",
             )
 
             all_tool_calls.extend(result.tool_calls)
@@ -666,6 +811,31 @@ class AgentOrchestrator:
                 logger.error(f"Subagent {tool_name} error: {result.error}")
 
             if trace is not None:
+                trace.token_usage_events.extend(sub_ev)
+                tool_names: List[str] = []
+                for tc in result.tool_calls[:12]:
+                    n = tc.get("name")
+                    if not n and isinstance(tc.get("function"), dict):
+                        n = tc["function"].get("name")
+                    tool_names.append(n or "?")
+                trace.subagent_outputs.append(
+                    {
+                        "routing_tool": tool_name,
+                        "agent_name": result.agent_name,
+                        "response": pack_trace_text(
+                            result.response or "", TRACE_SUBAGENT_RESPONSE_MAX_CHARS
+                        ),
+                        "iterations": result.iterations,
+                        "tool_calls_count": len(result.tool_calls),
+                        "tool_names": tool_names,
+                        "error": result.error,
+                        "routing_tool_input": pack_trace_text(
+                            json.dumps(tool_input, ensure_ascii=False),
+                            4000,
+                        ),
+                        "token_usage": sum_usage_events(sub_ev),
+                    }
+                )
                 trace.subagents_called.append(tool_name)
 
             logger.info(
@@ -679,8 +849,6 @@ class AgentOrchestrator:
                 "acoes_identificadas": len(result.tool_calls),
             }, ensure_ascii=False)
 
-        orchestrator_system = build_orchestrator_prompt(rag_context)
-
         try:
             orch_result = await llm_provider.run_agentic_loop(
                 system_prompt=orchestrator_system,
@@ -689,6 +857,8 @@ class AgentOrchestrator:
                 config=orch_config,
                 tool_executor=routing_tool_executor,
                 max_iterations=8,
+                usage_events=(trace.token_usage_events if trace is not None else None),
+                usage_step="orchestrator_multi_agent",
             )
 
             response_text = orch_result.get("response", "").strip()
@@ -841,57 +1011,11 @@ class AgentOrchestrator:
             }],
         }
 
-    def _build_appointment_response(
-        self,
-        clinical_context: Dict[str, Any],
-        agent_state: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        """Fast-path response for appointment queries."""
-        patient_name = clinical_context.get("patient", {}).get("name", "")
-        first_name = patient_name.split()[0] if patient_name else ""
-        greeting = f"{first_name}, " if first_name else ""
-
-        nav_steps = clinical_context.get("navigationSteps", [])
-        upcoming = [
-            s for s in nav_steps
-            if s.get("status") in ("PENDING", "SCHEDULED", "IN_PROGRESS")
-        ]
-
-        if upcoming:
-            steps_text = "\n".join(
-                f"• {s.get('stepName', s.get('name', 'Etapa'))}: "
-                f"{s.get('dueDate', s.get('scheduledDate', 'data a confirmar'))}"
-                for s in upcoming[:5]
-            )
-            response = (
-                f"{greeting}aqui estão suas próximas etapas:\n\n"
-                f"{steps_text}\n\n"
-                "Se precisar remarcar ou tiver dúvidas sobre alguma etapa, é só me avisar!"
-            )
-        else:
-            response = (
-                f"{greeting}no momento não encontrei etapas pendentes no seu plano. "
-                "Se você acha que deveria ter algo agendado, posso encaminhar para "
-                "a equipe verificar. Deseja que eu faça isso?"
-            )
-
-        return {
-            "response": response,
-            "actions": [],
-            "symptom_analysis": None,
-            "new_state": agent_state,
-            "decisions": [{
-                "decisionType": "APPOINTMENT_QUERY_HANDLED",
-                "reasoning": "Appointment query detected, fast response with navigation steps",
-                "confidence": 0.8,
-                "inputData": {"upcoming_steps": len(upcoming)},
-                "outputAction": {"type": "APPOINTMENT_RESPONSE"},
-                "requiresApproval": False,
-            }],
-        }
-
     def _parse_tool_calls_to_actions(
-        self, tool_calls: List[Dict[str, Any]]
+        self,
+        tool_calls: List[Dict[str, Any]],
+        *,
+        clinical_context: Optional[Dict[str, Any]] = None,
     ) -> tuple:
         """
         Convert LLM tool calls into structured actions and decisions.
@@ -1123,10 +1247,258 @@ class AgentOrchestrator:
                     "requiresApproval": False,
                 })
 
+            elif name == "informar_agenda_navegacao":
+                pending = _pending_navigation_steps(clinical_context) if clinical_context else []
+                input_data: Dict[str, Any] = {"tool_call": tc}
+                if clinical_context is not None:
+                    input_data["pending_navigation_steps_count"] = len(pending)
+                if inp.get("notas"):
+                    input_data["notas"] = inp.get("notas")
+                if inp.get("motivo"):
+                    input_data["motivo"] = inp.get("motivo")
+                audit_detail = inp.get("motivo") or inp.get("notas") or "sem notas"
+                reasoning = (
+                    "Subagente de navegação registrou resposta sobre agenda/prazos "
+                    f"({audit_detail})."
+                )[:500]
+                decisions.append({
+                    "decisionType": "APPOINTMENT_QUERY_HANDLED",
+                    "reasoning": reasoning,
+                    "confidence": 0.85,
+                    "inputData": input_data,
+                    "outputAction": {"type": "APPOINTMENT_RESPONSE"},
+                    "requiresApproval": False,
+                })
+
+            elif name in (
+                "criar_consulta",
+                "reagendar_consulta",
+                "cancelar_consulta",
+                "confirmar_consulta",
+            ):
+                scheduling_action, scheduling_decision = self._parse_scheduling_tool_call(
+                    tool_name=name,
+                    tool_call=tc,
+                    tool_input=inp,
+                )
+                if scheduling_action is not None:
+                    actions.append(scheduling_action)
+                decisions.append(scheduling_decision)
+
             else:
                 logger.warning(f"Unknown tool call from LLM: {name}")
 
         return actions, decisions
+
+    _SCHEDULING_TOOL_TO_ACTION = {
+        "criar_consulta": "CREATE_CONSULTATION_APPOINTMENT",
+        "reagendar_consulta": "RESCHEDULE_CONSULTATION_APPOINTMENT",
+        "cancelar_consulta": "CANCEL_CONSULTATION_APPOINTMENT",
+        "confirmar_consulta": "CONFIRM_CONSULTATION_APPOINTMENT",
+    }
+
+    _SCHEDULING_TOOL_TO_DECISION = {
+        "criar_consulta": "APPOINTMENT_CREATED",
+        "reagendar_consulta": "APPOINTMENT_RESCHEDULED",
+        "cancelar_consulta": "APPOINTMENT_CANCELED",
+        "confirmar_consulta": "APPOINTMENT_CONFIRMED",
+    }
+
+    _PATIENT_INTAKE_REQUIRED_FIELDS = (
+        "name",
+        "cpf",
+        "birthDate",
+        "gender",
+        "phone",
+    )
+
+    def _parse_scheduling_tool_call(
+        self,
+        *,
+        tool_name: str,
+        tool_call: Dict[str, Any],
+        tool_input: Dict[str, Any],
+    ) -> tuple:
+        """
+        Defensive parser for the four scheduling-secretary tools.
+
+        Returns:
+            Tuple of (action_dict_or_None, decision_dict). Action is None
+            when the tool call fails defensive validation; a
+            SCHEDULING_INTAKE_PENDING decision is emitted so the backend has
+            an auditable trace but never executes a mutation with
+            incomplete data.
+        """
+        action_type = self._SCHEDULING_TOOL_TO_ACTION[tool_name]
+        decision_type = self._SCHEDULING_TOOL_TO_DECISION[tool_name]
+
+        confirmacao = bool(tool_input.get("confirmacao_paciente"))
+        missing: List[str] = []
+
+        if not confirmacao:
+            missing.append("confirmacao_paciente")
+
+        payload: Dict[str, Any] = {}
+        scheduled_professional_id = tool_input.get("scheduledProfessionalId")
+        expected_date = tool_input.get("expectedDate")
+        patient_id = tool_input.get("patientId")
+        patient_intake = tool_input.get("patientIntake") or None
+        navigation_step_id = tool_input.get("navigationStepId")
+        new_expected_date = tool_input.get("newExpectedDate")
+        new_scheduled_professional_id = tool_input.get("newScheduledProfessionalId")
+        motivo = tool_input.get("motivo") or tool_input.get("notas")
+
+        if tool_name == "criar_consulta":
+            if not scheduled_professional_id:
+                missing.append("scheduledProfessionalId")
+            if not expected_date:
+                missing.append("expectedDate")
+
+            has_existing_patient = bool(patient_id)
+            intake_ok = False
+            if isinstance(patient_intake, dict):
+                intake_missing = [
+                    f for f in self._PATIENT_INTAKE_REQUIRED_FIELDS
+                    if not patient_intake.get(f)
+                ]
+                intake_ok = not intake_missing
+                if not has_existing_patient and intake_missing:
+                    missing.extend(f"patientIntake.{f}" for f in intake_missing)
+            elif not has_existing_patient:
+                missing.append("patientId|patientIntake")
+
+            if scheduled_professional_id:
+                payload["scheduledProfessionalId"] = scheduled_professional_id
+            if expected_date:
+                payload["expectedDate"] = expected_date
+            if has_existing_patient:
+                payload["patientId"] = patient_id
+            if isinstance(patient_intake, dict) and intake_ok:
+                payload["patientIntake"] = {
+                    k: patient_intake.get(k)
+                    for k in (
+                        "name",
+                        "cpf",
+                        "birthDate",
+                        "gender",
+                        "phone",
+                        "email",
+                        "healthCoverageType",
+                    )
+                    if patient_intake.get(k) is not None
+                }
+            if tool_input.get("stepKey"):
+                payload["stepKey"] = tool_input.get("stepKey")
+            if tool_input.get("stepName"):
+                payload["stepName"] = tool_input.get("stepName")
+            if tool_input.get("notes"):
+                payload["notes"] = tool_input.get("notes")
+
+        else:
+            if not navigation_step_id:
+                missing.append("navigationStepId")
+            if navigation_step_id:
+                payload["navigationStepId"] = navigation_step_id
+
+            if tool_name == "reagendar_consulta":
+                if not new_expected_date:
+                    missing.append("newExpectedDate")
+                if new_expected_date:
+                    payload["newExpectedDate"] = new_expected_date
+                if new_scheduled_professional_id:
+                    payload["newScheduledProfessionalId"] = new_scheduled_professional_id
+                if motivo:
+                    payload["motivo"] = motivo
+
+            elif tool_name == "cancelar_consulta":
+                if motivo:
+                    payload["motivo"] = motivo
+
+            elif tool_name == "confirmar_consulta":
+                if tool_input.get("notas"):
+                    payload["notas"] = tool_input.get("notas")
+
+        if missing:
+            sanitized_input = self._sanitize_scheduling_input(tool_input)
+            reasoning = (
+                f"Secretária solicitou {tool_name} mas faltam dados ou confirmação "
+                f"explícita do paciente ({', '.join(missing[:6])}). "
+                "Nenhuma mutação foi emitida; o agente deve continuar coletando."
+            )[:500]
+            decision = {
+                "decisionType": "SCHEDULING_INTAKE_PENDING",
+                "reasoning": reasoning,
+                "confidence": 0.6,
+                "inputData": {
+                    "tool_name": tool_name,
+                    "missing_fields": missing,
+                    "tool_call": {
+                        "name": tool_call.get("name"),
+                        "input": sanitized_input,
+                    },
+                },
+                "outputAction": {
+                    "type": "SCHEDULING_INTAKE_PENDING",
+                    "payload": {
+                        "tool_name": tool_name,
+                        "missing_fields": missing,
+                    },
+                },
+                "requiresApproval": False,
+            }
+            return None, decision
+
+        payload["confirmedByPatient"] = True
+        sanitized_payload = self._sanitize_scheduling_payload(payload)
+        action = {
+            "type": action_type,
+            "payload": payload,
+            "requiresApproval": False,
+            "source": "llm_tool_call",
+        }
+        decision = {
+            "decisionType": decision_type,
+            "reasoning": (
+                f"Secretária validou tool {tool_name} com todos os campos obrigatórios "
+                "e confirmação explícita do paciente."
+            )[:500],
+            "confidence": 0.9,
+            "inputData": {
+                "tool_name": tool_name,
+                "payload_redacted": sanitized_payload,
+            },
+            "outputAction": {"type": action_type, "payload": payload},
+            "requiresApproval": False,
+        }
+        return action, decision
+
+    @staticmethod
+    def _sanitize_scheduling_input(tool_input: Dict[str, Any]) -> Dict[str, Any]:
+        """Remove PII bruta (cpf, telefone, email) antes de gravar no trace/decision."""
+        if not isinstance(tool_input, dict):
+            return {}
+        sanitized = dict(tool_input)
+        intake = sanitized.get("patientIntake")
+        if isinstance(intake, dict):
+            sanitized["patientIntake"] = {
+                k: ("***" if k in ("cpf", "phone", "email") and v else v)
+                for k, v in intake.items()
+            }
+        return sanitized
+
+    @staticmethod
+    def _sanitize_scheduling_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Mesma sanitização aplicada ao payload da decisão (auditoria sem PII)."""
+        if not isinstance(payload, dict):
+            return {}
+        sanitized = dict(payload)
+        intake = sanitized.get("patientIntake")
+        if isinstance(intake, dict):
+            sanitized["patientIntake"] = {
+                k: ("***" if k in ("cpf", "phone", "email") and v else v)
+                for k, v in intake.items()
+            }
+        return sanitized
 
     def _merge_actions(
         self,
@@ -1176,6 +1548,21 @@ class AgentOrchestrator:
                 payload.get("days", ""),
                 payload.get("frequency", ""),
                 payload.get("reason", ""),
+            )
+        elif action_type == "CREATE_CONSULTATION_APPOINTMENT":
+            identifier = (
+                payload.get("scheduledProfessionalId", ""),
+                payload.get("expectedDate", ""),
+                payload.get("patientId", "") or "intake",
+            )
+        elif action_type in (
+            "RESCHEDULE_CONSULTATION_APPOINTMENT",
+            "CANCEL_CONSULTATION_APPOINTMENT",
+            "CONFIRM_CONSULTATION_APPOINTMENT",
+        ):
+            identifier = (
+                payload.get("navigationStepId", ""),
+                payload.get("newExpectedDate", ""),
             )
         elif "ALERT" in action_type:
             identifier = (

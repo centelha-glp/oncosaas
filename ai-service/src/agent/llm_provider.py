@@ -15,6 +15,57 @@ Supports Anthropic (Claude) and OpenAI (GPT-4), configurable per tenant.
 logger = logging.getLogger(__name__)
 
 
+def _usage_from_anthropic_message(response: Any) -> Dict[str, int]:
+    u = getattr(response, "usage", None)
+    if u is None:
+        return {"input_tokens": 0, "output_tokens": 0}
+    return {
+        "input_tokens": int(getattr(u, "input_tokens", 0) or 0),
+        "output_tokens": int(getattr(u, "output_tokens", 0) or 0),
+    }
+
+
+def _usage_from_openai_chat(response: Any) -> Dict[str, int]:
+    u = getattr(response, "usage", None)
+    if u is None:
+        return {"input_tokens": 0, "output_tokens": 0}
+    # OpenAI: prompt_tokens / completion_tokens
+    pt = getattr(u, "prompt_tokens", None)
+    ct = getattr(u, "completion_tokens", None)
+    if pt is not None or ct is not None:
+        return {
+            "input_tokens": int(pt or 0),
+            "output_tokens": int(ct or 0),
+        }
+    return {"input_tokens": 0, "output_tokens": 0}
+
+
+def _append_usage_event(
+    usage_events: Optional[List[Dict[str, Any]]],
+    *,
+    step: str,
+    provider: str,
+    model: str,
+    input_tokens: int,
+    output_tokens: int,
+    extra: Optional[Dict[str, Any]] = None,
+) -> None:
+    if usage_events is None:
+        return
+    from .llm_pricing import usage_event as _usage_event
+
+    usage_events.append(
+        _usage_event(
+            step=step,
+            provider=provider,
+            model=model,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            extra=extra,
+        )
+    )
+
+
 class LLMProvider:
     """Abstração para múltiplos provedores LLM, configurável por tenant."""
 
@@ -104,6 +155,9 @@ class LLMProvider:
         system_prompt: str,
         messages: List[Dict[str, str]],
         config: Optional[Dict[str, Any]] = None,
+        *,
+        usage_events: Optional[List[Dict[str, Any]]] = None,
+        usage_step: str = "generate",
     ) -> str:
         """
         Generate a response using the configured LLM provider.
@@ -112,6 +166,9 @@ class LLMProvider:
             system_prompt: System prompt for the LLM
             messages: Conversation history [{role, content}]
             config: Agent configuration with provider details
+            usage_events: Lista opcional; cada chamada bem-sucedida acrescenta um evento
+                com tokens e custo estimado (para trace / billing interno).
+            usage_step: Rótulo do passo (ex.: intent_classification) nos eventos.
 
         Returns:
             Generated text response
@@ -123,11 +180,32 @@ class LLMProvider:
         # Try primary provider
         try:
             if provider == "anthropic":
-                return await self._call_anthropic(system_prompt, messages, model, config)
-            elif provider == "openai":
-                return await self._call_openai(system_prompt, messages, model, config)
-            else:
-                raise ValueError(f"Provider não suportado: {provider}")
+                text, usage = await self._call_anthropic(
+                    system_prompt, messages, model, config
+                )
+                _append_usage_event(
+                    usage_events,
+                    step=usage_step,
+                    provider="anthropic",
+                    model=model,
+                    input_tokens=usage["input_tokens"],
+                    output_tokens=usage["output_tokens"],
+                )
+                return text
+            if provider == "openai":
+                text, usage = await self._call_openai(
+                    system_prompt, messages, model, config
+                )
+                _append_usage_event(
+                    usage_events,
+                    step=usage_step,
+                    provider="openai",
+                    model=model,
+                    input_tokens=usage["input_tokens"],
+                    output_tokens=usage["output_tokens"],
+                )
+                return text
+            raise ValueError(f"Provider não suportado: {provider}")
         except Exception as e:
             logger.error(
                 "Primary LLM (%s/%s) failed: %s (use fallback or safe message)",
@@ -145,13 +223,31 @@ class LLMProvider:
                 logger.info(f"Trying fallback: {fallback_provider}/{fallback_model}")
                 try:
                     if fallback_provider == "anthropic":
-                        return await self._call_anthropic(
+                        text, usage = await self._call_anthropic(
                             system_prompt, messages, fallback_model, config
                         )
-                    elif fallback_provider == "openai":
-                        return await self._call_openai(
+                        _append_usage_event(
+                            usage_events,
+                            step=f"{usage_step}_fallback",
+                            provider="anthropic",
+                            model=fallback_model,
+                            input_tokens=usage["input_tokens"],
+                            output_tokens=usage["output_tokens"],
+                        )
+                        return text
+                    if fallback_provider == "openai":
+                        text, usage = await self._call_openai(
                             system_prompt, messages, fallback_model, config
                         )
+                        _append_usage_event(
+                            usage_events,
+                            step=f"{usage_step}_fallback",
+                            provider="openai",
+                            model=fallback_model,
+                            input_tokens=usage["input_tokens"],
+                            output_tokens=usage["output_tokens"],
+                        )
+                        return text
                 except Exception as fallback_error:
                     logger.error(f"Fallback LLM also failed: {fallback_error}")
 
@@ -165,6 +261,9 @@ class LLMProvider:
         messages: List[Dict[str, str]],
         tools: List[Dict[str, Any]],
         config: Optional[Dict[str, Any]] = None,
+        *,
+        usage_events: Optional[List[Dict[str, Any]]] = None,
+        usage_step: str = "generate_with_tools",
     ) -> Dict[str, Any]:
         """
         Generate a response with tool use for structured extraction.
@@ -176,7 +275,7 @@ class LLMProvider:
             config: Agent configuration
 
         Returns:
-            Dict with response text and any tool calls
+            Dict with response text, tool_calls, and optional usage (input/output tokens).
         """
         config = config or {}
         provider = config.get("llm_provider", "anthropic")
@@ -184,15 +283,18 @@ class LLMProvider:
 
         if provider == "anthropic":
             return await self._call_anthropic_with_tools(
-                system_prompt, messages, tools, model, config
+                system_prompt, messages, tools, model, config,
+                usage_events=usage_events,
+                usage_step=usage_step,
             )
-        elif provider == "openai":
+        if provider == "openai":
             return await self._call_openai_with_tools(
-                system_prompt, messages, tools, model, config
+                system_prompt, messages, tools, model, config,
+                usage_events=usage_events,
+                usage_step=usage_step,
             )
-        else:
-            logger.warning("generate_with_tools: unsupported provider %s, using fallback", provider)
-            return {"response": self._fallback_response(), "tool_calls": []}
+        logger.warning("generate_with_tools: unsupported provider %s, using fallback", provider)
+        return {"response": self._fallback_response(), "tool_calls": []}
 
     async def _call_anthropic(
         self,
@@ -200,8 +302,8 @@ class LLMProvider:
         messages: List[Dict[str, str]],
         model: str,
         config: Dict[str, Any],
-    ) -> str:
-        """Call Anthropic Claude API."""
+    ) -> tuple:
+        """Call Anthropic Claude API. Retorna (texto, usage dict)."""
         api_key = config.get("anthropic_api_key")
         client = self._get_anthropic_client(api_key)
 
@@ -222,7 +324,9 @@ class LLMProvider:
             messages=anthropic_messages,
         )
 
-        return response.content[0].text
+        text = response.content[0].text if response.content else ""
+        usage = _usage_from_anthropic_message(response)
+        return text, usage
 
     async def _call_openai(
         self,
@@ -230,8 +334,8 @@ class LLMProvider:
         messages: List[Dict[str, str]],
         model: str,
         config: Dict[str, Any],
-    ) -> str:
-        """Call OpenAI GPT API."""
+    ) -> tuple:
+        """Call OpenAI GPT API. Retorna (texto, usage dict)."""
         api_key = config.get("openai_api_key")
         client = self._get_openai_client(api_key)
 
@@ -250,7 +354,9 @@ class LLMProvider:
             max_tokens=1024,
         )
 
-        return response.choices[0].message.content or ""
+        text = response.choices[0].message.content or ""
+        usage = _usage_from_openai_chat(response)
+        return text, usage
 
     def _anthropic_block_to_assistant_param(self, block: Any) -> Optional[Dict[str, Any]]:
         """
@@ -310,6 +416,9 @@ class LLMProvider:
         tools: List[Dict[str, Any]],
         model: str,
         config: Dict[str, Any],
+        *,
+        usage_events: Optional[List[Dict[str, Any]]] = None,
+        usage_step: str = "generate_with_tools",
     ) -> Dict[str, Any]:
         """Call Anthropic with tool use."""
         api_key = config.get("anthropic_api_key")
@@ -321,8 +430,16 @@ class LLMProvider:
         anthropic_tools = self._tools_openai_to_anthropic(tools)
         if not anthropic_tools:
             logger.warning("No valid tools after conversion; calling without tools")
-            text = await self._call_anthropic(system_prompt, messages, model, config)
-            return {"response": text, "tool_calls": []}
+            text, usage = await self._call_anthropic(system_prompt, messages, model, config)
+            _append_usage_event(
+                usage_events,
+                step=usage_step,
+                provider="anthropic",
+                model=model,
+                input_tokens=usage["input_tokens"],
+                output_tokens=usage["output_tokens"],
+            )
+            return {"response": text, "tool_calls": [], "usage": usage}
 
         anthropic_messages = [
             {"role": m["role"], "content": m["content"]}
@@ -336,6 +453,16 @@ class LLMProvider:
             system=system_prompt,
             messages=anthropic_messages,
             tools=anthropic_tools,
+        )
+
+        usage = _usage_from_anthropic_message(response)
+        _append_usage_event(
+            usage_events,
+            step=usage_step,
+            provider="anthropic",
+            model=model,
+            input_tokens=usage["input_tokens"],
+            output_tokens=usage["output_tokens"],
         )
 
         text_response = ""
@@ -353,7 +480,7 @@ class LLMProvider:
                     "function": {"name": block.name, "arguments": args_str},
                 })
 
-        return {"response": text_response, "tool_calls": tool_calls}
+        return {"response": text_response, "tool_calls": tool_calls, "usage": usage}
 
     async def _call_openai_with_tools(
         self,
@@ -362,6 +489,9 @@ class LLMProvider:
         tools: List[Dict[str, Any]],
         model: str,
         config: Dict[str, Any],
+        *,
+        usage_events: Optional[List[Dict[str, Any]]] = None,
+        usage_step: str = "generate_with_tools",
     ) -> Dict[str, Any]:
         """Call OpenAI with function calling."""
         api_key = config.get("openai_api_key")
@@ -398,6 +528,16 @@ class LLMProvider:
             max_tokens=1024,
         )
 
+        usage = _usage_from_openai_chat(response)
+        _append_usage_event(
+            usage_events,
+            step=usage_step,
+            provider="openai",
+            model=model,
+            input_tokens=usage["input_tokens"],
+            output_tokens=usage["output_tokens"],
+        )
+
         choice = response.choices[0]
         text_response = choice.message.content or ""
         tool_calls = []
@@ -413,7 +553,7 @@ class LLMProvider:
                     },
                 })
 
-        return {"response": text_response, "tool_calls": tool_calls}
+        return {"response": text_response, "tool_calls": tool_calls, "usage": usage}
 
     def _tools_to_openai_format(self, tools: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Convert tools to OpenAI API format (type/function with name, description, parameters)."""
@@ -442,6 +582,9 @@ class LLMProvider:
         config: Dict[str, Any],
         tool_executor: Optional[Any],
         max_iterations: int,
+        *,
+        usage_events: Optional[List[Dict[str, Any]]] = None,
+        usage_step: str = "run_agentic_loop_openai",
     ) -> Dict[str, Any]:
         """Run agentic loop using OpenAI (tool use + multiple turns). Used as fallback when Anthropic is unavailable."""
         client = self._get_openai_client(config.get("openai_api_key"))
@@ -465,6 +608,8 @@ class LLMProvider:
         all_tool_calls: List[Dict[str, Any]] = []
         final_text = ""
         iterations = 0
+        total_in = 0
+        total_out = 0
 
         for iteration in range(max_iterations):
             iterations = iteration + 1
@@ -481,6 +626,10 @@ class LLMProvider:
             except Exception as e:
                 logger.error("OpenAI agentic loop error (iteration %s): %s", iterations, e)
                 break
+
+            u = _usage_from_openai_chat(response)
+            total_in += u["input_tokens"]
+            total_out += u["output_tokens"]
 
             msg = response.choices[0].message
             final_text = (msg.content or "").strip()
@@ -525,10 +674,27 @@ class LLMProvider:
                     "content": result_str if isinstance(result_str, str) else json.dumps(result_str),
                 })
 
+        if usage_events is not None and (total_in or total_out):
+            _append_usage_event(
+                usage_events,
+                step=usage_step,
+                provider="openai",
+                model=model,
+                input_tokens=total_in,
+                output_tokens=total_out,
+                extra={"iterations": iterations},
+            )
+
+        usage_summary = {
+            "input_tokens": total_in,
+            "output_tokens": total_out,
+            "total_tokens": total_in + total_out,
+        }
         return {
             "response": final_text,
             "tool_calls": all_tool_calls,
             "iterations": iterations,
+            "usage": usage_summary,
         }
 
     async def run_agentic_loop(
@@ -539,6 +705,9 @@ class LLMProvider:
         config: Optional[Dict[str, Any]] = None,
         tool_executor: Optional[Any] = None,
         max_iterations: int = 8,
+        *,
+        usage_events: Optional[List[Dict[str, Any]]] = None,
+        usage_step: str = "run_agentic_loop",
     ) -> Dict[str, Any]:
         """
         Run multi-agent loop with tool use. Prefers Anthropic (Claude), falls back to OpenAI.
@@ -547,7 +716,8 @@ class LLMProvider:
         it is called for each tool use and the result is returned to the LLM.
 
         Returns:
-            {"response": str, "tool_calls": [...], "iterations": int}
+            Dict com response, tool_calls, iterations, provider, model e usage agregado
+            (input_tokens, output_tokens, total_tokens) quando disponível.
         """
         config = config or {}
         result: Dict[str, Any] = {"response": "", "tool_calls": [], "iterations": 0}
@@ -570,6 +740,9 @@ class LLMProvider:
                 if config.get("use_adaptive_thinking") and model in ("claude-opus-4-6", "claude-sonnet-4-6"):
                     extra_params["thinking"] = {"type": "adaptive"}
 
+                total_in = 0
+                total_out = 0
+
                 for iteration in range(max_iterations):
                     iterations = iteration + 1
                     create_kwargs: Dict[str, Any] = dict(
@@ -582,6 +755,10 @@ class LLMProvider:
                     if anthropic_tools:
                         create_kwargs["tools"] = anthropic_tools
                     response = await client_anthropic.messages.create(**create_kwargs)
+
+                    u = _usage_from_anthropic_message(response)
+                    total_in += u["input_tokens"]
+                    total_out += u["output_tokens"]
 
                     text_parts = []
                     tool_use_blocks = []
@@ -626,12 +803,29 @@ class LLMProvider:
                         })
                     working_messages.append({"role": "user", "content": tool_results})
 
+                if usage_events is not None and (total_in or total_out):
+                    _append_usage_event(
+                        usage_events,
+                        step=usage_step,
+                        provider="anthropic",
+                        model=model,
+                        input_tokens=total_in,
+                        output_tokens=total_out,
+                        extra={"iterations": iterations},
+                    )
+
+                usage_summary = {
+                    "input_tokens": total_in,
+                    "output_tokens": total_out,
+                    "total_tokens": total_in + total_out,
+                }
                 result = {
                     "response": final_text,
                     "tool_calls": all_tool_calls,
                     "iterations": iterations,
                     "provider": "anthropic",
                     "model": model,
+                    "usage": usage_summary,
                 }
                 if result["response"]:
                     return result
@@ -648,6 +842,8 @@ class LLMProvider:
                     config=config,
                     tool_executor=tool_executor,
                     max_iterations=max_iterations,
+                    usage_events=usage_events,
+                    usage_step=usage_step,
                 )
                 if result.get("response"):
                     result["provider"] = "openai"
