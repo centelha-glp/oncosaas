@@ -201,6 +201,42 @@ describe('PatientsService', () => {
         expect.objectContaining({ take: 100 })
       );
     });
+
+    it('deve incluir cancerDiagnoses quando includeCancerDiagnoses for true', async () => {
+      mockPrisma.patient.findMany.mockResolvedValue([]);
+      mockPrisma.alert.groupBy.mockResolvedValue([]);
+
+      await service.findAll(TENANT, { includeCancerDiagnoses: true });
+
+      expect(mockPrisma.patient.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          include: expect.objectContaining({
+            cancerDiagnoses: {
+              where: { isActive: true, primaryDiagnosisId: null },
+              orderBy: [{ isPrimary: 'desc' }, { diagnosisDate: 'desc' }],
+              take: 20,
+            },
+          }),
+        })
+      );
+    });
+
+    it('não deve incluir cancerDiagnoses quando includeCancerDiagnoses for omitido ou false', async () => {
+      mockPrisma.patient.findMany.mockResolvedValue([]);
+      mockPrisma.alert.groupBy.mockResolvedValue([]);
+
+      await service.findAll(TENANT);
+
+      const call = mockPrisma.patient.findMany.mock.calls[0][0];
+      expect(call.include).not.toHaveProperty('cancerDiagnoses');
+
+      mockPrisma.patient.findMany.mockClear();
+      mockPrisma.alert.groupBy.mockResolvedValue([]);
+      await service.findAll(TENANT, { includeCancerDiagnoses: false });
+
+      const call2 = mockPrisma.patient.findMany.mock.calls[0][0];
+      expect(call2.include).not.toHaveProperty('cancerDiagnoses');
+    });
   });
 
   // ─── findOne ────────────────────────────────────────────────────────────────

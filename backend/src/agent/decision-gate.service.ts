@@ -2,6 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AgentDecisionType } from '@generated/prisma/client';
 import { AgentDecision } from './interfaces/agent-decision.interface';
+import { isSchedulingSecretaryOutputActionType } from './scheduling-secretary.constants';
+import { schedulingSecretaryPayloadValidForAutoApprove } from './scheduling-secretary-gate';
 
 /**
  * Actions the agent can take autonomously
@@ -74,7 +76,26 @@ export class DecisionGateService {
       if (decision.requiresApproval || NEEDS_APPROVAL_ACTIONS.has(actionType)) {
         decision.requiresApproval = true;
         needsApproval.push(decision);
-      } else if (AUTO_APPROVED_ACTIONS.has(actionType)) {
+        continue;
+      }
+
+      if (isSchedulingSecretaryOutputActionType(actionType)) {
+        if (
+          schedulingSecretaryPayloadValidForAutoApprove(actionType, decision)
+        ) {
+          decision.requiresApproval = false;
+          autoApproved.push(decision);
+        } else {
+          this.logger.warn(
+            `Scheduling secretary action ${actionType} failed gate validation, requiring approval`
+          );
+          decision.requiresApproval = true;
+          needsApproval.push(decision);
+        }
+        continue;
+      }
+
+      if (AUTO_APPROVED_ACTIONS.has(actionType)) {
         decision.requiresApproval = false;
         autoApproved.push(decision);
       } else {

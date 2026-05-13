@@ -9,7 +9,7 @@ disable-model-invocation: false
 ## Delegar
 
 - **Task** `subagent_type`: `github-organizer`
-- **Definição:** `.cursor/agents/github-organizer.md`
+- **Definição:** `.cursor/agents/github-organizer-agent.md`
 
 ## Regras (@)
 
@@ -18,7 +18,7 @@ disable-model-invocation: false
 
 ## Antes de commit / PR (obrigatório)
 
-Seguir o **passo 0** em `.cursor/agents/github-organizer.md`:
+Seguir o **passo 0** em `.cursor/agents/github-organizer-agent.md`:
 
 1. `git fetch origin` e branch atual.
 2. Não commitar em `main` — criar branch a partir de `origin/main`.

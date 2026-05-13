@@ -1,4 +1,8 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import {
   JourneyStage,
   PatientStatus,
@@ -6,6 +10,7 @@ import {
   AppointmentConfirmationStatus,
   ClinicalSubrole,
   UserRole,
+  ConsultationAttendance,
 } from '@generated/prisma/client';
 import { AlertsService } from '../alerts/alerts.service';
 import { ChannelGatewayService } from '../channel-gateway/channel-gateway.service';
@@ -55,6 +60,10 @@ type MockPrisma = {
   };
   user: {
     findFirst: jest.Mock;
+    findMany: jest.Mock;
+  };
+  cancerDiagnosis: {
+    findFirst: jest.Mock;
   };
 };
 
@@ -63,6 +72,8 @@ const OTHER_TENANT = 'tenant-xyz';
 const PATIENT_ID = 'patient-uuid-1';
 const JOURNEY_ID = 'journey-uuid-1';
 const PROFESSIONAL_ID = 'professional-uuid-1';
+const OTHER_ONCOLOGIST_ID = 'other-oncologist-uuid';
+const ACTING_ONCOLOGIST_ID = 'acting-oncologist-uuid';
 
 const basePatient = {
   cancerType: 'bladder',
@@ -122,6 +133,7 @@ describe('OncologyNavigationService', () => {
           role: UserRole.ONCOLOGIST,
           clinicalSubrole: null,
         }),
+        findMany: jest.fn().mockResolvedValue([]),
       },
       consultationAgendaConfig: {
         findFirst: jest.fn().mockResolvedValue(null),
@@ -132,6 +144,9 @@ describe('OncologyNavigationService', () => {
         create: jest.fn(),
         deleteMany: jest.fn(),
         count: jest.fn().mockResolvedValue(0),
+      },
+      cancerDiagnosis: {
+        findFirst: jest.fn().mockResolvedValue(null),
       },
     };
 
@@ -151,6 +166,42 @@ describe('OncologyNavigationService', () => {
       consultationAgendaAvailability,
       mockChannelGateway as unknown as ChannelGatewayService
     );
+  });
+
+  describe('listConsultationAgendaSchedulableProfessionals', () => {
+    it('filtra por tenantId e exclui perfis sem slot na agenda', async () => {
+      mockPrisma.user.findMany.mockResolvedValueOnce([
+        {
+          id: 'u-onc',
+          name: 'Onco',
+          role: UserRole.ONCOLOGIST,
+          clinicalSubrole: null,
+        },
+        {
+          id: 'u-nurse',
+          name: 'Enf',
+          role: UserRole.NURSE,
+          clinicalSubrole: null,
+        },
+        {
+          id: 'u-admin-bare',
+          name: 'Admin',
+          role: UserRole.ADMIN,
+          clinicalSubrole: null,
+        },
+      ]);
+
+      const out = await service.listConsultationAgendaSchedulableProfessionals(
+        TENANT
+      );
+
+      expect(mockPrisma.user.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ tenantId: TENANT }),
+        })
+      );
+      expect(out.map((r) => r.id).sort()).toEqual(['u-nurse', 'u-onc'].sort());
+    });
   });
 
   // ─── getAvailableStepTemplates ───────────────────────────────────────────────
@@ -298,6 +349,118 @@ describe('OncologyNavigationService', () => {
       for (const t of templates) {
         expect(t.journeyStage).toBe(JourneyStage.TREATMENT);
       }
+    });
+  });
+
+  // ─── createStep ────────────────────────────────────────────────────────────────
+
+  describe('createStep', () => {
+    const baseCreateDto = {
+      patientId: PATIENT_ID,
+      journeyStage: JourneyStage.TREATMENT,
+      stepKey: 'lab_work',
+      stepName: 'Exame laboratorial',
+    };
+
+    it('throws NotFoundException when patient does not exist', async () => {
+      mockPrisma.patient.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.createStep({ ...baseCreateDto, cancerType: 'bladder' }, TENANT)
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('persists cancerType "other" when omitted and patient has no type nor diagnosis', async () => {
+      mockPrisma.patient.findFirst.mockResolvedValue({
+        id: PATIENT_ID,
+        cancerType: null,
+      });
+      mockPrisma.patientJourney.findUnique.mockResolvedValue(baseJourney);
+      mockPrisma.cancerDiagnosis.findFirst.mockResolvedValue(null);
+      mockPrisma.navigationStep.create.mockResolvedValue({
+        id: 'step-new',
+        tenantId: TENANT,
+        patientId: PATIENT_ID,
+        cancerType: 'other',
+      });
+
+      await service.createStep({ ...baseCreateDto }, TENANT);
+
+      expect(mockPrisma.cancerDiagnosis.findFirst).toHaveBeenCalled();
+      expect(mockPrisma.navigationStep.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ cancerType: 'other' }),
+        })
+      );
+    });
+
+    it('uses patient.cancerType when dto omits cancerType', async () => {
+      mockPrisma.patient.findFirst.mockResolvedValue({
+        id: PATIENT_ID,
+        cancerType: 'bladder',
+      });
+      mockPrisma.patientJourney.findUnique.mockResolvedValue(baseJourney);
+      mockPrisma.navigationStep.create.mockResolvedValue({
+        id: 'step-new',
+        tenantId: TENANT,
+        patientId: PATIENT_ID,
+        cancerType: 'bladder',
+      });
+
+      await service.createStep({ ...baseCreateDto }, TENANT);
+
+      expect(mockPrisma.navigationStep.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ cancerType: 'bladder' }),
+        })
+      );
+    });
+
+    it('prefers dto cancerType over patient record', async () => {
+      mockPrisma.patient.findFirst.mockResolvedValue({
+        id: PATIENT_ID,
+        cancerType: 'bladder',
+      });
+      mockPrisma.patientJourney.findUnique.mockResolvedValue(baseJourney);
+      mockPrisma.navigationStep.create.mockResolvedValue({
+        id: 'step-new',
+        tenantId: TENANT,
+        patientId: PATIENT_ID,
+        cancerType: 'lung',
+      });
+
+      await service.createStep({ ...baseCreateDto, cancerType: 'lung' }, TENANT);
+
+      expect(mockPrisma.navigationStep.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ cancerType: 'lung' }),
+        })
+      );
+    });
+
+    it('uses active diagnosis cancerType when patient has no cancerType', async () => {
+      mockPrisma.patient.findFirst.mockResolvedValue({
+        id: PATIENT_ID,
+        cancerType: null,
+      });
+      mockPrisma.patientJourney.findUnique.mockResolvedValue(baseJourney);
+      mockPrisma.cancerDiagnosis.findFirst.mockResolvedValue({
+        cancerType: 'colorectal',
+      });
+      mockPrisma.navigationStep.create.mockResolvedValue({
+        id: 'step-new',
+        tenantId: TENANT,
+        patientId: PATIENT_ID,
+        cancerType: 'colorectal',
+      });
+
+      await service.createStep({ ...baseCreateDto }, TENANT);
+
+      expect(mockPrisma.navigationStep.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ cancerType: 'colorectal' }),
+        })
+      );
     });
   });
 
@@ -958,6 +1121,14 @@ describe('OncologyNavigationService', () => {
       actualDate: null,
       appointmentConfirmationStatus:
         AppointmentConfirmationStatus.NOT_APPLICABLE,
+      consultationCheckedInAt: null,
+      consultationCheckedInByUserId: null,
+      consultationStartedAt: null,
+      consultationStartedByUserId: null,
+      consultationWaitingDurationMinutes: null,
+      consultationLateDurationMinutes: null,
+      consultationAttendance: ConsultationAttendance.EXPECTED,
+      consultationNoShowSource: null,
       patient: { id: PATIENT_ID, name: 'Paciente Teste' },
       scheduledProfessional: {
         id: PROFESSIONAL_ID,
@@ -1115,6 +1286,117 @@ describe('OncologyNavigationService', () => {
       expect(page.totalPages).toBe(0);
       expect(page.items).toEqual([]);
     });
+
+    it('inclui queueLabel e campos de fila no item mapeado', async () => {
+      const futureRow = {
+        ...agendaRow,
+        expectedDate: new Date('2099-05-10T12:00:00.000Z'),
+      };
+      mockPrisma.$transaction.mockResolvedValue([1, [futureRow]]);
+
+      const page = await service.getConsultationAgenda(TENANT, {
+        from: '2099-05-01',
+        to: '2099-05-31',
+      });
+
+      expect(page.items[0]).toMatchObject({
+        queueLabel: 'SCHEDULED',
+        consultationAttendance: ConsultationAttendance.EXPECTED,
+        waitingMinutesLive: null,
+      });
+    });
+  });
+
+  describe('patchConsultationCheckIn', () => {
+    it('rejeita quando o papel não é secretaria nem admin', async () => {
+      await expect(
+        service.patchConsultationCheckIn('s1', TENANT, {
+          id: PROFESSIONAL_ID,
+          role: UserRole.ONCOLOGIST,
+        })
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('grava check-in e atraso quando após expectedDate', async () => {
+      const step = {
+        id: 's1',
+        tenantId: TENANT,
+        patientId: PATIENT_ID,
+        stepKey: 'specialist_consultation',
+        status: NavigationStepStatus.PENDING,
+        isCompleted: false,
+        consultationAttendance: ConsultationAttendance.EXPECTED,
+        consultationCheckedInAt: null,
+        expectedDate: new Date('2020-01-01T10:00:00.000Z'),
+        scheduledProfessionalId: PROFESSIONAL_ID,
+      };
+      mockPrisma.navigationStep.findFirst.mockResolvedValue(step);
+      mockPrisma.navigationStep.update.mockResolvedValue({
+        ...step,
+        consultationCheckedInAt: new Date(),
+        consultationCheckedInByUserId: 'sec-1',
+        consultationLateDurationMinutes: 1,
+      });
+
+      await service.patchConsultationCheckIn('s1', TENANT, {
+        id: 'sec-1',
+        role: UserRole.SECRETARY,
+      });
+
+      expect(mockPrisma.navigationStep.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 's1', tenantId: TENANT },
+          data: expect.objectContaining({
+            consultationCheckedInByUserId: 'sec-1',
+            consultationCheckedInAt: expect.any(Date),
+          }),
+        })
+      );
+    });
+  });
+
+  describe('patchConsultationStart', () => {
+    it('rejeita quando o utilizador não é o profissional agendado', async () => {
+      const step = {
+        id: 's1',
+        tenantId: TENANT,
+        patientId: PATIENT_ID,
+        stepKey: 'specialist_consultation',
+        status: NavigationStepStatus.PENDING,
+        isCompleted: false,
+        consultationAttendance: ConsultationAttendance.EXPECTED,
+        consultationCheckedInAt: new Date(),
+        consultationStartedAt: null,
+        scheduledProfessionalId: PROFESSIONAL_ID,
+      };
+      mockPrisma.navigationStep.findFirst.mockResolvedValue(step);
+
+      await expect(
+        service.patchConsultationStart('s1', TENANT, {
+          id: OTHER_ONCOLOGIST_ID,
+          role: UserRole.ONCOLOGIST,
+        })
+      ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  describe('getConsultationAgendaMetrics', () => {
+    it('agrega contagens com tenantId no where', async () => {
+      mockPrisma.navigationStep.count.mockResolvedValue(0);
+      mockPrisma.navigationStep.findMany.mockResolvedValue([]);
+
+      await service.getConsultationAgendaMetrics(TENANT, {
+        from: '2026-05-01',
+        to: '2026-05-31',
+      });
+
+      expect(mockPrisma.navigationStep.count).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ tenantId: TENANT }),
+        })
+      );
+      expect(mockPrisma.navigationStep.count).toHaveBeenCalledTimes(2);
+    });
   });
 
   describe('updateStep — journeyStage (mover etapa)', () => {
@@ -1175,6 +1457,155 @@ describe('OncologyNavigationService', () => {
           dueDate: null,
         }),
       });
+    });
+
+    it('permite a oncologist mover consulta agendada entre fases mesmo não sendo o profissional do slot', async () => {
+      const existing = {
+        id: 'step-move-consult',
+        tenantId: TENANT,
+        patientId: PATIENT_ID,
+        cancerType: 'bladder',
+        stepKey: 'specialist_consultation',
+        journeyStage: JourneyStage.TREATMENT,
+        scheduledProfessionalId: OTHER_ONCOLOGIST_ID,
+        isCompleted: false,
+        dependsOnStepKey: null as string | null,
+        relativeDaysMin: null as number | null,
+        relativeDaysMax: null as number | null,
+        expectedDate: new Date('2026-06-20T12:00:00.000Z'),
+        dueDate: null,
+        status: NavigationStepStatus.PENDING,
+        actualDate: null,
+        completedAt: null,
+        appointmentConfirmationStatus: AppointmentConfirmationStatus.NOT_APPLICABLE,
+      };
+      mockPrisma.navigationStep.findFirst.mockResolvedValue(existing);
+      mockPrisma.navigationStep.aggregate.mockResolvedValue({
+        _max: { stepOrder: 2 },
+      });
+      mockPrisma.navigationStep.update.mockResolvedValue({
+        ...existing,
+        journeyStage: JourneyStage.DIAGNOSIS,
+        stepOrder: 3,
+        expectedDate: null,
+        dueDate: null,
+      });
+
+      await service.updateStep(
+        'step-move-consult',
+        { journeyStage: JourneyStage.DIAGNOSIS },
+        TENANT,
+        { id: ACTING_ONCOLOGIST_ID, role: UserRole.ONCOLOGIST }
+      );
+
+      expect(mockPrisma.navigationStep.update).toHaveBeenCalled();
+    });
+
+    it('nega alteração de data/horário da consulta de outro profissional (sem bypass)', async () => {
+      const existing = {
+        id: 'step-slot',
+        tenantId: TENANT,
+        patientId: PATIENT_ID,
+        cancerType: 'bladder',
+        stepKey: 'specialist_consultation',
+        journeyStage: JourneyStage.TREATMENT,
+        scheduledProfessionalId: OTHER_ONCOLOGIST_ID,
+        isCompleted: false,
+        dependsOnStepKey: null as string | null,
+        relativeDaysMin: null as number | null,
+        relativeDaysMax: null as number | null,
+        expectedDate: new Date('2026-06-20T12:00:00.000Z'),
+        dueDate: null,
+        status: NavigationStepStatus.PENDING,
+        actualDate: null,
+        completedAt: null,
+        appointmentConfirmationStatus: AppointmentConfirmationStatus.NOT_APPLICABLE,
+      };
+      mockPrisma.navigationStep.findFirst.mockResolvedValue(existing);
+
+      await expect(
+        service.updateStep(
+          'step-slot',
+          {
+            journeyStage: JourneyStage.DIAGNOSIS,
+            expectedDate: '2026-07-01T10:00:00.000Z',
+          },
+          TENANT,
+          { id: ACTING_ONCOLOGIST_ID, role: UserRole.ONCOLOGIST }
+        )
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('permite enfermeiro mover consulta agendada entre fases sem ser o profissional do slot', async () => {
+      const existing = {
+        id: 'step-nurse',
+        tenantId: TENANT,
+        patientId: PATIENT_ID,
+        cancerType: 'bladder',
+        stepKey: 'specialist_consultation',
+        journeyStage: JourneyStage.TREATMENT,
+        scheduledProfessionalId: OTHER_ONCOLOGIST_ID,
+        isCompleted: false,
+        dependsOnStepKey: null as string | null,
+        relativeDaysMin: null as number | null,
+        relativeDaysMax: null as number | null,
+        expectedDate: null,
+        dueDate: null,
+        status: NavigationStepStatus.PENDING,
+        actualDate: null,
+        completedAt: null,
+        appointmentConfirmationStatus: AppointmentConfirmationStatus.NOT_APPLICABLE,
+      };
+      mockPrisma.navigationStep.findFirst.mockResolvedValue(existing);
+      mockPrisma.navigationStep.aggregate.mockResolvedValue({
+        _max: { stepOrder: 1 },
+      });
+      mockPrisma.navigationStep.update.mockResolvedValue({
+        ...existing,
+        journeyStage: JourneyStage.DIAGNOSIS,
+        stepOrder: 2,
+      });
+
+      await service.updateStep(
+        'step-nurse',
+        { journeyStage: JourneyStage.DIAGNOSIS },
+        TENANT,
+        { id: 'nurse-1', role: UserRole.NURSE }
+      );
+
+      expect(mockPrisma.navigationStep.update).toHaveBeenCalled();
+    });
+
+    it('nega enfermeiro a alterar data da consulta agendada de outro profissional', async () => {
+      const existing = {
+        id: 'step-nurse-slot',
+        tenantId: TENANT,
+        patientId: PATIENT_ID,
+        cancerType: 'bladder',
+        stepKey: 'specialist_consultation',
+        journeyStage: JourneyStage.TREATMENT,
+        scheduledProfessionalId: OTHER_ONCOLOGIST_ID,
+        isCompleted: false,
+        dependsOnStepKey: null as string | null,
+        relativeDaysMin: null as number | null,
+        relativeDaysMax: null as number | null,
+        expectedDate: new Date('2026-06-20T12:00:00.000Z'),
+        dueDate: null,
+        status: NavigationStepStatus.PENDING,
+        actualDate: null,
+        completedAt: null,
+        appointmentConfirmationStatus: AppointmentConfirmationStatus.NOT_APPLICABLE,
+      };
+      mockPrisma.navigationStep.findFirst.mockResolvedValue(existing);
+
+      await expect(
+        service.updateStep(
+          'step-nurse-slot',
+          { expectedDate: '2026-07-01T10:00:00.000Z' },
+          TENANT,
+          { id: 'nurse-1', role: UserRole.NURSE }
+        )
+      ).rejects.toThrow(ForbiddenException);
     });
   });
 

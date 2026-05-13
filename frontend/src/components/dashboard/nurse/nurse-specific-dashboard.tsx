@@ -172,7 +172,7 @@ export function NurseSpecificDashboard({
             <div className="p-4">
               <div className="flex items-center justify-between mb-4">
                 <h1 className="text-xl font-bold text-gray-900">
-                  Dashboard de Navegação Oncológica
+                  Dashboard Enfermagem
                 </h1>
                 <div className="flex gap-2">
                   <ShiftChecklist type="start" />
@@ -200,7 +200,7 @@ export function NurseSpecificDashboard({
             <div className="p-4">
               <div className="flex items-center justify-between mb-4">
                 <h1 className="text-xl font-bold text-gray-900">
-                  Dashboard de Navegação Oncológica
+                
                 </h1>
                 <div className="flex gap-2">
                   <ShiftChecklist type="start" />

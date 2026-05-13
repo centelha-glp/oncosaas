@@ -128,7 +128,8 @@ export class UsersService {
 
     await assertCouncilUniqueInTenant(this.prisma, tenantId, councils);
 
-    // Criar usuário
+    // Criar usuário (mfaEnabled fica em default(false) do schema; ativação via API
+    // está desabilitada até o fluxo TOTP/MFA real ser implementado)
     const user = await this.prisma.user.create({
       data: {
         email: createUserDto.email,
@@ -136,7 +137,6 @@ export class UsersService {
         role: createUserDto.role,
         password: hashedPassword,
         tenantId,
-        mfaEnabled: createUserDto.mfaEnabled || false,
         clinicalSubrole,
         crmUf: councils.crmUf,
         crmNumber: councils.crmNumber,
@@ -264,6 +264,10 @@ export class UsersService {
     delete updateData.crmNumber;
     delete updateData.corenUf;
     delete updateData.corenNumber;
+    // mfaEnabled nunca deve ser alterado pela rota de update — o fluxo TOTP real
+    // não está implementado; o ValidationPipe já barra, mas removemos por defesa
+    // em profundidade caso o DTO chegue por outra origem (ex.: testes).
+    delete (updateData as { mfaEnabled?: unknown }).mfaEnabled;
 
     if (updateUserDto.password) {
       updateData.password = await bcrypt.hash(updateUserDto.password, 10);

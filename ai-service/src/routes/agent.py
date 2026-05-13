@@ -1,10 +1,7 @@
 import logging
 import os
-from typing import Dict, List
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.concurrency import run_in_threadpool
-from pydantic import BaseModel
 
 from ..auth import require_service_token
 from ..agent.context_builder import context_builder
@@ -12,7 +9,6 @@ from ..agent.orchestrator import orchestrator
 from ..agent.protocol_engine import protocol_engine
 from ..agent.questionnaire_engine import questionnaire_engine
 from ..agent.symptom_analyzer import symptom_analyzer
-from ..agent.whatsapp_agent import whatsapp_agent
 from ..models.schemas import (
     AgentProcessRequest,
     AgentProcessResponse,
@@ -33,20 +29,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-class AgentMessageRequest(BaseModel):
-    message: str
-    patient_id: str
-    patient_context: Dict
-    conversation_history: List[Dict]
-
-
-class AgentMessageResponse(BaseModel):
-    response: str
-    critical_symptoms: List[str]
-    structured_data: Dict
-    should_alert: bool
-
-
 @router.get("/debug/llm-status")
 async def debug_llm_status():
     from ..agent.llm_provider import llm_provider
@@ -61,27 +43,6 @@ async def debug_llm_status():
         "has_any_llm_key": has_any,
         "has_anthropic_key": has_anthropic,
     }
-
-
-@router.post("/agent/message", response_model=AgentMessageResponse)
-async def process_agent_message(
-    request: AgentMessageRequest,
-    _: None = Depends(require_service_token),
-):
-    try:
-        result = await run_in_threadpool(
-            whatsapp_agent.process_message,
-            request.message,
-            request.patient_context,
-            request.conversation_history,
-        )
-        return AgentMessageResponse(**result)
-    except Exception:
-        logger.exception("Erro ao processar mensagem (whatsapp_agent)")
-        raise HTTPException(
-            status_code=500,
-            detail="Erro ao processar mensagem",
-        )
 
 
 @router.post("/agent/process", response_model=AgentProcessResponse)
@@ -112,9 +73,13 @@ async def process_message(
             clinical_rules_findings=result.get("clinical_rules_findings", []),
             new_state=result.get("new_state", {}),
             decisions=result.get("decisions", []),
+            pipeline_trace=result.get("pipeline_trace"),
         )
-    except Exception:
-        logger.exception("Erro ao processar mensagem pelo agente (orchestrator)")
+    except Exception as exc:
+        logger.exception(
+            "Erro ao processar mensagem pelo agente (orchestrator): %s",
+            exc,
+        )
         raise HTTPException(
             status_code=500,
             detail="Erro ao processar mensagem pelo agente",

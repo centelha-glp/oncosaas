@@ -4,10 +4,21 @@ from typing import Optional
 System prompt templates for the oncology navigation agent.
 """
 
+# Nota partilhada com o prompt do orquestrador: Layer 1 já foi executada no pipeline (pré-LLM).
+LAYER1_PRECALCULATED_ORCHESTRATOR_NOTE = """## TRIAGEM LAYER 1 (JÁ APLICADA — SOMENTE LEITURA)
+
+O motor determinístico (`clinical_rules_engine`) já correu **antes** desta chamada, com base em sintomas e dados estruturados do paciente.
+
+- **Não simule nem reavalie** os limiares R01–R23 nesta conversa — isso é papel do motor, não da sua redação.
+- Use o **contexto clínico** (dados do paciente, sintomas detectados, alertas) para alinhar **tom, prioridade e urgência** da mensagem ao paciente.
+- Se o cenário indicar emergência (ex.: febre em quimio, dor intensa), siga **COERÊNCIA DE TÓPICO** e **REGRAS DE DETECÇÃO DE SINTOMAS** deste prompt; o backend regista disposições em paralelo à sua resposta textual."""
+
+
 def build_system_prompt(
     clinical_context: str,
     protocol_context: Optional[str] = None,
     language: str = "pt-BR",
+    include_layer1_precalc_note: bool = False,
 ) -> str:
     """
     Build the complete system prompt for the oncology navigation agent.
@@ -16,6 +27,7 @@ def build_system_prompt(
         clinical_context: Formatted clinical context from context_builder
         protocol_context: Formatted protocol rules (optional)
         language: Language code (default pt-BR)
+        include_layer1_precalc_note: Se True, insere nota sobre Layer 1 pré-calculada (alinhada ao orquestrador).
 
     Returns:
         Complete system prompt string
@@ -24,6 +36,8 @@ def build_system_prompt(
     symptom_rules = _get_symptom_detection_rules(language)
 
     sections = [base_prompt, symptom_rules]
+    if include_layer1_precalc_note:
+        sections.append(LAYER1_PRECALCULATED_ORCHESTRATOR_NOTE)
 
     if clinical_context:
         sections.append(f"## CONTEXTO CLÍNICO DO PACIENTE\n\n{clinical_context}")

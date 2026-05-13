@@ -217,24 +217,37 @@ export class PatientsService {
 
   async findAll(
     tenantId: string,
-    options?: { limit?: number; offset?: number }
+    options?: {
+      limit?: number;
+      offset?: number;
+      includeCancerDiagnoses?: boolean;
+    }
   ): Promise<Patient[]> {
     // Cap 100 por página (performance); default 100
     const limit =
       options?.limit && options.limit > 0 ? Math.min(options.limit, 100) : 100;
     const offset = options?.offset && options.offset > 0 ? options.offset : 0;
 
-    const patients = await this.prisma.patient.findMany({
-      where: { tenantId },
-      include: {
-        _count: {
-          select: {
-            messages: true,
-            alerts: true,
-            observations: true,
-          },
+    const include: Prisma.PatientInclude = {
+      _count: {
+        select: {
+          messages: true,
+          alerts: true,
+          observations: true,
         },
       },
+    };
+    if (options?.includeCancerDiagnoses) {
+      include.cancerDiagnoses = {
+        where: { isActive: true, primaryDiagnosisId: null },
+        orderBy: [{ isPrimary: 'desc' }, { diagnosisDate: 'desc' }],
+        take: 20,
+      };
+    }
+
+    const patients = await this.prisma.patient.findMany({
+      where: { tenantId },
+      include,
       orderBy: [
         { priorityScore: 'desc' }, // Maior score primeiro
         { createdAt: 'desc' }, // Mais recente primeiro

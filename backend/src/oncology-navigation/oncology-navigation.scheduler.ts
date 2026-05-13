@@ -399,4 +399,40 @@ export class OncologyNavigationScheduler {
       this.logger.error('Erro ao executar análise preditiva de riscos:', error);
     }
   }
+
+  /**
+   * Após o dia civil (America/Sao_Paulo): marca NO_SHOW automático em consultas
+   * do dia anterior sem check-in. Corre às 00:05 no fuso da agenda.
+   */
+  @Cron('5 0 * * *', { timeZone: 'America/Sao_Paulo' })
+  async handleConsultationAutoNoShowEod() {
+    this.logger.log('Job NO_SHOW automático (fim do dia) — consultas sem check-in…');
+    try {
+      const tenants = await this.prisma.tenant.findMany({
+        select: { id: true, name: true },
+      });
+      const runAt = new Date();
+      let total = 0;
+      for (const tenant of tenants) {
+        try {
+          const n = await this.navigationService.applyConsultationAutoNoShowEndOfDay(
+            tenant.id,
+            runAt
+          );
+          total += n;
+          if (n > 0) {
+            this.logger.log(`Tenant ${tenant.name}: ${n} consulta(s) marcada(s) como falta (AUTO_EOD).`);
+          }
+        } catch (error) {
+          this.logger.error(
+            `Erro NO_SHOW EOD para tenant ${tenant.name}:`,
+            error
+          );
+        }
+      }
+      this.logger.log(`NO_SHOW AUTO_EOD concluído: ${total} etapa(s) no total.`);
+    } catch (error) {
+      this.logger.error('Erro ao executar NO_SHOW automático (EOD):', error);
+    }
+  }
 }

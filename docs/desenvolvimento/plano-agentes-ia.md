@@ -654,7 +654,6 @@ ai-service/
 │   │   ├── symptom_analyzer.py      # Análise avançada de sintomas (NOVO)
 │   │   ├── questionnaire_engine.py  # Motor de questionários conversacionais (NOVO)
 │   │   ├── protocol_engine.py       # Aplica regras do protocolo clínico (NOVO)
-│   │   ├── whatsapp_agent.py        # Existente (será refatorado)
 │   │   └── prompts/
 │   │       ├── system_prompt.py     # Templates de system prompt (NOVO)
 │   │       ├── questionnaire_prompts.py # Prompts para questionários (NOVO)

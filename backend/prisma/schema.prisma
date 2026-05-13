@@ -50,6 +50,10 @@ model User {
   productFeedbacks             ProductFeedback[]
   /// Consultas de navegação agendadas com este profissional (agenda por profissional)
   scheduledNavigationSteps NavigationStep[] @relation("NavigationStepScheduledProfessional")
+  /// Check-in de comparecimento na recepção (agenda)
+  navigationStepsConsultationCheckedIn NavigationStep[] @relation("NavigationStepConsultationCheckedInBy")
+  /// Início da consulta pelo profissional (agenda)
+  navigationStepsConsultationStarted NavigationStep[] @relation("NavigationStepConsultationStartedBy")
   /// Configuração de dias, turnos e duração de consulta para slots
   consultationAgendaConfig ConsultationAgendaConfig?
   /// Bloqueios de agenda (indisponibilidade) deste profissional
@@ -548,6 +552,26 @@ model NavigationStep {
   scheduledProfessionalId String?
   scheduledProfessional   User?   @relation("NavigationStepScheduledProfessional", fields: [scheduledProfessionalId], references: [id], onDelete: SetNull)
 
+  /// Check-in na recepção (secretaria) — comparecimento ao horário agendado
+  consultationCheckedInAt         DateTime?
+  consultationCheckedInByUserId String?
+  consultationCheckedInBy         User?   @relation("NavigationStepConsultationCheckedInBy", fields: [consultationCheckedInByUserId], references: [id], onDelete: SetNull)
+
+  /// Início do atendimento pelo profissional («Iniciar consulta» na agenda)
+  consultationStartedAt         DateTime?
+  consultationStartedByUserId String?
+  consultationStartedBy         User?   @relation("NavigationStepConsultationStartedBy", fields: [consultationStartedByUserId], references: [id], onDelete: SetNull)
+
+  /// Minutos entre check-in e início da consulta (gravado ao iniciar)
+  consultationWaitingDurationMinutes Int?
+  /// Minutos de atraso sem check-in até check-in tardio ou fecho no-show
+  consultationLateDurationMinutes    Int?
+
+  /// Comparecimento à consulta agendada (não confundir com estados derivados agendado/atrasado/aguardando)
+  consultationAttendance     ConsultationAttendance     @default(EXPECTED)
+  /// Origem do no-show quando `NO_SHOW` (manual vs fim do dia)
+  consultationNoShowSource   ConsultationNoShowSource?
+
   // Dados da realização da etapa
   institutionName  String? // Instituição de saúde onde foi realizada
   professionalName String? // Profissional que realizou a etapa
@@ -588,7 +612,19 @@ model NavigationStep {
   @@index([patientId, stepKey])
   @@index([patientId, dependsOnStepKey])
   @@index([tenantId, scheduledProfessionalId, expectedDate])
+  @@index([tenantId, consultationAttendance, expectedDate])
   @@map("navigation_steps")
+}
+
+/// Presença à consulta na agenda (fila / métricas)
+enum ConsultationAttendance {
+  EXPECTED // Comparecimento esperado (padrão)
+  NO_SHOW // Falta (manual ou automática EOD)
+}
+
+enum ConsultationNoShowSource {
+  MANUAL // Marcado pela secretaria
+  AUTO_EOD // Fechamento do dia civil sem check-in
 }
 
 /// Dias úteis, turnos, duração padrão da consulta e teto diário — um registo por profissional no tenant.

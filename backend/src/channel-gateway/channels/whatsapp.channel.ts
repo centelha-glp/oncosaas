@@ -248,6 +248,8 @@ export class WhatsAppChannel implements IChannel {
     timestamp: Date;
     type: 'TEXT' | 'AUDIO' | 'IMAGE' | 'DOCUMENT';
     mediaUrl?: string;
+    /** ID do número na Meta (`metadata.phone_number_id`) — fonte confiável para resolver tenant via WhatsAppConnection. */
+    whatsappPhoneNumberId?: string;
   }> {
     const messages: any[] = [];
 
@@ -266,6 +268,12 @@ export class WhatsAppChannel implements IChannel {
           continue;
         }
 
+        const phoneNumberIdRaw = value.metadata?.phone_number_id;
+        const whatsappPhoneNumberId =
+          typeof phoneNumberIdRaw === 'string' && phoneNumberIdRaw.trim().length > 0
+            ? phoneNumberIdRaw.trim()
+            : undefined;
+
         for (const msg of value.messages) {
           const parsed: any = {
             phone: msg.from,
@@ -273,6 +281,7 @@ export class WhatsAppChannel implements IChannel {
             timestamp: new Date(parseInt(msg.timestamp) * 1000),
             type: 'TEXT',
             content: '',
+            whatsappPhoneNumberId,
           };
 
           switch (msg.type) {

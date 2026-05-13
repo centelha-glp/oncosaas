@@ -16,6 +16,8 @@ import { ChannelGatewayService } from '../channel-gateway/channel-gateway.servic
 import {
   AppointmentConfirmationStatus,
   ChannelType,
+  ConsultationAttendance,
+  ConsultationNoShowSource,
   JourneyStage,
   NavigationStep,
   NavigationStepStatus,
@@ -26,9 +28,21 @@ import {
   ClinicalSubrole,
   UserRole,
 } from '@generated/prisma/client';
+import { startOfDay, endOfDay, subDays } from 'date-fns';
+import { fromZonedTime, toZonedTime } from 'date-fns-tz';
+import {
+  resolveConsultationQueueState,
+  consultationWaitingMinutesBetween,
+  consultationLateMinutesAfterExpected,
+  type ConsultationQueueLabel,
+} from './consultation-queue.utils';
+import { CONSULTATION_AGENDA_TIMEZONE } from './consultation-agenda-slot.utils';
 import { AlertsService } from '../alerts/alerts.service';
 import { AlertType, AlertSeverity } from '@generated/prisma/client';
-import { ConsultationAgendaAvailabilityService } from './consultation-agenda-availability.service';
+import {
+  ConsultationAgendaAvailabilityService,
+  type ConsultationAgendaDayOverviewStatus,
+} from './consultation-agenda-availability.service';
 import {
   CONSULTATION_STEP_KEYS,
   isConsultationStepKey,
@@ -130,6 +144,17 @@ export function isUserEligibleForConsultationStepKey(
   return false;
 }
 
+/** Elegível para pelo menos um tipo de slot na agenda (especialista ou navegação). */
+export function isUserEligibleForAnyConsultationAgendaSlot(user: {
+  role: UserRole;
+  clinicalSubrole: ClinicalSubrole | null;
+}): boolean {
+  return (
+    isUserEligibleForSpecialistConsultationSlot(user) ||
+    isUserEligibleForNavigationConsultationSlot(user)
+  );
+}
+
 /** Início do minuto UTC e fim exclusivo [start, end), para deteção de sobreposição */
 export function consultationSlotMinuteBounds(d: Date): {
   slotStart: Date;
@@ -160,6 +185,31 @@ export interface ConsultationAgendaItem {
     name: string;
   };
   scheduledProfessional: { id: string; name: string } | null;
+  consultationCheckedInAt: Date | null;
+  consultationCheckedInByUserId: string | null;
+  consultationStartedAt: Date | null;
+  consultationStartedByUserId: string | null;
+  consultationWaitingDurationMinutes: number | null;
+  consultationLateDurationMinutes: number | null;
+  consultationAttendance: ConsultationAttendance;
+  consultationNoShowSource: ConsultationNoShowSource | null;
+  queueLabel: ConsultationQueueLabel;
+  waitingMinutesLive: number | null;
+  lateMinutesLive: number | null;
+}
+
+/** Métricas agregadas da agenda de consultas no período (tenant + profissional opcional). */
+export interface ConsultationAgendaMetrics {
+  completedAppointments: number;
+  noShows: number;
+  avgWaitingMinutes: number | null;
+  avgLateMinutes: number | null;
+  avgConsultationDurationMinutes: number | null;
+  sumWaitingMinutes: number;
+  sumLateMinutes: number;
+  countWaitingSample: number;
+  countLateSample: number;
+  countConsultationDurationSample: number;
 }
 
 export interface ConsultationAgendaPage {
@@ -184,7 +234,8 @@ export class OncologyNavigationService {
 
   private assertConsultationAgendaMutationForActor(
     step: NavigationStep,
-    actor?: ConsultationAgendaActorContext
+    actor?: ConsultationAgendaActorContext,
+    opts?: { bypassConsultationAssignedProfessionalMatch?: boolean }
   ): void {
     if (!actor) {
       return;
@@ -198,7 +249,11 @@ export class OncologyNavigationService {
       }
       return;
     }
-    if (consultation && step.scheduledProfessionalId !== actor.id) {
+    if (
+      consultation &&
+      step.scheduledProfessionalId !== actor.id &&
+      !opts?.bypassConsultationAssignedProfessionalMatch
+    ) {
       throw new ForbiddenException(
         'Sem permissão para alterar esta consulta agendada.'
       );
@@ -248,6 +303,38 @@ export class OncologyNavigationService {
         { createdAt: 'asc' },
       ],
     });
+  }
+
+  /** Profissionais do tenant que podem constar como responsáveis na agenda (filtro secretária, etc.). Sem email. */
+  async listConsultationAgendaSchedulableProfessionals(
+    tenantId: string
+  ): Promise<
+    {
+      id: string;
+      name: string;
+      role: UserRole;
+      clinicalSubrole: ClinicalSubrole | null;
+    }[]
+  > {
+    const users = await this.prisma.user.findMany({
+      where: {
+        tenantId,
+        role: { in: [...SCHEDULABLE_CONSULTATION_ROLES] },
+      },
+      select: {
+        id: true,
+        name: true,
+        role: true,
+        clinicalSubrole: true,
+      },
+      orderBy: { name: 'asc' },
+    });
+    return users.filter((u) =>
+      isUserEligibleForAnyConsultationAgendaSlot({
+        role: u.role,
+        clinicalSubrole: u.clinicalSubrole,
+      })
+    );
   }
 
   /**
@@ -326,6 +413,14 @@ export class OncologyNavigationService {
           dueDate: true,
           actualDate: true,
           appointmentConfirmationStatus: true,
+          consultationCheckedInAt: true,
+          consultationCheckedInByUserId: true,
+          consultationStartedAt: true,
+          consultationStartedByUserId: true,
+          consultationWaitingDurationMinutes: true,
+          consultationLateDurationMinutes: true,
+          consultationAttendance: true,
+          consultationNoShowSource: true,
           patient: { select: { id: true, name: true } },
           scheduledProfessional: {
             select: { id: true, name: true },
@@ -337,8 +432,20 @@ export class OncologyNavigationService {
       }),
     ]);
 
+    const now = new Date();
     const items: ConsultationAgendaItem[] = rows.map((row) => {
       const agendaDate = row.expectedDate ?? fromStart;
+      const queue = resolveConsultationQueueState(
+        {
+          status: row.status,
+          isCompleted: row.isCompleted,
+          consultationAttendance: row.consultationAttendance,
+          consultationCheckedInAt: row.consultationCheckedInAt,
+          consultationStartedAt: row.consultationStartedAt,
+          expectedDate: row.expectedDate,
+        },
+        now
+      );
       return {
         id: row.id,
         patientId: row.patientId,
@@ -354,6 +461,17 @@ export class OncologyNavigationService {
         agendaDate,
         patient: row.patient,
         scheduledProfessional: row.scheduledProfessional,
+        consultationCheckedInAt: row.consultationCheckedInAt,
+        consultationCheckedInByUserId: row.consultationCheckedInByUserId,
+        consultationStartedAt: row.consultationStartedAt,
+        consultationStartedByUserId: row.consultationStartedByUserId,
+        consultationWaitingDurationMinutes: row.consultationWaitingDurationMinutes,
+        consultationLateDurationMinutes: row.consultationLateDurationMinutes,
+        consultationAttendance: row.consultationAttendance,
+        consultationNoShowSource: row.consultationNoShowSource,
+        queueLabel: queue.queueLabel,
+        waitingMinutesLive: queue.waitingMinutesLive,
+        lateMinutesLive: queue.lateMinutesLive,
       };
     });
 
@@ -414,6 +532,40 @@ export class OncologyNavigationService {
   }
 
   /**
+   * `NavigationStep.cancerType` é obrigatório no banco. Ordem: DTO → paciente → diagnóstico ativo → `other`.
+   */
+  private async resolveNavigationStepCancerType(
+    dtoCancerType: string | undefined,
+    patientId: string,
+    patientCancerType: string | null | undefined,
+    tenantId: string
+  ): Promise<string> {
+    const fromDto = dtoCancerType?.trim();
+    if (fromDto) {
+      return fromDto;
+    }
+    const fromPatient =
+      typeof patientCancerType === 'string' ? patientCancerType.trim() : '';
+    if (fromPatient) {
+      return fromPatient;
+    }
+    const diagnosis = await this.prisma.cancerDiagnosis.findFirst({
+      where: {
+        patientId,
+        tenantId,
+        isActive: true,
+      },
+      orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
+      select: { cancerType: true },
+    });
+    const fromDx = diagnosis?.cancerType?.trim();
+    if (fromDx) {
+      return fromDx;
+    }
+    return 'other';
+  }
+
+  /**
    * Cria uma nova etapa de navegação
    */
   async createStep(
@@ -431,6 +583,13 @@ export class OncologyNavigationService {
     if (!patient) {
       throw new NotFoundException('Patient not found');
     }
+
+    const resolvedCancerType = await this.resolveNavigationStepCancerType(
+      createDto.cancerType,
+      createDto.patientId,
+      patient.cancerType,
+      tenantId
+    );
 
     const expectedAt = createDto.expectedDate
       ? new Date(createDto.expectedDate)
@@ -483,7 +642,7 @@ export class OncologyNavigationService {
         patientId: createDto.patientId,
         journeyId: journey?.id,
         diagnosisId: createDto.diagnosisId ?? undefined,
-        cancerType: createDto.cancerType,
+        cancerType: resolvedCancerType,
         journeyStage: createDto.journeyStage,
         stepKey: createDto.stepKey,
         stepName: createDto.stepName,
@@ -782,7 +941,26 @@ export class OncologyNavigationService {
       throw new NotFoundException('Navigation step not found');
     }
 
-    this.assertConsultationAgendaMutationForActor(existingStep, actor);
+    const stageChanging =
+      updateDto.journeyStage !== undefined &&
+      updateDto.journeyStage !== existingStep.journeyStage;
+    const touchesConsultationSlotFields =
+      updateDto.expectedDate !== undefined ||
+      updateDto.scheduledProfessionalId !== undefined;
+    const canBypassAssignedProfessionalForStageMove =
+      stageChanging &&
+      !touchesConsultationSlotFields &&
+      !!actor &&
+      (actor.role === UserRole.ADMIN ||
+        actor.role === UserRole.COORDINATOR ||
+        actor.role === UserRole.ONCOLOGIST ||
+        actor.role === UserRole.NURSE ||
+        actor.role === UserRole.NURSE_CHIEF);
+
+    this.assertConsultationAgendaMutationForActor(existingStep, actor, {
+      bypassConsultationAssignedProfessionalMatch:
+        canBypassAssignedProfessionalForStageMove,
+    });
     if (
       actor &&
       actor.role !== UserRole.SECRETARY &&
@@ -795,10 +973,6 @@ export class OncologyNavigationService {
         'Não é permitido reatribuir esta consulta a outro profissional.'
       );
     }
-
-    const stageChanging =
-      updateDto.journeyStage !== undefined &&
-      updateDto.journeyStage !== existingStep.journeyStage;
 
     let nextExpected: Date | null =
       updateDto.expectedDate !== undefined
@@ -4140,6 +4314,70 @@ export class OncologyNavigationService {
     });
   }
 
+  private async assertSchedulableProfessionalForOverview(
+    tenantId: string,
+    userId: string,
+    stepKey?: string
+  ): Promise<void> {
+    const user = await this.prisma.user.findFirst({
+      where: {
+        id: userId,
+        tenantId,
+        role: { in: [...SCHEDULABLE_CONSULTATION_ROLES] },
+      },
+      select: { id: true, role: true, clinicalSubrole: true },
+    });
+    if (!user) {
+      throw new BadRequestException(
+        'Profissional inválido ou sem permissão para agenda de consultas neste hospital'
+      );
+    }
+    if (stepKey) {
+      if (!isUserEligibleForConsultationStepKey(user, stepKey)) {
+        throw new BadRequestException(
+          stepKey === 'specialist_consultation'
+            ? 'Consulta especializada: selecione um médico (ou coordenador/administrador com subpapel médico)'
+            : 'Consulta de navegação: selecione enfermagem (ou coordenador/administrador com subpapel enfermagem)'
+        );
+      }
+      return;
+    }
+    if (isUserEligibleForAnyConsultationAgendaSlot(user)) {
+      return;
+    }
+    throw new BadRequestException(
+      'Profissional sem perfil para consultas na agenda neste hospital'
+    );
+  }
+
+  async getConsultationAgendaDayOverview(
+    tenantId: string,
+    query: {
+      professionalId: string;
+      stepKey?: string;
+      from: string;
+      to: string;
+    }
+  ): Promise<{ days: Record<string, ConsultationAgendaDayOverviewStatus> }> {
+    await this.assertSchedulableProfessionalForOverview(
+      tenantId,
+      query.professionalId,
+      query.stepKey
+    );
+    const from = new Date(query.from);
+    const to = new Date(query.to);
+    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
+      throw new BadRequestException('Datas inválidas');
+    }
+    const days = await this.consultationAgendaAvailability.getDayAvailabilityOverview({
+      tenantId,
+      professionalId: query.professionalId,
+      from,
+      to,
+    });
+    return { days };
+  }
+
   async getConsultationAgendaConfigForUser(
     tenantId: string,
     userId: string
@@ -4289,6 +4527,314 @@ export class OncologyNavigationService {
     await this.prisma.consultationAgendaBlock.delete({
       where: { id: blockId, tenantId },
     });
+  }
+
+  /**
+   * Check-in na recepção (secretaria ou admin).
+   */
+  async patchConsultationCheckIn(
+    stepId: string,
+    tenantId: string,
+    actor: ConsultationAgendaActorContext
+  ): Promise<NavigationStep> {
+    if (actor.role !== UserRole.SECRETARY && actor.role !== UserRole.ADMIN) {
+      throw new ForbiddenException(
+        'Apenas secretaria ou administrador podem registrar check-in.'
+      );
+    }
+    const step = await this.getStepById(stepId, tenantId);
+    if (!isConsultationStepKey(step.stepKey)) {
+      throw new BadRequestException('Etapa não é consulta na agenda.');
+    }
+    this.assertConsultationAgendaMutationForActor(step, actor);
+    if (step.status === NavigationStepStatus.CANCELLED) {
+      throw new BadRequestException('Consulta cancelada.');
+    }
+    if (step.status === NavigationStepStatus.COMPLETED || step.isCompleted) {
+      throw new BadRequestException('Consulta já concluída.');
+    }
+    if (step.consultationAttendance === ConsultationAttendance.NO_SHOW) {
+      throw new BadRequestException('Paciente marcado como falta.');
+    }
+    if (step.consultationCheckedInAt) {
+      throw new BadRequestException('Check-in já registrado.');
+    }
+    const now = new Date();
+    const lateMin =
+      step.expectedDate && now.getTime() > step.expectedDate.getTime()
+        ? consultationLateMinutesAfterExpected(step.expectedDate, now)
+        : null;
+    return this.prisma.navigationStep.update({
+      where: { id: stepId, tenantId },
+      data: {
+        consultationCheckedInAt: now,
+        consultationCheckedInByUserId: actor.id,
+        ...(lateMin !== null && lateMin > 0
+          ? { consultationLateDurationMinutes: lateMin }
+          : {}),
+      },
+    });
+  }
+
+  /**
+   * No-show manual (secretaria ou admin).
+   */
+  async patchConsultationNoShowManual(
+    stepId: string,
+    tenantId: string,
+    actor: ConsultationAgendaActorContext
+  ): Promise<NavigationStep> {
+    if (actor.role !== UserRole.SECRETARY && actor.role !== UserRole.ADMIN) {
+      throw new ForbiddenException(
+        'Apenas secretaria ou administrador podem registrar falta manual.'
+      );
+    }
+    const step = await this.getStepById(stepId, tenantId);
+    if (!isConsultationStepKey(step.stepKey)) {
+      throw new BadRequestException('Etapa não é consulta na agenda.');
+    }
+    this.assertConsultationAgendaMutationForActor(step, actor);
+    if (step.status === NavigationStepStatus.COMPLETED || step.isCompleted) {
+      throw new BadRequestException(
+        'Não é possível marcar falta após consulta concluída.'
+      );
+    }
+    if (step.status === NavigationStepStatus.CANCELLED) {
+      throw new BadRequestException('Consulta cancelada.');
+    }
+    if (step.consultationAttendance === ConsultationAttendance.NO_SHOW) {
+      throw new BadRequestException('Falta já registrada.');
+    }
+    const now = new Date();
+    const lateMin = step.expectedDate
+      ? consultationLateMinutesAfterExpected(step.expectedDate, now)
+      : 0;
+    return this.prisma.navigationStep.update({
+      where: { id: stepId, tenantId },
+      data: {
+        consultationAttendance: ConsultationAttendance.NO_SHOW,
+        consultationNoShowSource: ConsultationNoShowSource.MANUAL,
+        consultationLateDurationMinutes: lateMin,
+      },
+    });
+  }
+
+  /**
+   * Início da consulta pelo profissional agendado (`scheduledProfessionalId`).
+   */
+  async patchConsultationStart(
+    stepId: string,
+    tenantId: string,
+    actor: ConsultationAgendaActorContext
+  ): Promise<NavigationStep> {
+    const step = await this.getStepById(stepId, tenantId);
+    if (!isConsultationStepKey(step.stepKey)) {
+      throw new BadRequestException('Etapa não é consulta na agenda.');
+    }
+    if (actor.id !== step.scheduledProfessionalId) {
+      throw new ForbiddenException(
+        'Só o profissional agendado pode iniciar esta consulta.'
+      );
+    }
+    if (step.status === NavigationStepStatus.CANCELLED) {
+      throw new BadRequestException('Consulta cancelada.');
+    }
+    if (step.status === NavigationStepStatus.COMPLETED || step.isCompleted) {
+      throw new BadRequestException('Consulta já concluída.');
+    }
+    if (step.consultationAttendance === ConsultationAttendance.NO_SHOW) {
+      throw new BadRequestException('Consulta marcada como falta.');
+    }
+    if (!step.consultationCheckedInAt) {
+      throw new BadRequestException(
+        'Registre o check-in na recepção antes de iniciar a consulta.'
+      );
+    }
+    if (step.consultationStartedAt) {
+      throw new BadRequestException('Consulta já iniciada.');
+    }
+    const now = new Date();
+    const waitingMin = consultationWaitingMinutesBetween(
+      step.consultationCheckedInAt,
+      now
+    );
+    return this.prisma.navigationStep.update({
+      where: { id: stepId, tenantId },
+      data: {
+        consultationStartedAt: now,
+        consultationStartedByUserId: actor.id,
+        consultationWaitingDurationMinutes: waitingMin,
+      },
+    });
+  }
+
+  /**
+   * Métricas agregadas no período; `professionalId` opcional (escopo da agenda).
+   */
+  async getConsultationAgendaMetrics(
+    tenantId: string,
+    params: { from: string; to: string; professionalId?: string }
+  ): Promise<ConsultationAgendaMetrics> {
+    const fromStart = new Date(params.from);
+    const toEnd = new Date(params.to);
+    if (Number.isNaN(fromStart.getTime()) || Number.isNaN(toEnd.getTime())) {
+      throw new BadRequestException('Datas from/to inválidas');
+    }
+    fromStart.setUTCHours(0, 0, 0, 0);
+    toEnd.setUTCHours(23, 59, 59, 999);
+    if (fromStart > toEnd) {
+      throw new BadRequestException('from deve ser anterior ou igual a to');
+    }
+
+    const professionalFilter = params.professionalId
+      ? { scheduledProfessionalId: params.professionalId }
+      : {};
+
+    const baseWhere: Prisma.NavigationStepWhereInput = {
+      tenantId,
+      stepKey: { in: [...CONSULTATION_STEP_KEYS] },
+      expectedDate: { gte: fromStart, lte: toEnd },
+      ...professionalFilter,
+    };
+
+    const [
+      completedAppointments,
+      noShows,
+      waitingRows,
+      lateRows,
+      durationRows,
+    ] = await Promise.all([
+      this.prisma.navigationStep.count({
+        where: {
+          ...baseWhere,
+          status: NavigationStepStatus.COMPLETED,
+          OR: [
+            { completedAt: { gte: fromStart, lte: toEnd } },
+            {
+              completedAt: null,
+              actualDate: { gte: fromStart, lte: toEnd },
+            },
+          ],
+        },
+      }),
+      this.prisma.navigationStep.count({
+        where: {
+          ...baseWhere,
+          consultationAttendance: ConsultationAttendance.NO_SHOW,
+        },
+      }),
+      this.prisma.navigationStep.findMany({
+        where: {
+          ...baseWhere,
+          consultationWaitingDurationMinutes: { not: null },
+        },
+        select: { consultationWaitingDurationMinutes: true },
+      }),
+      this.prisma.navigationStep.findMany({
+        where: {
+          ...baseWhere,
+          consultationLateDurationMinutes: { not: null },
+        },
+        select: { consultationLateDurationMinutes: true },
+      }),
+      this.prisma.navigationStep.findMany({
+        where: {
+          ...baseWhere,
+          status: NavigationStepStatus.COMPLETED,
+          consultationStartedAt: { not: null },
+          completedAt: { not: null },
+        },
+        select: { consultationStartedAt: true, completedAt: true },
+      }),
+    ]);
+
+    const sumWaiting = waitingRows.reduce(
+      (a, r) => a + (r.consultationWaitingDurationMinutes ?? 0),
+      0
+    );
+    const sumLate = lateRows.reduce(
+      (a, r) => a + (r.consultationLateDurationMinutes ?? 0),
+      0
+    );
+    const countW = waitingRows.length;
+    const countL = lateRows.length;
+
+    const durationsMin = durationRows.map((r) =>
+      Math.max(
+        0,
+        Math.floor(
+          (r.completedAt!.getTime() - r.consultationStartedAt!.getTime()) /
+            60_000
+        )
+      )
+    );
+    const countD = durationsMin.length;
+    const sumD = durationsMin.reduce((a, b) => a + b, 0);
+
+    return {
+      completedAppointments,
+      noShows,
+      avgWaitingMinutes:
+        countW > 0 ? Math.round((sumWaiting / countW) * 10) / 10 : null,
+      avgLateMinutes:
+        countL > 0 ? Math.round((sumLate / countL) * 10) / 10 : null,
+      avgConsultationDurationMinutes:
+        countD > 0 ? Math.round((sumD / countD) * 10) / 10 : null,
+      sumWaitingMinutes: sumWaiting,
+      sumLateMinutes: sumLate,
+      countWaitingSample: countW,
+      countLateSample: countL,
+      countConsultationDurationSample: countD,
+    };
+  }
+
+  /**
+   * Marca NO_SHOW automático (EOD) para consultas do dia civil anterior em America/Sao_Paulo
+   * sem check-in e não concluídas. Retorna número de linhas atualizadas.
+   */
+  async applyConsultationAutoNoShowEndOfDay(
+    tenantId: string,
+    runAtUtc: Date
+  ): Promise<number> {
+    const zNow = toZonedTime(runAtUtc, CONSULTATION_AGENDA_TIMEZONE);
+    const yDay = subDays(startOfDay(zNow), 1);
+    const rangeStart = fromZonedTime(yDay, CONSULTATION_AGENDA_TIMEZONE);
+    const rangeEnd = fromZonedTime(endOfDay(yDay), CONSULTATION_AGENDA_TIMEZONE);
+
+    const rows = await this.prisma.navigationStep.findMany({
+      where: {
+        tenantId,
+        stepKey: { in: [...CONSULTATION_STEP_KEYS] },
+        expectedDate: { gte: rangeStart, lte: rangeEnd },
+        consultationAttendance: ConsultationAttendance.EXPECTED,
+        consultationCheckedInAt: null,
+        isCompleted: false,
+        status: {
+          notIn: [
+            NavigationStepStatus.CANCELLED,
+            NavigationStepStatus.COMPLETED,
+          ],
+        },
+      },
+      select: { id: true, expectedDate: true },
+    });
+
+    let updated = 0;
+    for (const row of rows) {
+      const lateMin = row.expectedDate
+        ? consultationLateMinutesAfterExpected(row.expectedDate, runAtUtc)
+        : 0;
+      await this.prisma.navigationStep.update({
+        where: { id: row.id, tenantId },
+        data: {
+          consultationAttendance: ConsultationAttendance.NO_SHOW,
+          consultationNoShowSource: ConsultationNoShowSource.AUTO_EOD,
+          consultationLateDurationMinutes: lateMin,
+        },
+      });
+      updated++;
+    }
+    return updated;
   }
 
   /**

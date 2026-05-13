@@ -24,7 +24,7 @@ const path = require('path');
 const checks = require(path.join(__dirname, 'cursor-hook-checks.cjs'));
 
 const RULE_GITHUB_ORGANIZER = '.cursor/rules/github-organizer.mdc';
-const AGENT_GITHUB_ORGANIZER = '.cursor/agents/github-organizer.md';
+const AGENT_GITHUB_ORGANIZER = '.cursor/agents/github-organizer-agent.md';
 
 /** Comandos que alteram remoto/PR/histórico: pedir confirmação e lembrar github-organizer + rule */
 function isSensitiveGitOrGh(command) {

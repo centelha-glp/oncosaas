@@ -140,11 +140,6 @@ export function UserList({ onEdit }: UserListProps) {
                         {clinicalSubroleLabels[user.clinicalSubrole]}
                       </Badge>
                     )}
-                    {user.mfaEnabled && (
-                      <Badge className="bg-yellow-100 text-yellow-800">
-                        MFA
-                      </Badge>
-                    )}
                   </div>
                   <p className="text-sm text-gray-600 mt-1">{user.email}</p>
                   <p className="text-xs text-gray-500 mt-1">

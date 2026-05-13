@@ -20,6 +20,9 @@ import {
   zonedDayBounds,
 } from './consultation-agenda-slot.utils';
 
+/** Estado de um dia civil na grelha de consultas (fuso America/Sao_Paulo). */
+export type ConsultationAgendaDayOverviewStatus = 'HAS_SLOTS' | 'FULL' | 'UNAVAILABLE';
+
 @Injectable()
 export class ConsultationAgendaAvailabilityService {
   constructor(private readonly prisma: PrismaService) {}
@@ -67,13 +70,7 @@ export class ConsultationAgendaAvailabilityService {
     return d;
   }
 
-  async listAvailableSlots(params: {
-    tenantId: string;
-    professionalId: string;
-    from: Date;
-    to: Date;
-  }): Promise<{ slots: string[] }> {
-    const { tenantId, professionalId, from, to } = params;
+  assertValidConsultationSlotRange(from: Date, to: Date): void {
     if (from.getTime() > to.getTime()) {
       throw new BadRequestException('Intervalo inválido: from deve ser anterior ou igual a to');
     }
@@ -83,10 +80,26 @@ export class ConsultationAgendaAvailabilityService {
         `O intervalo não pode exceder ${CONSULTATION_AVAILABLE_SLOTS_MAX_RANGE_DAYS} dias`
       );
     }
+  }
 
+  /**
+   * Grelha de candidatos após cap diário, mais bloqueios e reservas para filtros posteriores.
+   * `null` quando não existe config de agenda para o profissional.
+   */
+  private async buildConsultationSlotComputation(
+    tenantId: string,
+    professionalId: string,
+    from: Date,
+    to: Date
+  ): Promise<{
+    D: number;
+    blocks: IntervalUtc[];
+    booked: IntervalUtc[];
+    candidates: Date[];
+  } | null> {
     const cfg = await this.getConfigForProfessional(tenantId, professionalId);
     if (!cfg) {
-      return { slots: [] };
+      return null;
     }
     const D = cfg.defaultConsultationDurationMinutes;
 
@@ -162,6 +175,24 @@ export class ConsultationAgendaAvailabilityService {
       );
     }
 
+    return { D, blocks, booked, candidates };
+  }
+
+  async listAvailableSlots(params: {
+    tenantId: string;
+    professionalId: string;
+    from: Date;
+    to: Date;
+  }): Promise<{ slots: string[] }> {
+    const { tenantId, professionalId, from, to } = params;
+    this.assertValidConsultationSlotRange(from, to);
+
+    const ctx = await this.buildConsultationSlotComputation(tenantId, professionalId, from, to);
+    if (!ctx) {
+      return { slots: [] };
+    }
+    const { D, candidates, booked, blocks } = ctx;
+
     const free = filterSlotsByOccupiedAndBlocks({
       candidates,
       durationMinutes: D,
@@ -170,6 +201,63 @@ export class ConsultationAgendaAvailabilityService {
     });
 
     return { slots: free.map((d) => d.toISOString()) };
+  }
+
+  /**
+   * Por dia civil (yyyy-MM-dd em America/Sao_Paulo): vagas livres, lotado só por reservas, ou indisponível.
+   */
+  async getDayAvailabilityOverview(params: {
+    tenantId: string;
+    professionalId: string;
+    from: Date;
+    to: Date;
+  }): Promise<Record<string, ConsultationAgendaDayOverviewStatus>> {
+    const { tenantId, professionalId, from, to } = params;
+    this.assertValidConsultationSlotRange(from, to);
+
+    const ymds = eachCalendarYmdInUtcRange(from, to, CONSULTATION_AGENDA_TIMEZONE);
+    const out: Record<string, ConsultationAgendaDayOverviewStatus> = {};
+
+    const ctx = await this.buildConsultationSlotComputation(tenantId, professionalId, from, to);
+    if (!ctx) {
+      for (const ymd of ymds) {
+        out[ymd] = 'UNAVAILABLE';
+      }
+      return out;
+    }
+
+    const { D, candidates, booked, blocks } = ctx;
+
+    for (const ymd of ymds) {
+      const dayCandidates = candidates.filter(
+        (s) => formatInTimeZone(s, CONSULTATION_AGENDA_TIMEZONE, 'yyyy-MM-dd') === ymd
+      );
+      if (dayCandidates.length === 0) {
+        out[ymd] = 'UNAVAILABLE';
+        continue;
+      }
+
+      const notBlocked = filterSlotsByOccupiedAndBlocks({
+        candidates: dayCandidates,
+        durationMinutes: D,
+        booked: [],
+        blocks,
+      });
+      if (notBlocked.length === 0) {
+        out[ymd] = 'UNAVAILABLE';
+        continue;
+      }
+
+      const free = filterSlotsByOccupiedAndBlocks({
+        candidates: dayCandidates,
+        durationMinutes: D,
+        booked,
+        blocks,
+      });
+      out[ymd] = free.length > 0 ? 'HAS_SLOTS' : 'FULL';
+    }
+
+    return out;
   }
 
   /**

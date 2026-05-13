@@ -185,8 +185,11 @@ class SymptomAnalyzer:
 
         # 3. Optional LLM-based analysis for more nuanced detection
         llm_results = None
+        llm_token_usage_events: List[Dict[str, Any]] = []
         if use_llm and llm_config:
-            llm_results = await self._llm_analysis(message, clinical_context, llm_config)
+            llm_results, llm_token_usage_events = await self._llm_analysis(
+                message, clinical_context, llm_config
+            )
 
         # 4. Merge results
         detected_symptoms = keyword_results["symptoms"]
@@ -236,7 +239,7 @@ class SymptomAnalyzer:
             s.get("action") == "ESCALATE_IMMEDIATELY" for s in detected_symptoms
         )
 
-        return {
+        out: Dict[str, Any] = {
             "detectedSymptoms": detected_symptoms,
             "overallSeverity": overall_severity,
             "requiresEscalation": requires_escalation,
@@ -251,6 +254,14 @@ class SymptomAnalyzer:
                 )
             ),
         }
+        if use_llm and llm_config:
+            out["_symptomLlmMeta"] = {
+                "called": llm_results is not None,
+                "provider": llm_config.get("llm_provider", "anthropic"),
+                "model": llm_config.get("llm_model", "claude-sonnet-4-6"),
+            }
+            out["_symptomTokenUsageEvents"] = llm_token_usage_events
+        return out
 
     def _keyword_detection(
         self,
@@ -376,8 +387,9 @@ class SymptomAnalyzer:
         message: str,
         clinical_context: Optional[Dict[str, Any]],
         config: Dict[str, Any],
-    ) -> Optional[Dict[str, Any]]:
-        """Use LLM for advanced symptom analysis with tool use."""
+    ) -> tuple:
+        """Use LLM for advanced symptom analysis with tool use. Retorna (resultado ou None, eventos de tokens)."""
+        token_usage_events: List[Dict[str, Any]] = []
         try:
             context_str = ""
             if clinical_context:
@@ -393,6 +405,8 @@ class SymptomAnalyzer:
                 messages=[{"role": "user", "content": message}],
                 tools=SYMPTOM_ANALYSIS_TOOLS,
                 config=config,
+                usage_events=token_usage_events,
+                usage_step="symptom_analysis_llm",
             )
 
             # Extract tool call results
@@ -403,24 +417,24 @@ class SymptomAnalyzer:
 
                 # run_agentic_loop format
                 if isinstance(tc.get("input"), dict):
-                    return tc["input"]
+                    return tc["input"], token_usage_events
 
                 # generate_with_tools format
                 args_raw = tc.get("function", {}).get("arguments", {})
                 if isinstance(args_raw, dict):
-                    return args_raw
+                    return args_raw, token_usage_events
                 if isinstance(args_raw, str):
                     try:
                         parsed = json.loads(args_raw)
                         if isinstance(parsed, dict):
-                            return parsed
+                            return parsed, token_usage_events
                     except json.JSONDecodeError:
                         logger.warning("Invalid analyze_symptoms tool arguments: %r", args_raw[:120])
 
-            return None
+            return None, token_usage_events
         except Exception as e:
             logger.error(f"LLM symptom analysis failed: {e}")
-            return None
+            return None, token_usage_events
 
     def _merge_symptoms(
         self,

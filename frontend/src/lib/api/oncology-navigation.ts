@@ -1,5 +1,6 @@
 import { apiClient } from './client';
 import type { JourneyStage } from '@/lib/utils/journey-stage';
+import type { ClinicalSubrole, UserRole } from '@/lib/api/users';
 
 /**
  * Datas por etapa (documentação produto ↔ JSON):
@@ -53,7 +54,8 @@ export interface NavigationStep {
 
 export interface CreateNavigationStepDto {
   patientId: string;
-  cancerType: string;
+  /** Omitido na agenda: o backend resolve pelo paciente, diagnóstico ou `other`. */
+  cancerType?: string;
   journeyStage:
     | 'SCREENING'
     | 'DIAGNOSIS'
@@ -105,6 +107,14 @@ export interface ConsultationAgendaPage {
   page: number;
   limit: number;
   totalPages: number;
+}
+
+/** Resposta de `GET .../consultation-agenda-schedulable-professionals` (sem email). */
+export interface ConsultationAgendaSchedulableProfessional {
+  id: string;
+  name: string;
+  role: UserRole;
+  clinicalSubrole: ClinicalSubrole | null;
 }
 
 export interface ConsultationAgendaQuery {
@@ -160,6 +170,22 @@ export interface ConsultationAvailableSlotsQuery {
   to: string;
 }
 
+export type ConsultationAgendaDayOverviewStatus =
+  | 'HAS_SLOTS'
+  | 'FULL'
+  | 'UNAVAILABLE';
+
+export interface ConsultationAgendaDayOverviewQuery {
+  professionalId: string;
+  from: string;
+  to: string;
+  stepKey?: string;
+}
+
+export interface ConsultationAgendaDayOverviewResponse {
+  days: Record<string, ConsultationAgendaDayOverviewStatus>;
+}
+
 export interface ConsultationAgendaConfigResponse {
   id: string;
   userId: string;
@@ -195,6 +221,14 @@ export interface CreateConsultationAgendaBlockPayload {
 }
 
 export const oncologyNavigationApi = {
+  listConsultationAgendaSchedulableProfessionals: async (): Promise<
+    ConsultationAgendaSchedulableProfessional[]
+  > => {
+    return apiClient.get<ConsultationAgendaSchedulableProfessional[]>(
+      '/oncology-navigation/consultation-agenda-schedulable-professionals'
+    );
+  },
+
   /**
    * Agenda de consultas (etapas com data no intervalo, por padrão só consultas clínicas).
    */
@@ -224,6 +258,22 @@ export const oncologyNavigationApi = {
     return apiClient.get<{ slots: string[] }>(
       '/oncology-navigation/consultation-available-slots',
       { params }
+    );
+  },
+
+  getConsultationAgendaDayOverview: async (
+    params: ConsultationAgendaDayOverviewQuery
+  ): Promise<ConsultationAgendaDayOverviewResponse> => {
+    return apiClient.get<ConsultationAgendaDayOverviewResponse>(
+      '/oncology-navigation/consultation-agenda-day-overview',
+      {
+        params: {
+          professionalId: params.professionalId,
+          from: params.from,
+          to: params.to,
+          ...(params.stepKey ? { stepKey: params.stepKey } : {}),
+        },
+      }
     );
   },
 

@@ -1,29 +1,36 @@
-import json
-import logging
-from pathlib import Path
-from fastapi import FastAPI
-from pydantic_settings import BaseSettings, SettingsConfigDict
-from fastapi.middleware.cors import CORSMiddleware
-from contextlib import asynccontextmanager
-from dotenv import load_dotenv
-from src.routes import router
-
 """
 AI Service - Plataforma Oncológica
 Serviço de IA para priorização de casos e agente conversacional
 """
 
-# Load environment variables early, before importing modules that may read os.getenv.
-# Source of truth: ai-service/.env only.
+import json
+import logging
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+# Carregar ai-service/.env antes de qualquer import que leia os.environ (ex.: RAG, rotas).
 BASE_DIR = Path(__file__).resolve().parent
 LOCAL_ENV_PATH = BASE_DIR / ".env"
 
-_env_loaded = []
+_env_loaded: list[str] = []
 if LOCAL_ENV_PATH.exists():
     load_dotenv(LOCAL_ENV_PATH, override=True)
     _env_loaded.append(str(LOCAL_ENV_PATH))
 else:
     _env_loaded.append(f"(not found: {LOCAL_ENV_PATH})")
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from src.agent.rag.defaults import (
+    DEFAULT_EMBEDDING_MODEL,
+    DEFAULT_SCORE_THRESHOLD,
+    DEFAULT_TOP_K,
+)
+from src.routes import router
 
 
 class _JsonFormatter(logging.Formatter):
@@ -62,11 +69,9 @@ class Settings(BaseSettings):
     backend_url: str = "http://localhost:3002"
     backend_service_token: str = ""
     cors_origins: str = "http://localhost:3000,http://localhost:3002"
-    rag_embedding_model: str = (
-        "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
-    )
-    rag_top_k: int = 4
-    rag_score_threshold: float = 0.30
+    rag_embedding_model: str = DEFAULT_EMBEDDING_MODEL
+    rag_top_k: int = DEFAULT_TOP_K
+    rag_score_threshold: float = DEFAULT_SCORE_THRESHOLD
 
 
 settings = Settings()

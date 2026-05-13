@@ -14,6 +14,10 @@ import {
 } from '@/lib/api/clinical-notes';
 import type { NavigationStep } from '@/lib/api/oncology-navigation';
 import { usePatientNavigationSteps } from '@/hooks/useOncologyNavigation';
+import {
+  filterNavigationStepsByEvolutionBaseKey,
+  sortNavigationStepsForEvolutionPick,
+} from '@/lib/utils/clinical-evolution-navigation';
 import { JOURNEY_STAGE_LABELS, type JourneyStage } from '@/lib/utils/journey-stage';
 import {
   useClinicalNoteDetail,
@@ -245,7 +249,10 @@ export function PatientProntuarioTab({
     setIsResolvingCreateTemplate(true);
     try {
       const stepKey = CLINICAL_EVOLUTION_NAVIGATION_STEP_KEY[noteType];
-      const candidates = navigationSteps.filter((s) => s.stepKey === stepKey);
+      const candidates = sortNavigationStepsForEvolutionPick(
+        filterNavigationStepsByEvolutionBaseKey(navigationSteps, stepKey),
+        patient.currentStage
+      );
 
       if (candidates.length === 0) {
         toast.error(

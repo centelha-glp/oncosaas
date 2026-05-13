@@ -1,4 +1,10 @@
-import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  Inject,
+  forwardRef,
+  BadRequestException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   getAiServiceConfig,
@@ -10,11 +16,40 @@ import { ConversationService } from './conversation.service';
 import { DecisionGateService } from './decision-gate.service';
 import { AlertsGateway } from '../gateways/alerts.gateway';
 import { PriorityRecalculationService } from '../oncology-navigation/priority-recalculation.service';
+import { OncologyNavigationService } from '../oncology-navigation/oncology-navigation.service';
+import { CreateConsultationAppointmentDto } from '../oncology-navigation/dto/create-consultation-appointment.dto';
+import { UpdateNavigationStepDto } from '../oncology-navigation/dto/update-navigation-step.dto';
+import { isConsultationStepKey } from '../oncology-navigation/consultation-step-keys';
+import { PatientsService } from '../patients/patients.service';
+import { CreatePatientDto, Gender } from '../patients/dto/create-patient.dto';
+import { UpdatePatientDto } from '../patients/dto/update-patient.dto';
+import {
+  hashPhoneNumber,
+  normalizePhoneNumber,
+} from '../common/utils/phone.util';
+import {
+  AppointmentConfirmationStatus,
+  HealthCoverageType,
+  JourneyStage,
+  NavigationStepStatus,
+  Patient,
+} from '@generated/prisma/client';
+import {
+  CANCEL_CONSULTATION_APPOINTMENT,
+  CONFIRM_CONSULTATION_APPOINTMENT,
+  CREATE_CONSULTATION_APPOINTMENT,
+  RESCHEDULE_CONSULTATION_APPOINTMENT,
+} from './scheduling-secretary.constants';
+import { AgentSchedulingSecretaryError } from './scheduling-secretary.errors';
 import {
   ClinicalContext,
   AgentResponse,
 } from './interfaces/agent-decision.interface';
 import { resolveNavigationStepIdForAgentQuestionnaire } from './questionnaire-navigation.helper';
+import { mergeOutboundStructuredData } from './merge-outbound-structured-data';
+
+/** Paciente mínimo criado pelo channel-gateway para conversas WhatsApp antes do cadastro completo (secretária). */
+const WHATSAPP_INTAKE_STUB_PATIENT_NAME = 'Cadastro WhatsApp (incompleto)';
 
 @Injectable()
 export class AgentService {
@@ -28,8 +63,49 @@ export class AgentService {
     private readonly conversationService: ConversationService,
     private readonly decisionGate: DecisionGateService,
     private readonly alertsGateway: AlertsGateway,
-    private readonly priorityRecalculationService: PriorityRecalculationService
+    private readonly priorityRecalculationService: PriorityRecalculationService,
+    @Inject(forwardRef(() => OncologyNavigationService))
+    private readonly oncologyNavigationService: OncologyNavigationService,
+    @Inject(forwardRef(() => PatientsService))
+    private readonly patientsService: PatientsService
   ) {}
+
+  /**
+   * Garante um registro de paciente no tenant para um número WhatsApp ainda não cadastrado.
+   * `tenantId` deve vir exclusivamente da `WhatsAppConnection` (webhook assinado), nunca do cliente.
+   */
+  async ensureWhatsAppIntakePatient(
+    tenantId: string,
+    phoneRaw: string
+  ): Promise<Patient | null> {
+    const normalizedPhone = normalizePhoneNumber(phoneRaw);
+    const phoneHash = hashPhoneNumber(phoneRaw);
+    const existing = await this.prisma.patient.findFirst({
+      where: { tenantId, phoneHash },
+    });
+    if (existing) {
+      return existing;
+    }
+    try {
+      return await this.patientsService.create(
+        {
+          name: WHATSAPP_INTAKE_STUB_PATIENT_NAME,
+          birthDate: '1900-01-01',
+          phone: normalizedPhone,
+          currentStage: JourneyStage.SCREENING,
+        } as CreatePatientDto,
+        tenantId
+      );
+    } catch (err) {
+      this.logger.warn(
+        `ensureWhatsAppIntakePatient: falha ou corrida na criação; reconsultando hash (${tenantId})`,
+        err instanceof Error ? err.stack : String(err)
+      );
+      return this.prisma.patient.findFirst({
+        where: { tenantId, phoneHash },
+      });
+    }
+  }
 
   /**
    * Main entry point: process an incoming message through the agent pipeline.
@@ -222,10 +298,11 @@ export class AgentService {
           }
         }
       }
-      const structuredData =
-        Object.keys(symptoms).length > 0
-          ? { ...baseStructured, symptoms }
-          : baseStructured;
+      const structuredData = mergeOutboundStructuredData(
+        baseStructured as Record<string, unknown>,
+        symptoms,
+        aiResponse.pipelineTrace
+      );
 
       const alertTriggered = autoApproved.some(
         (d) =>
@@ -455,6 +532,8 @@ export class AgentService {
       symptomAnalysis:
         raw?.symptomAnalysis ?? raw?.symptom_analysis ?? undefined,
       newState: raw?.newState ?? raw?.new_state ?? undefined,
+      pipelineTrace:
+        raw?.pipelineTrace ?? raw?.pipeline_trace ?? undefined,
       decisions: rawDecisions.map((decision: any) => ({
         ...decision,
         // Compatibilidade com ai-service legado ainda não reiniciado
@@ -581,6 +660,35 @@ export class AgentService {
             tenantId
           );
           break;
+        case CREATE_CONSULTATION_APPOINTMENT:
+          await this.executeCreateConsultationAppointment(
+            decision,
+            tenantId,
+            patientId,
+            conversationId
+          );
+          break;
+        case RESCHEDULE_CONSULTATION_APPOINTMENT:
+          await this.executeRescheduleConsultationAppointment(
+            decision,
+            tenantId,
+            patientId
+          );
+          break;
+        case CANCEL_CONSULTATION_APPOINTMENT:
+          await this.executeCancelConsultationAppointment(
+            decision,
+            tenantId,
+            patientId
+          );
+          break;
+        case CONFIRM_CONSULTATION_APPOINTMENT:
+          await this.executeConfirmConsultationAppointment(
+            decision,
+            tenantId,
+            patientId
+          );
+          break;
         case 'UPDATE_CLINICAL_DISPOSITION':
           await this.updateClinicalDisposition(decision, tenantId, patientId);
           break;
@@ -596,8 +704,417 @@ export class AgentService {
           this.logger.log(`No handler for action type: ${actionType}`);
       }
     } catch (error) {
-      this.logger.error(`Failed to execute decision ${actionType}`, error);
+      if (error instanceof AgentSchedulingSecretaryError) {
+        this.logger.warn(
+          `Scheduling secretary [${error.code}]: ${error.message}`
+        );
+      } else {
+        this.logger.error(`Failed to execute decision ${actionType}`, error);
+      }
     }
+  }
+
+  private schedulingPayload(
+    decision: { outputAction?: { payload?: unknown } } | null
+  ): Record<string, unknown> {
+    const raw = decision?.outputAction?.payload;
+    return raw && typeof raw === 'object' && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>)
+      : {};
+  }
+
+  private navigationStepIdFromPayload(
+    p: Record<string, unknown>
+  ): string | null {
+    const raw =
+      p.navigationStepId ?? p.navigation_step_id ?? p.stepId ?? p.step_id;
+    return typeof raw === 'string' && this.isUuidString(raw) ? raw : null;
+  }
+
+  private isUuidString(value: string): boolean {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      value
+    );
+  }
+
+  private mergeConsultationMetadata(
+    outputPayload: Record<string, unknown>,
+    conversationId: string
+  ): Record<string, unknown> | undefined {
+    const meta = outputPayload.metadata;
+    const base =
+      meta && typeof meta === 'object' && !Array.isArray(meta)
+        ? { ...(meta as Record<string, unknown>) }
+        : {};
+    delete base.tenantId;
+    delete base.tenant_id;
+    delete base.patientId;
+    delete base.patient_id;
+    return {
+      ...base,
+      source: 'agent_scheduling_secretary',
+      conversationId,
+    };
+  }
+
+  private async assertConsultationStepOwned(
+    navigationStepId: string,
+    tenantId: string,
+    patientId: string
+  ) {
+    const step = await this.prisma.navigationStep.findFirst({
+      where: { id: navigationStepId, tenantId, patientId },
+    });
+    if (!step) {
+      throw new AgentSchedulingSecretaryError(
+        'Etapa de navegação não encontrada ou não pertence ao paciente.',
+        'NAVIGATION_STEP_NOT_FOUND'
+      );
+    }
+    if (!isConsultationStepKey(step.stepKey)) {
+      throw new AgentSchedulingSecretaryError(
+        'A etapa indicada não é uma consulta agendável.',
+        'INVALID_STATE'
+      );
+    }
+    if (step.status === NavigationStepStatus.CANCELLED) {
+      throw new AgentSchedulingSecretaryError(
+        'Consulta já cancelada.',
+        'INVALID_STATE'
+      );
+    }
+    return step;
+  }
+
+  private async resolveTargetPatientIdForConsultationCreate(
+    tenantId: string,
+    contextPatientId: string,
+    payload: Record<string, unknown>,
+    journeyStageRaw: string
+  ): Promise<string> {
+    const np = payload.newPatient ?? payload.patientIntake ?? payload.patient_intake;
+    if (np !== undefined && np !== null) {
+      if (typeof np !== 'object' || Array.isArray(np)) {
+        throw new AgentSchedulingSecretaryError(
+          'Payload de novo paciente inválido.',
+          'INCOMPLETE_PAYLOAD'
+        );
+      }
+      const o = np as Record<string, unknown>;
+      const phone =
+        typeof o.phone === 'string' ? o.phone.trim() : '';
+      if (!phone) {
+        throw new AgentSchedulingSecretaryError(
+          'Telefone obrigatório para cadastro rápido.',
+          'INCOMPLETE_PAYLOAD'
+        );
+      }
+      const existing = await this.patientsService.findByPhone(phone, tenantId);
+      if (existing) {
+        if (existing.id !== contextPatientId) {
+          throw new AgentSchedulingSecretaryError(
+            'Telefone já vinculado a outro cadastro no mesmo hospital.',
+            'PATIENT_PHONE_CONFLICT'
+          );
+        }
+        await this.applySchedulingNewPatientOntoIntakeStubIfNeeded(
+          existing.id,
+          tenantId,
+          o,
+          journeyStageRaw
+        );
+        return existing.id;
+      }
+      const createDto = this.mapNewPatientPayload(o, journeyStageRaw);
+      const created = await this.patientsService.create(createDto, tenantId);
+      return created.id;
+    }
+
+    const p = await this.prisma.patient.findFirst({
+      where: { id: contextPatientId, tenantId },
+      select: { id: true },
+    });
+    if (!p) {
+      throw new AgentSchedulingSecretaryError(
+        'Paciente não encontrado.',
+        'PATIENT_NOT_FOUND'
+      );
+    }
+    return contextPatientId;
+  }
+
+  private mapNewPatientPayload(
+    raw: Record<string, unknown>,
+    journeyStageRaw: string
+  ): CreatePatientDto {
+    let gender: Gender | undefined;
+    if (typeof raw.gender === 'string') {
+      const g = raw.gender.toLowerCase();
+      if (g === 'male' || g === 'female' || g === 'other') {
+        gender = g as Gender;
+      }
+    }
+    const coverageRaw = raw.healthCoverageType;
+    let healthCoverageType: HealthCoverageType | undefined;
+    if (
+      coverageRaw === HealthCoverageType.PRIVATE ||
+      coverageRaw === HealthCoverageType.HEALTH_PLAN
+    ) {
+      healthCoverageType = coverageRaw;
+    } else if (typeof coverageRaw === 'string') {
+      const up = coverageRaw.toUpperCase();
+      if (up === 'PRIVATE' || up === 'PARTICULAR') {
+        healthCoverageType = HealthCoverageType.PRIVATE;
+      } else if (up === 'HEALTH_PLAN' || up === 'PLANO') {
+        healthCoverageType = HealthCoverageType.HEALTH_PLAN;
+      }
+    }
+
+    const journeyUpper = String(journeyStageRaw || 'SCREENING').toUpperCase();
+    const currentStage = Object.values(JourneyStage).includes(
+      journeyUpper as JourneyStage
+    )
+      ? (journeyUpper as JourneyStage)
+      : JourneyStage.SCREENING;
+
+    return {
+      name: String(raw.name).trim(),
+      birthDate: String(raw.birthDate),
+      phone: normalizePhoneNumber(String(raw.phone).trim()),
+      email:
+        typeof raw.email === 'string' && raw.email.trim().length > 0
+          ? raw.email.trim()
+          : undefined,
+      cpf:
+        typeof raw.cpf === 'string' && raw.cpf.trim().length > 0
+          ? raw.cpf.trim()
+          : undefined,
+      gender,
+      currentStage,
+      healthCoverageType,
+      healthPlanName:
+        typeof raw.healthPlanName === 'string'
+          ? raw.healthPlanName
+          : undefined,
+      insuranceMemberId:
+        typeof raw.insuranceMemberId === 'string'
+          ? raw.insuranceMemberId
+          : undefined,
+    };
+  }
+
+  /**
+   * Quando a conversa está ligada ao cadastro mínimo do WhatsApp e o agente envia `newPatient`
+   * com dados completos, atualiza o registro para não ficar preso em nome/data placeholder.
+   */
+  private async applySchedulingNewPatientOntoIntakeStubIfNeeded(
+    patientId: string,
+    tenantId: string,
+    newPatientFields: Record<string, unknown>,
+    journeyStageRaw: string
+  ): Promise<void> {
+    const row = await this.prisma.patient.findFirst({
+      where: { id: patientId, tenantId },
+      select: { name: true },
+    });
+    if (!row || row.name !== WHATSAPP_INTAKE_STUB_PATIENT_NAME) {
+      return;
+    }
+    const dto = this.mapNewPatientPayload(newPatientFields, journeyStageRaw);
+    const patch: UpdatePatientDto = {
+      name: dto.name,
+      birthDate: dto.birthDate,
+      phone: dto.phone,
+      email: dto.email,
+      cpf: dto.cpf,
+      gender: dto.gender,
+      currentStage: dto.currentStage,
+      healthCoverageType: dto.healthCoverageType,
+      healthPlanName: dto.healthPlanName,
+      insuranceMemberId: dto.insuranceMemberId,
+    };
+    await this.patientsService.update(patientId, patch, tenantId);
+  }
+
+  private async executeCreateConsultationAppointment(
+    decision: { outputAction?: { payload?: unknown } },
+    tenantId: string,
+    patientId: string,
+    conversationId: string
+  ) {
+    const payload = this.schedulingPayload(decision);
+    const journeyStageRaw = String(payload.journeyStage || '').trim();
+    if (
+      !this.isUuidString(String(payload.scheduledProfessionalId || '')) ||
+      !journeyStageRaw
+    ) {
+      throw new AgentSchedulingSecretaryError(
+        'Dados insuficientes para criar consulta.',
+        'INCOMPLETE_PAYLOAD'
+      );
+    }
+
+    const targetPatientId = await this.resolveTargetPatientIdForConsultationCreate(
+      tenantId,
+      patientId,
+      payload,
+      journeyStageRaw
+    );
+
+    const journeyStage = journeyStageRaw.toUpperCase() as JourneyStage;
+    if (!Object.values(JourneyStage).includes(journeyStage)) {
+      throw new AgentSchedulingSecretaryError(
+        'Fase da jornada inválida.',
+        'INCOMPLETE_PAYLOAD'
+      );
+    }
+
+    const dto = {
+      patientId: targetPatientId,
+      journeyStage,
+      stepKey: String(payload.stepKey).trim(),
+      stepName: String(payload.stepName).trim(),
+      expectedDate: String(payload.expectedDate),
+      scheduledProfessionalId: String(payload.scheduledProfessionalId),
+      stepDescription:
+        typeof payload.stepDescription === 'string'
+          ? payload.stepDescription
+          : undefined,
+      metadata: this.mergeConsultationMetadata(payload, conversationId),
+      cancerType:
+        typeof payload.cancerType === 'string' ? payload.cancerType : undefined,
+    } as CreateConsultationAppointmentDto;
+
+    try {
+      await this.oncologyNavigationService.createConsultationAppointment(
+        dto,
+        tenantId,
+        undefined
+      );
+      this.logger.log(
+        `CREATE_CONSULTATION_APPOINTMENT ok for patient ${targetPatientId} (tenant-scoped)`
+      );
+    } catch (err) {
+      if (err instanceof BadRequestException) {
+        throw new AgentSchedulingSecretaryError(
+          err.message || 'Validação da agenda falhou.',
+          'INVALID_STATE'
+        );
+      }
+      throw err;
+    }
+  }
+
+  private async executeRescheduleConsultationAppointment(
+    decision: { outputAction?: { payload?: unknown } },
+    tenantId: string,
+    patientId: string
+  ) {
+    const payload = this.schedulingPayload(decision);
+    const stepId = this.navigationStepIdFromPayload(payload);
+    const whenRaw =
+      payload.newExpectedDate ??
+      payload.expectedDate ??
+      payload.rescheduledExpectedDate;
+    if (!stepId || typeof whenRaw !== 'string' || !whenRaw.trim()) {
+      throw new AgentSchedulingSecretaryError(
+        'navigationStepId e nova data são obrigatórios.',
+        'INCOMPLETE_PAYLOAD'
+      );
+    }
+    await this.assertConsultationStepOwned(stepId, tenantId, patientId);
+
+    const updateDto: UpdateNavigationStepDto = {
+      expectedDate: whenRaw.trim(),
+    };
+    if (
+      typeof payload.scheduledProfessionalId === 'string' &&
+      this.isUuidString(payload.scheduledProfessionalId)
+    ) {
+      updateDto.scheduledProfessionalId = payload.scheduledProfessionalId;
+    }
+
+    try {
+      await this.oncologyNavigationService.updateStep(
+        stepId,
+        updateDto,
+        tenantId,
+        undefined
+      );
+      this.logger.log(
+        `RESCHEDULE_CONSULTATION_APPOINTMENT ok step=${stepId} patient=${patientId}`
+      );
+    } catch (err) {
+      if (err instanceof BadRequestException) {
+        throw new AgentSchedulingSecretaryError(
+          err.message || 'Não foi possível reagendar (slot ou regra da agenda).',
+          'INVALID_STATE'
+        );
+      }
+      throw err;
+    }
+  }
+
+  private async executeCancelConsultationAppointment(
+    decision: { outputAction?: { payload?: unknown } },
+    tenantId: string,
+    patientId: string
+  ) {
+    const payload = this.schedulingPayload(decision);
+    const stepId = this.navigationStepIdFromPayload(payload);
+    if (!stepId) {
+      throw new AgentSchedulingSecretaryError(
+        'navigationStepId é obrigatório para cancelar.',
+        'INCOMPLETE_PAYLOAD'
+      );
+    }
+    await this.assertConsultationStepOwned(stepId, tenantId, patientId);
+
+    const updateDto: UpdateNavigationStepDto = {
+      status: NavigationStepStatus.CANCELLED,
+    };
+    if (typeof payload.cancelReason === 'string' && payload.cancelReason.trim()) {
+      updateDto.notes = `[Agent] ${payload.cancelReason.trim().slice(0, 2000)}`;
+    }
+
+    await this.oncologyNavigationService.updateStep(
+      stepId,
+      updateDto,
+      tenantId,
+      undefined
+    );
+    this.logger.log(
+      `CANCEL_CONSULTATION_APPOINTMENT ok step=${stepId} patient=${patientId}`
+    );
+  }
+
+  private async executeConfirmConsultationAppointment(
+    decision: { outputAction?: { payload?: unknown } },
+    tenantId: string,
+    patientId: string
+  ) {
+    const payload = this.schedulingPayload(decision);
+    const stepId = this.navigationStepIdFromPayload(payload);
+    if (!stepId) {
+      throw new AgentSchedulingSecretaryError(
+        'navigationStepId é obrigatório para confirmar.',
+        'INCOMPLETE_PAYLOAD'
+      );
+    }
+    await this.assertConsultationStepOwned(stepId, tenantId, patientId);
+
+    await this.oncologyNavigationService.updateStep(
+      stepId,
+      {
+        appointmentConfirmationStatus:
+          AppointmentConfirmationStatus.CONFIRMED,
+      },
+      tenantId,
+      undefined
+    );
+    this.logger.log(
+      `CONFIRM_CONSULTATION_APPOINTMENT ok step=${stepId} patient=${patientId}`
+    );
   }
 
   private async updateClinicalDisposition(

@@ -5,7 +5,6 @@ import {
   MinLength,
   IsEnum,
   IsOptional,
-  IsBoolean,
   ValidateIf,
   MaxLength,
   IsIn,
@@ -42,9 +41,9 @@ export class CreateUserDto {
   @IsEnum(ClinicalSubrole)
   clinicalSubrole?: ClinicalSubrole | null;
 
-  @IsOptional()
-  @IsBoolean()
-  mfaEnabled?: boolean;
+  // mfaEnabled é deliberadamente não-aceito via API: o fluxo TOTP/MFA ainda não
+  // foi implementado, e ligar a flag sem fluxo de verificação trava o login
+  // (ver auth.service.validateUser). Mantemos a coluna no schema para uso futuro.
 
   @ValidateIf(
     (o: CreateUserDto) =>

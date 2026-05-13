@@ -12,6 +12,23 @@ Collects pipeline execution traces in a ring buffer for debugging and monitoring
 
 MAX_TRACES = 500
 
+# Limite por campo no trace serializado (evita payloads enormes no JSON da mensagem).
+TRACE_RAG_CONTEXT_MAX_CHARS = 24_000
+TRACE_ORCH_SYSTEM_MAX_CHARS = 24_000
+TRACE_ORCH_MESSAGE_MAX_CHARS = 8_000
+TRACE_SUBAGENT_RESPONSE_MAX_CHARS = 16_000
+
+
+def pack_trace_text(value: Optional[str], max_len: int) -> Dict[str, Any]:
+    """Empacota texto longo para observabilidade (preview + truncação explícita)."""
+    if value is None:
+        return {"text": "", "truncated": False, "total_chars": 0}
+    s = str(value)
+    n = len(s)
+    if n <= max_len:
+        return {"text": s, "truncated": False, "total_chars": n}
+    return {"text": s[:max_len], "truncated": True, "total_chars": n}
+
 
 class PipelineSpan:
     """Represents a single timed step within an agent trace."""
@@ -59,6 +76,21 @@ class AgentTrace:
         self.actions_generated: List[str] = []
         self.subagents_called: List[str] = []
 
+        # True quando o ramo multi-agente (orquestrador Opus + tool use) foi executado
+        self.main_multi_agent_llm_used: bool = False
+
+        # Resumo observabilidade: qual provedor/modelo nas etapas intent / sintomas
+        self.intent_llm: Optional[Dict[str, Any]] = None
+        self.symptom_llm: Optional[Dict[str, Any]] = None
+
+        # Texto RAG + input do orquestrador + saídas dos subagentes (só ramo multi-agente)
+        self.rag_context_output: Optional[Dict[str, Any]] = None
+        self.orchestrator_input: Optional[Dict[str, Any]] = None
+        self.subagent_outputs: List[Dict[str, Any]] = []
+
+        # Tokens e custo estimado por chamada LLM (intent, sintomas, orquestrador, subagentes)
+        self.token_usage_events: List[Dict[str, Any]] = []
+
         self.total_duration_ms: Optional[float] = None
         self.error: Optional[str] = None
 
@@ -67,6 +99,19 @@ class AgentTrace:
         self.error = error
 
     def to_dict(self) -> Dict[str, Any]:
+        from .llm_pricing import sum_usage_events
+
+        totals = (
+            sum_usage_events(self.token_usage_events)
+            if self.token_usage_events
+            else {
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "total_tokens": 0,
+                "estimated_cost_usd": 0.0,
+                "call_count": 0,
+            }
+        )
         return {
             "trace_id": self.trace_id,
             "patient_id": self.patient_id,
@@ -82,6 +127,14 @@ class AgentTrace:
             "clinical_rules_fired": self.clinical_rules_fired,
             "actions_generated": self.actions_generated,
             "subagents_called": self.subagents_called,
+            "main_multi_agent_llm_used": self.main_multi_agent_llm_used,
+            "intent_llm": self.intent_llm,
+            "symptom_llm": self.symptom_llm,
+            "rag_context_output": self.rag_context_output,
+            "orchestrator_input": self.orchestrator_input,
+            "subagent_outputs": self.subagent_outputs,
+            "token_usage_events": list(self.token_usage_events),
+            "token_usage_totals": totals,
             "llm_calls": self.llm_calls,
             "spans": [s.to_dict() for s in self.spans],
             "error": self.error,

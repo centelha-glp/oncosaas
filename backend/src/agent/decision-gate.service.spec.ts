@@ -79,4 +79,71 @@ describe('DecisionGateService', () => {
       expect.objectContaining({ take: 200 })
     );
   });
+
+  it('auto-aprova CREATE_CONSULTATION_APPOINTMENT quando payload passa no gate e requiresApproval false', () => {
+    const result = service.evaluate([
+      {
+        decisionType: AgentDecisionType.RESPONSE_GENERATED,
+        reasoning: 'agendar',
+        inputData: {},
+        outputAction: {
+          type: 'CREATE_CONSULTATION_APPOINTMENT',
+          payload: {
+            scheduledProfessionalId: '550e8400-e29b-41d4-a716-446655440000',
+            expectedDate: '2026-06-15T14:00:00.000Z',
+            stepKey: 'navigation_consultation',
+            stepName: 'Consulta de navegação',
+            journeyStage: 'TREATMENT',
+          },
+        },
+        requiresApproval: false,
+      },
+    ] as unknown as AgentDecision[]);
+
+    expect(result.autoApproved).toHaveLength(1);
+    expect(result.needsApproval).toHaveLength(0);
+  });
+
+  it('exige aprovação para CREATE_CONSULTATION_APPOINTMENT quando payload incompleto', () => {
+    const result = service.evaluate([
+      {
+        decisionType: AgentDecisionType.RESPONSE_GENERATED,
+        reasoning: 'agendar',
+        inputData: {},
+        outputAction: {
+          type: 'CREATE_CONSULTATION_APPOINTMENT',
+          payload: {
+            stepKey: 'navigation_consultation',
+            stepName: 'Consulta',
+            journeyStage: 'TREATMENT',
+          },
+        },
+        requiresApproval: false,
+      },
+    ] as unknown as AgentDecision[]);
+
+    expect(result.needsApproval).toHaveLength(1);
+    expect(result.autoApproved).toHaveLength(0);
+  });
+
+  it('exige aprovação para ações da secretária quando requiresApproval true', () => {
+    const result = service.evaluate([
+      {
+        decisionType: AgentDecisionType.RESPONSE_GENERATED,
+        reasoning: 'agendar',
+        inputData: {},
+        outputAction: {
+          type: 'RESCHEDULE_CONSULTATION_APPOINTMENT',
+          payload: {
+            navigationStepId: '6ba7b810-9dad-11d1-80b4-00c04fd430c8',
+            newExpectedDate: '2026-07-01T10:00:00.000Z',
+          },
+        },
+        requiresApproval: true,
+      },
+    ] as unknown as AgentDecision[]);
+
+    expect(result.needsApproval).toHaveLength(1);
+    expect(result.autoApproved).toHaveLength(0);
+  });
 });

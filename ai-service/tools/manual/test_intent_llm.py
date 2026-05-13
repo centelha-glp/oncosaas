@@ -1,21 +1,17 @@
 import asyncio
-import logging
 import os
 from pathlib import Path
 from dotenv import load_dotenv
-from src.agent.intent_classifier import intent_classifier, CONFIDENCE_THRESHOLD_LLM
+from src.agent.intent_classifier import intent_classifier
 
 """
-Script para testar se o Intent Classifier chama a LLM no fallback.
-Mensagens ambíguas (baixa confiança no regex) devem acionar a LLM.
+Script manual: classificação de intent via LLM (quando há chaves em .env).
+Sem chaves, classify_async devolve GENERAL com metadata.source == no_llm.
 """
 
 AI_SERVICE_ROOT = Path(__file__).resolve().parents[2]
 load_dotenv(AI_SERVICE_ROOT / ".env")
 
-# Logs visíveis para ver "Intent LLM fallback"
-logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
-logger = logging.getLogger(__name__)
 
 def build_agent_config() -> dict:
     anthropic_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
@@ -35,35 +31,43 @@ async def test_intent_llm() -> None:
     agent_config = build_agent_config()
     has_keys = bool(agent_config.get("anthropic_api_key") or agent_config.get("openai_api_key"))
 
-    # Mensagens que tendem a dar confiança baixa no regex (< 0.65)
     test_messages = [
         "quero saber mais",
         "me explica isso",
         "e aí, como está?",
         "preciso de uma informação",
+        "oi",
     ]
 
     print("=" * 60)
-    print("TESTE: Intent Classifier + LLM Fallback")
+    print("TESTE: Intent Classifier (LLM quando há chaves)")
     print(f"API keys configuradas: {has_keys}")
-    print(f"Threshold para LLM: {CONFIDENCE_THRESHOLD_LLM}")
     print("=" * 60)
+
+    sample_history = [
+        {"role": "assistant", "content": "Quer falar sobre seus sintomas ou sobre agendamento?"},
+        {"role": "user", "content": "sobre os sintomas"},
+    ]
 
     for msg in test_messages:
         print(f"\nMensagem: '{msg}'")
-        regex_only = intent_classifier.classify(msg)
-        print(f"  Regex: intent={regex_only['intent']}, confidence={regex_only['confidence']:.2f}")
-
-        result = await intent_classifier.classify_async(msg, {}, agent_config)
-        llm_used = result.get("metadata", {}).get("source") == "llm"
-        print(f"  classify_async: intent={result['intent']}, confidence={result['confidence']:.2f}")
-        print(f"  LLM chamada: {'SIM' if llm_used else 'NÃO'}")
-        if llm_used:
-            print("  [OK] Fallback LLM foi acionado!")
-        elif regex_only["confidence"] >= CONFIDENCE_THRESHOLD_LLM:
-            print("  [SKIP] Confiança alta no regex, LLM não necessária")
-        elif not has_keys:
-            print("  [SKIP] Sem API keys, LLM não disponível")
+        result = await intent_classifier.classify_async(
+            msg,
+            {},
+            agent_config,
+            conversation_history=sample_history,
+        )
+        src = result.get("metadata", {}).get("source")
+        print(
+            f"  classify_async: intent={result['intent']}, "
+            f"confidence={result['confidence']:.2f}, source={src}"
+        )
+        if has_keys and src == "llm":
+            print("  [OK] Classificação via LLM")
+        elif not has_keys and src == "no_llm":
+            print("  [SKIP] Sem API keys — retorno seguro GENERAL (no_llm)")
+        elif src == "llm_error":
+            print("  [AVISO] Falha de parse ou exceção na chamada ao modelo")
 
     print("\n" + "=" * 60)
     print("Fim do teste.")

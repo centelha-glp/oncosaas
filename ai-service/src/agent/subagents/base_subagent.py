@@ -56,6 +56,9 @@ class BaseSubAgent:
         context: str,
         conversation_history: List[Dict[str, str]],
         config: Optional[Dict[str, Any]] = None,
+        *,
+        usage_events: Optional[List[Dict[str, Any]]] = None,
+        usage_step: Optional[str] = None,
     ) -> SubAgentResult:
         """
         Run the subagent's agentic loop.
@@ -91,6 +94,8 @@ class BaseSubAgent:
                 config=subagent_config,
                 tool_executor=None,
                 max_iterations=MAX_SUBAGENT_ITERATIONS,
+                usage_events=usage_events,
+                usage_step=usage_step or f"subagent:{self.name}",
             )
             return SubAgentResult(
                 agent_name=self.name,

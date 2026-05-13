@@ -31,25 +31,28 @@ O orchestrator **roteia** — recebe a mensagem, chama subagentes via tool use (
 
 Os subagentes **especializam** — executam um agentic loop próprio limitado a 6 iterações, coletam tool calls mas **não os executam**. Tool calls são devolvidos ao orchestrator como `actions` na resposta da API.
 
+A classificação de intent (`intent_classifier.classify_async`) usa **apenas LLM** quando há chave Anthropic/OpenAI no `agent_config`/ambiente e `use_llm_intent_classifier` não está `False`; caso contrário devolve `GENERAL` com `metadata.source: no_llm` sem chamar o modelo.
+
 ### Invariante de segurança crítica
 
-A ordem do pipeline é imutável. As layers determinísticas (clinical_rules, Layer 1) sempre precedem ML e LLM:
+A ordem do pipeline é imutável **no ramo `main`**. As layers determinísticas (clinical_rules, Layer 1) precedem ML e LLM **sempre que** `_run_safety_triage` corre (ramo `main`). No ramo `appointment_query` (`INTENT_APPOINTMENT_QUERY`) **não** há `symptom_analyzer` nem `clinical_rules_engine.evaluate()` — o Opus roteia para `consultar_agente_navegacao` e o Sonnet pode emitir `informar_agenda_navegacao`. No código atual (`orchestrator.py`), a ordem de entrada é:
 
 ```
-Questionnaire fast-path
-Intent fast-paths (EMERGENCY / GREETING / APPOINTMENT_QUERY)
-    ↓ [main path]
-Symptom Analysis (Layer 0)
-Clinical Rules Engine (Layer 1) ← PRE-ML, PRE-LLM, SEMPRE
-MASCC/CISNE Scores (Layer 2, dentro do Layer 1)
+Intent classification
+  → EMERGENCY + escalate_immediately: triagem mínima (sintomas + Layer 1) + resposta emergência
+  → active_questionnaire: triagem mínima; ER_IMMEDIATE → override; senão fluxo questionário
+  → GREETING (skip_full_pipeline): triagem mínima; is_er → override; senão fast-path + metadados Layer 1
+  → APPOINTMENT_QUERY: trace.pipeline_path = "appointment_query" — sem triagem; placeholders + RAG + multi-agent (sem bloco Layer 1 no contexto)
+  → [main path]
+Symptom Analysis (Layer 0) + Clinical Rules (Layer 1) — apenas ramo `main`
+MASCC/CISNE Scores (Layer 2, dentro do Layer 1) — apenas ramo `main`
 Protocol Engine
-ML Priority Model (Layer 3)
 RAG Context Build
 Multi-agent LLM Pipeline (Opus orchestrator → subagentes Sonnet)
 Action Compilation
 ```
 
-**Nunca mova `clinical_rules_engine.evaluate()` para depois do pipeline LLM.**
+**Nunca mova `clinical_rules_engine.evaluate()` para depois do pipeline LLM** no ramo onde a triagem Layer 1 é obrigatória (`main` e fast-paths com `_run_safety_triage`).
 
 ---
 
@@ -180,7 +183,7 @@ O `context` já contém o contexto RAG formatado — é passado pelo orchestrato
 | Subagente | Arquivo | Ferramentas (actions) | Quando o orchestrator o invoca |
 |---|---|---|---|
 | `SymptomAgent` | `symptom_agent.py` | `registrar_sintoma`, `solicitar_avaliacao_medica`, `acionar_enfermagem` | Qualquer sintoma físico relatado |
-| `NavigationAgent` | `navigation_agent.py` | `avancar_etapa_navegacao`, `recomendar_consulta`, `agendar_seguimento` | Dúvidas sobre próximas etapas, exames realizados |
+| `NavigationAgent` | `navigation_agent.py` | `atualizar_etapa_navegacao`, `agendar_checkin`, `recomendar_consulta`, `informar_agenda_navegacao` | Dúvidas sobre etapas, exames, agenda/prazos |
 | `QuestionnaireAgent` | `questionnaire_agent.py` | `iniciar_questionario_esas`, `iniciar_questionario_pro_ctcae` | Sintomas vagos/difusos, avaliação periódica |
 | `EmotionalSupportAgent` | `emotional_support_agent.py` | `registrar_estado_emocional`, `encaminhar_psicologia` | Ansiedade, medo, suporte emocional |
 
@@ -246,7 +249,7 @@ tracer.finish_trace(trace, error=str(exc))   # falha
 
 | Campo | Tipo | Quando setar |
 |---|---|---|
-| `pipeline_path` | str | Imediatamente ao entrar em um fast-path: `"questionnaire"`, `"emergency"`, `"greeting"`, `"appointment_query"`, `"main"` |
+| `pipeline_path` | str | Imediatamente ao entrar num ramo: `"questionnaire"`, `"emergency"`, `"greeting"`, `"greeting_safety_override"`, `"appointment_query"`, `"main"` |
 | `intent` | str | Após `intent_classifier.classify_async()` |
 | `intent_confidence` | float | Junto com `intent` |
 | `symptoms_detected` | int | Após `symptom_analyzer.analyze()` |
@@ -264,19 +267,19 @@ tracer.finish_trace(trace, error=str(exc))   # falha
 
 ## 7. Fast-Paths — Quando e Como Usar
 
-Fast-paths pulam o pipeline principal e retornam resposta imediata. São seguros apenas para cenários onde nenhuma regra clínica precisa ser avaliada OU onde a urgência é tão alta que a resposta deve ser imediata.
+Fast-paths **evitam o pipeline LLM completo** (resposta curta sem `run_agentic_loop`). A triagem mínima Layer 1 (`_run_safety_triage`) aplica-se a **questionário ativo**, **emergência** e **saudação** (`skip_full_pipeline`) antes de retornar cedo. O ramo **`appointment_query`** (`INTENT_APPOINTMENT_QUERY`) **não** é fast-path de LLM: usa o mesmo multi-agent, mas **omite** sintomas e Layer 1; `build_orchestrator_prompt(..., appointment_query=True)` substitui a nota de Layer 1 pré-calculada. Quando a triagem mínima roda e Layer 1 indica ER, o orquestrador **substitui** a resposta curta por override de segurança onde aplicável.
 
-| Fast-path | Intent | Condição adicional | Pula pipeline? |
+| Fast-path | Intent / estado | Condição adicional | Pipeline principal (LLM/RAG/protocolo longo) |
 |---|---|---|---|
-| Questionnaire | (estado ativo) | `agent_state["active_questionnaire"]` presente | Sim — vai para `_process_questionnaire_answer()` |
-| Emergency | `INTENT_EMERGENCY` | `metadata["escalate_immediately"] == True` | Parcialmente — ainda roda symptom analysis |
-| Greeting | `INTENT_GREETING` | `intent_result["skip_full_pipeline"] == True` | Sim |
-| Appointment Query | `INTENT_APPOINTMENT_QUERY` | `intent_result["skip_full_pipeline"] == True` | Sim |
+| Questionnaire | `active_questionnaire` | — | Não — `_process_questionnaire_answer()` após triagem |
+| Emergency | `INTENT_EMERGENCY` | `escalate_immediately` | Não — ramo emergência com triagem |
+| Greeting | `INTENT_GREETING` | `skip_full_pipeline` | Não — saudação após triagem; override se `is_er` |
+| Appointment query (ramo dedicado) | `INTENT_APPOINTMENT_QUERY` | — | **Sim** — RAG + `run_agentic_loop` + roteamento; **sem** `_run_safety_triage`; `trace.pipeline_path = "appointment_query"` |
 
 ### Como adicionar novo fast-path
 
 1. Declare a constante em `intent_classifier.py`: `INTENT_MEU_NOVO = "meu_novo"`
-2. Adicione a verificação no `_process_with_trace()` logo após o bloco `INTENT_APPOINTMENT_QUERY`:
+2. Adicione a verificação no `_process_with_trace()` na posição correta (após intents existentes).
 
 ```python
 if intent == INTENT_MEU_NOVO and intent_result.get("skip_full_pipeline"):
@@ -285,7 +288,7 @@ if intent == INTENT_MEU_NOVO and intent_result.get("skip_full_pipeline"):
 ```
 
 3. Implemente `_build_meu_novo_response()` como método privado do `AgentOrchestrator`
-4. **Regra**: fast-paths que pulam o pipeline principal **nunca devem ser usados para intents com possível conteúdo clínico urgente**. Em dúvida, deixar no pipeline principal
+4. **Regra**: qualquer novo fast-path **deve** manter triagem Layer 1 antes de `return` curto, ou documentar exceção explícita de produto. Em dúvida, deixar no pipeline principal completo
 
 ---
 

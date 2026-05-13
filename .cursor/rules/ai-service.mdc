@@ -23,12 +23,17 @@ O ponto de entrada é `AgentOrchestrator.process()` em `src/agent/orchestrator.p
 ```
 1.   Questionnaire fast-path    — agent_state["active_questionnaire"] presente
 1.5. Intent classification      — intent_classifier.classify_async()
+     (com chaves LLM: `llm_provider.generate` num prompt curto de intent; sem chaves ou
+     `use_llm_intent_classifier: False` → `GENERAL`, `metadata.source: no_llm`)
      Fast-paths: EMERGENCY → _build_emergency_response()
-                 GREETING   → _build_greeting_response()
-                 APPOINTMENT_QUERY → _build_appointment_response()
+                 GREETING   → triagem mínima → _build_greeting_response() (+ metadados Layer 1)
+     Ramo `appointment_query`: `INTENT_APPOINTMENT_QUERY` → **sem** `symptom_analyzer` e **sem** Layer 1;
+                 placeholders mínimos para `build_with_rag` (sem bloco Layer 1 no contexto RAG);
+                 mesmo fluxo multi-agent (`run_agentic_loop` + roteamento) com `intent_hint` de agenda;
+                 `NavigationAgent` + tool `informar_agenda_navegacao` (auditoria). `skip_full_pipeline` não se aplica a agenda (só `GREETING`).
 
-2.   Symptom analysis           — symptom_analyzer.analyze()   (keyword + LLM opcional)
-2.5. Layer 1 — Clinical rules   — clinical_rules_engine.evaluate()   ← PRE-ML, obrigatório
+2.   Symptom analysis           — symptom_analyzer.analyze()   (apenas ramo `main`; omitido em `appointment_query`)
+2.5. Layer 1 — Clinical rules   — clinical_rules_engine.evaluate()   ← PRE-ML no ramo `main`; omitido em `appointment_query` (placeholder `REMOTE_NURSING` só para contrato/trace)
 3.   Protocol evaluation        — protocol_engine.evaluate()
 4.   RAG context build          — context_builder.build_with_rag()
 5.   Multi-agent LLM pipeline   — llm_provider.run_agentic_loop()   (se LLM disponível)
@@ -53,7 +58,7 @@ Cada step é envolvido por um span de tracer: `tracer.start_span(trace, "nome_do
 
 1. Declare a constante em `src/agent/intent_classifier.py`.
 2. Adicione ao conjunto de intents reconhecidos dentro do classificador.
-3. No `orchestrator.py`, adicione a verificação logo após o bloco `INTENT_APPOINTMENT_QUERY`:
+3. No `orchestrator.py`, adicione a verificação logo após o bloco de intents existente (ex.: após `INTENT_GREETING`).
 
 ```python
 if intent == INTENT_MEDICATION_QUERY and intent_result.get("skip_full_pipeline"):
@@ -68,7 +73,7 @@ if intent == INTENT_MEDICATION_QUERY and intent_result.get("skip_full_pipeline")
 
 1. Crie o módulo em `src/agent/<modulo>.py` com um singleton no final.
 2. Importe o singleton no topo do orchestrator.
-3. Insira o step na posição correta da sequência — **clinical_rules deve sempre ser step 2.5**.
+3. Insira o step na posição correta da sequência — **no ramo `main`, clinical_rules deve ser step 2.5** (omitido no ramo `appointment_query`).
 4. Envolva com `tracer.start_span(trace, "nome_legivel")` / `span.finish(resultado)`.
 5. Trate exceções localmente quando o step é não-bloqueante.
 

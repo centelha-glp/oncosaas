@@ -41,7 +41,6 @@ const userSchema = z
       'SECRETARY',
     ]),
     clinicalSubrole: z.enum(['', 'NURSING', 'MEDICAL']),
-    mfaEnabled: z.boolean().default(false),
     crmUf: z.string().optional(),
     crmNumber: z.string().optional(),
     corenUf: z.string().optional(),
@@ -147,7 +146,6 @@ export function UserFormDialog({
       password: '',
       role: 'NURSE',
       clinicalSubrole: '',
-      mfaEnabled: false,
       crmUf: '',
       crmNumber: '',
       corenUf: '',
@@ -195,7 +193,6 @@ export function UserFormDialog({
         password: '',
         role: user.role,
         clinicalSubrole: user.clinicalSubrole ?? '',
-        mfaEnabled: user.mfaEnabled,
         crmUf: user.crmUf ?? '',
         crmNumber: user.crmNumber ?? '',
         corenUf: user.corenUf ?? '',
@@ -208,7 +205,6 @@ export function UserFormDialog({
         password: '',
         role: canChangeRole ? 'NURSE' : 'NURSE',
         clinicalSubrole: '',
-        mfaEnabled: false,
         crmUf: '',
         crmNumber: '',
         corenUf: '',
@@ -224,7 +220,6 @@ export function UserFormDialog({
           name: data.name,
           email: data.email,
           role: data.role,
-          mfaEnabled: data.mfaEnabled,
         };
         if (data.password && data.password.length > 0) {
           updateData.password = data.password;
@@ -259,7 +254,6 @@ export function UserFormDialog({
           email: data.email,
           password: data.password,
           role: data.role,
-          mfaEnabled: data.mfaEnabled,
         };
         const sub = clinicalSubroleForApi(data.role, data.clinicalSubrole);
         if (sub !== undefined) {
@@ -507,18 +501,6 @@ export function UserFormDialog({
               </div>
             </fieldset>
           )}
-
-          <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              id="mfaEnabled"
-              {...register('mfaEnabled')}
-              className="h-4 w-4"
-            />
-            <Label htmlFor="mfaEnabled" className="cursor-pointer">
-              Habilitar autenticação de dois fatores (MFA)
-            </Label>
-          </div>
 
           <div className="flex justify-end gap-2 pt-4">
             <Button

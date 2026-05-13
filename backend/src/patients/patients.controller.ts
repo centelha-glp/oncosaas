@@ -58,6 +58,7 @@ export class PatientsController {
     return this.patientsService.findAll(user.tenantId, {
       limit: query.limit,
       offset: query.offset,
+      includeCancerDiagnoses: query.includeCancerDiagnoses,
     });
   }
 

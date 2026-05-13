@@ -227,76 +227,37 @@ class BackendClient:
         )
 ```
 
-### 2. Integração no Agente WhatsApp
+### 2. Integração no agente (orquestrador)
+
+O processamento de mensagens do paciente no AI Service passa pelo **`AgentOrchestrator`** (`ai-service/src/agent/orchestrator.py`). Ele é o único ponto de entrada produtivo: recebe `message`, `clinical_context`, `protocol`, `conversation_history`, `agent_state` e devolve `response`, `actions`, `symptom_analysis`, `clinical_disposition`, `clinical_rules_findings`, `decisions` e `new_state`.
+
+A criação efetiva do alerta no banco é responsabilidade do **backend NestJS** — o orquestrador apenas emite a `action` correspondente em `actions` (ex.: `CREATE_HIGH_CRITICAL_ALERT`, `UPDATE_CLINICAL_DISPOSITION`); o `decision-gate.service.ts` aprova/bloqueia e dispara `POST /api/v1/alerts`.
 
 ```python
-# ai-service/src/agent/whatsapp_agent.py
-from .services.backend_client import BackendClient
+# Chamada interna ao orquestrador (a partir do AI Service / testes)
+# ai-service/src/agent/orchestrator.py
+from ai_service.src.agent.orchestrator import orchestrator
 
-class WhatsAppAgent:
-    def __init__(self):
-        self.backend_client = BackendClient()
-        # ... resto da inicialização
+result = await orchestrator.process({
+    "message": message,
+    "patient_id": patient_id,
+    "tenant_id": tenant_id,
+    "clinical_context": clinical_context,
+    "protocol": protocol,
+    "conversation_history": conversation_history,
+    "agent_state": agent_state,
+    "agent_config": agent_config,
+})
 
-    async def process_message(
-        self,
-        message: str,
-        patient_id: str,
-        patient_context: Dict,
-        conversation_history: List[Dict],
-        conversation_id: Optional[str] = None,
-    ) -> Dict:
-        """
-        Processa mensagem e cria alerta se necessário
-        """
-        # ... processamento com LLM ...
-
-        # Detectar sintomas críticos
-        critical_symptoms = self._detect_critical_symptoms(message)
-
-        # Se detectou sintomas críticos, criar alerta
-        if critical_symptoms:
-            try:
-                alert_message = self._build_alert_message(
-                    critical_symptoms,
-                    patient_context
-                )
-
-                alert = await self.backend_client.create_critical_symptom_alert(
-                    patient_id=patient_id,
-                    symptoms=critical_symptoms,
-                    message=alert_message,
-                    conversation_id=conversation_id,
-                    confidence=0.9,  # Alta confiança na detecção
-                )
-
-                print(f"✅ Alerta criado: {alert['id']}")
-
-            except Exception as e:
-                print(f"❌ Erro ao criar alerta: {e}")
-                # Logar erro mas não interromper fluxo
-
-        return {
-            "response": agent_response,
-            "critical_symptoms": critical_symptoms,
-            "structured_data": structured_data,
-            "should_alert": len(critical_symptoms) > 0,
-        }
-
-    def _build_alert_message(
-        self,
-        symptoms: list[str],
-        patient_context: Dict
-    ) -> str:
-        """Constrói mensagem descritiva do alerta"""
-        patient_name = patient_context.get("name", "Paciente")
-        symptoms_str = ", ".join(symptoms)
-
-        return (
-            f"Paciente {patient_name} relatou sintomas críticos: {symptoms_str}. "
-            f"Requer atenção imediata da equipe de enfermagem."
-        )
+# Estrutura de saída relevante para alertas:
+# - result["clinical_disposition"]: ER_IMMEDIATE | ER_DAYS | ADVANCE_CONSULT | ...
+# - result["clinical_rules_findings"]: regras determinísticas (R01..R23)
+# - result["actions"]: lista de ações sugeridas pelo agente
+#       ex.: {"type": "CREATE_HIGH_CRITICAL_ALERT", "payload": {...}}
+# - result["symptom_analysis"]: sintomas detectados + severidade
 ```
+
+> **Importante**: dentro do AI Service o orquestrador **não** chama `POST /api/v1/alerts` diretamente. Quem faz isso é o backend NestJS após validar a decisão no `decision-gate.service.ts`, garantindo isolamento multi-tenant (`tenantId`) e auditoria.
 
 ---
 
@@ -451,7 +412,7 @@ async def create_alert_with_retry(
    ↓
 2. Backend recebe webhook e salva mensagem
    ↓
-3. Backend chama AI Service: POST /api/v1/agent/message
+3. Backend chama AI Service: **POST /api/v1/agent/process** (orquestrador). Este é o único endpoint do agente conversacional — não existem mais aliases legados.
    ↓
 4. Agente processa mensagem e detecta sintomas críticos
    ↓

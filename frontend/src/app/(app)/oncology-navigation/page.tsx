@@ -79,6 +79,7 @@ import {
   usesProntuarioEvolutionModel,
   VARIANT_SECTION_TITLE,
 } from '@/lib/utils/nav-step-form-variants';
+import { patientEligibleForOncologyNavigationPage } from '@/lib/utils/oncology-navigation-eligibility';
 
 interface FileMetadata {
   filename: string;
@@ -129,7 +130,9 @@ export default function OncologyNavigationPage() {
   /** Base da API para links de ficheiro (vazia = mesmo host com rewrite `/api/v1`). */
   const apiUrl = useMemo(() => getApiUrl(), []);
 
-  const { data: patients, isLoading: isLoadingPatients } = usePatients();
+  const { data: patients, isLoading: isLoadingPatients } = usePatients({
+    includeCancerDiagnoses: true,
+  });
   const [selectedCancerType, setSelectedCancerType] = useState<string | null>(
     null
   );
@@ -154,13 +157,18 @@ export default function OncologyNavigationPage() {
     }
   }, [isInitializing, isAuthenticated, user?.role, router]);
 
+  const eligiblePatients = useMemo(() => {
+    if (!patients?.length) return [];
+    return patients.filter(patientEligibleForOncologyNavigationPage);
+  }, [patients]);
+
   // Filtrar pacientes por termo de busca (debounced para evitar filtragem a cada tecla)
   const filteredPatients = useMemo(() => {
-    if (!patients) return [];
-    if (!debouncedSearchTerm.trim()) return patients;
+    if (!eligiblePatients.length) return [];
+    if (!debouncedSearchTerm.trim()) return eligiblePatients;
 
     const term = debouncedSearchTerm.toLowerCase().trim();
-    return patients.filter((patient) => {
+    return eligiblePatients.filter((patient) => {
       // Buscar por nome
       if (patient.name.toLowerCase().includes(term)) return true;
 
@@ -201,7 +209,7 @@ export default function OncologyNavigationPage() {
 
       return false;
     });
-  }, [patients, debouncedSearchTerm]);
+  }, [eligiblePatients, debouncedSearchTerm]);
 
   // Agrupar por tipo de tumor (diagnóstico / cancerType). Cuidados paliativos são
   // fase (JourneyStage) + status (PALLIATIVE_CARE), não um tipo de tumor — o
@@ -224,20 +232,31 @@ export default function OncologyNavigationPage() {
       if (patient.cancerDiagnoses && patient.cancerDiagnoses.length > 0) {
         patient.cancerDiagnoses.forEach((diagnosis) => {
           const cancerType = normalizeCancerTypeKey(diagnosis.cancerType);
+          if (cancerType === 'other') return;
           addPatient(cancerType, patient);
         });
       } else if (patient.cancerType) {
         const cancerType = normalizeCancerTypeKey(patient.cancerType);
+        if (cancerType === 'other') return;
         addPatient(cancerType, patient);
-      } else {
-        addPatient('other', patient);
       }
     });
 
     return grouped;
   }, [filteredPatients]);
 
-  const cancerTypes = Object.keys(patientsByCancerType).sort();
+  const cancerTypes = Object.keys(patientsByCancerType)
+    .filter((k) => k !== 'other')
+    .sort();
+
+  useEffect(() => {
+    if (
+      selectedCancerType &&
+      !cancerTypes.includes(selectedCancerType)
+    ) {
+      setSelectedCancerType(null);
+    }
+  }, [selectedCancerType, cancerTypes]);
 
   const togglePatient = (patientId: string) => {
     setExpandedPatients((prev) => {
@@ -299,7 +318,7 @@ export default function OncologyNavigationPage() {
           <div className="flex items-center justify-center h-full">
             <div className="text-center text-gray-500">
               <Users className="h-16 w-16 mx-auto mb-4 text-gray-400" />
-              {searchTerm ? (
+              {debouncedSearchTerm.trim() && eligiblePatients.length > 0 ? (
                 <>
                   <p className="text-lg font-semibold">
                     Nenhum paciente encontrado
@@ -311,11 +330,12 @@ export default function OncologyNavigationPage() {
               ) : (
                 <>
                   <p className="text-lg font-semibold">
-                    Nenhum paciente com câncer encontrado
+                    Nenhum paciente com tipo de câncer definido
                   </p>
                   <p className="text-sm">
-                    Os pacientes aparecerão aqui quando tiverem um tipo de
-                    câncer definido.
+                    Inclua o tipo de tumor no cadastro do paciente ou um
+                    diagnóstico oncológico ativo para que ele apareça nesta
+                    navegação.
                   </p>
                 </>
               )}
@@ -337,7 +357,7 @@ export default function OncologyNavigationPage() {
                       : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                   }`}
                 >
-                  Todos ({filteredPatients?.length || 0})
+                  Todos ({eligiblePatients.length === 0 ? 0 : filteredPatients.length})
                 </button>
                 {cancerTypes.map((cancerType) => {
                   const count = patientsByCancerType[cancerType]?.length || 0;

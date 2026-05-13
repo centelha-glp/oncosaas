@@ -18,6 +18,11 @@ export interface User {
   name: string;
   role: UserRole;
   clinicalSubrole?: ClinicalSubrole | null;
+  /**
+   * Flag de MFA (somente leitura no frontend). O backend ainda não suporta
+   * o fluxo TOTP de verificação, então a alteração via API foi removida —
+   * o campo permanece exposto pelo GET apenas para auditoria de estado.
+   */
   mfaEnabled: boolean;
   crmUf?: string | null;
   crmNumber?: string | null;
@@ -36,7 +41,6 @@ export interface CreateUserDto {
   password: string;
   name: string;
   role: UserRole;
-  mfaEnabled?: boolean;
   /** Quando `role` é `COORDINATOR` ou `ADMIN` */
   clinicalSubrole?: ClinicalSubrole | null;
   /** Obrigatório para ONCOLOGIST / DOCTOR */
@@ -52,7 +56,6 @@ export interface UpdateUserDto {
   password?: string;
   name?: string;
   role?: UserRole;
-  mfaEnabled?: boolean;
   clinicalSubrole?: ClinicalSubrole | null;
   crmUf?: string;
   crmNumber?: string;

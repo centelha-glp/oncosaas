@@ -1,6 +1,5 @@
 'use client';
 
-import { useMemo } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -12,8 +11,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import type { ConsultationAgendaScope } from '@/lib/api/oncology-navigation';
-import { useUsers } from '@/hooks/useUsers';
-import { userEligibleForAnyConsultationAgendaSlot } from '@/lib/utils/consultationAgenda';
+import { useConsultationAgendaSchedulableProfessionals } from '@/hooks/useOncologyNavigation';
 
 const dateInputClass =
   'flex h-10 w-full min-w-[10rem] rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2';
@@ -30,7 +28,7 @@ export interface ConsultationAgendaFiltersProps {
   onToChange: (value: string) => void;
   onScopeChange: (value: ConsultationAgendaScope) => void;
   onProfessionalIdChange: (value: string) => void;
-  onShiftWeek: (delta: -1 | 1) => void;
+  onShiftMonth: (delta: -1 | 1) => void;
 }
 
 const ALL_PROFESSIONALS = '__all__';
@@ -45,13 +43,12 @@ export function ConsultationAgendaFilters({
   onToChange,
   onScopeChange,
   onProfessionalIdChange,
-  onShiftWeek,
+  onShiftMonth,
 }: ConsultationAgendaFiltersProps) {
-  const { data: users = [], isLoading: usersLoading } = useUsers();
-  const schedulableProfessionals = useMemo(
-    () => users.filter((u) => userEligibleForAnyConsultationAgendaSlot(u)),
-    [users]
-  );
+  const { data: schedulableProfessionals = [], isLoading: usersLoading } =
+    useConsultationAgendaSchedulableProfessionals({
+      enabled: showProfessionalFilter,
+    });
 
   return (
     <Card>
@@ -148,18 +145,18 @@ export function ConsultationAgendaFilters({
             type="button"
             variant="outline"
             size="sm"
-            onClick={() => onShiftWeek(-1)}
+            onClick={() => onShiftMonth(-1)}
           >
             <ChevronLeft className="mr-1 h-4 w-4" aria-hidden />
-            Semana anterior
+            Mês anterior
           </Button>
           <Button
             type="button"
             variant="outline"
             size="sm"
-            onClick={() => onShiftWeek(1)}
+            onClick={() => onShiftMonth(1)}
           >
-            Próxima semana
+            Próximo mês
             <ChevronRight className="ml-1 h-4 w-4" aria-hidden />
           </Button>
         </div>

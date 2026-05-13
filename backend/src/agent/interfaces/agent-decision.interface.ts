@@ -15,6 +15,8 @@ export interface AgentResponse {
   symptomAnalysis?: SymptomAnalysis;
   newState?: Record<string, any>;
   decisions: AgentDecision[];
+  /** Observability trace from ai-service (spans, pipeline_path, intent, etc.) */
+  pipelineTrace?: Record<string, unknown>;
 }
 
 export interface AgentAction {
@@ -58,3 +60,14 @@ export interface ClinicalContext {
   comorbidities: any[];
   performanceStatusHistory: any[];
 }
+
+/** Contrato `outputAction.type` da secretária de agendamento (ai-service ↔ backend). */
+export {
+  CREATE_CONSULTATION_APPOINTMENT,
+  RESCHEDULE_CONSULTATION_APPOINTMENT,
+  CANCEL_CONSULTATION_APPOINTMENT,
+  CONFIRM_CONSULTATION_APPOINTMENT,
+  SCHEDULING_SECRETARY_OUTPUT_ACTION_TYPES,
+  isSchedulingSecretaryOutputActionType,
+  type SchedulingSecretaryOutputActionType,
+} from '../scheduling-secretary.constants';

@@ -2,25 +2,32 @@
 Intent Classifier for the Oncology Navigation Agent.
 Classifies patient messages before the main pipeline to enable
 differentiated handling (fast greeting responses, emergency escalation, etc.).
-Uses regex/patterns for fast path; LLM fallback for ambiguous messages.
+Classification uses the LLM when API keys are configured; otherwise returns a
+safe default without calling the model.
 """
 
 import re
 import logging
-from typing import Dict, Any, Optional, List
+from typing import Any, Dict, List, Optional
 
 from .llm_provider import llm_provider
 
 logger = logging.getLogger(__name__)
 
-# Confidence threshold below which we try LLM fallback
-CONFIDENCE_THRESHOLD_LLM = 0.75
+MAX_INTENT_HISTORY_MESSAGES = 20
 
 _INTENT_LLM_SYSTEM = """Você é um classificador de intenção para um assistente de navegação oncológica.
-Sua tarefa: classificar a mensagem do paciente em exatamente um dos intents abaixo.
-Responda APENAS com o nome do intent, nada mais.
+Classifique a mensagem do paciente em exatamente um dos intents abaixo.
 
-Intents válidos:
+Use as mensagens anteriores (user/assistant) quando existirem para desambiguar respostas curtas,
+confirmações ("sim", "ok") e continuação de tópico; a intenção deve refletir o sentido no contexto
+da conversa recente.
+
+Regras de saída (obrigatório):
+- Responda com UMA ÚNICA LINHA.
+- Essa linha deve conter APENAS o nome do intent em LETRAS MAIÚSCULAS, sem pontuação, sem explicação.
+
+Intents válidos (use exatamente estes rótulos):
 - EMERGENCY: urgência médica, sangramento grave, convulsão, desmaio, dor muito forte no peito, não consigo respirar
 - SYMPTOM_REPORT: relato de sintomas físicos (dor, náusea, febre, tosse, cansaço, etc.)
 - GREETING: cumprimento simples (oi, olá, bom dia, tudo bem)
@@ -38,57 +45,6 @@ INTENT_EMOTIONAL_SUPPORT = "EMOTIONAL_SUPPORT"
 INTENT_APPOINTMENT_QUERY = "APPOINTMENT_QUERY"
 INTENT_OFF_TOPIC = "OFF_TOPIC"
 INTENT_GENERAL = "GENERAL"
-
-_EMERGENCY_PATTERNS = [
-    r"\b(sangrando\s+muito|hemorragia|sangue\s+(?:na\s+boca|nariz|urina|fezes))\b",
-    r"\b(n[aã]o\s+consigo\s+respirar|falta\s+de\s+ar\s+(?:forte|intensa|grave))\b",
-    r"\b(desmaiei|desmaio|perdi\s+a\s+consci[eê]ncia|apaguei)\b",
-    r"\b(convuls[aã]o|convulsionando)\b",
-    r"\b(febre\s+(?:muito\s+)?alta|febre\s+(?:acima\s+de\s+)?3[89])\b",
-    r"\b(dor\s+(?:muito\s+forte|insuport[aá]vel|10|no\s+peito))\b",
-    r"\b(emerg[eê]ncia|urgente|socorro|me\s+ajud[ae]m?)\b",
-    r"\b(ca[ií]\s+e|fraturei|quebrei)\b",
-    r"\b(vomitando\s+sangue|hemoptise|mel[ae]na)\b",
-    r"\b(confus[aã]o\s+mental|desorientad[oa])\b",
-]
-
-_GREETING_PATTERNS = [
-    r"^\s*(oi|ol[aá]|bom\s+dia|boa\s+(?:tarde|noite)|hey|e\s+a[ií]|tudo\s+bem|como\s+vai)\s*[!?.]*\s*$",
-    r"^\s*(oi+|ol[aá]+)\s*[!?.]*\s*$",
-]
-
-_APPOINTMENT_PATTERNS = [
-    r"\b(consulta|retorno|exame|pr[oó]xim[oa]\s+(?:consulta|exame|retorno))\b",
-    r"\b(quando\s+(?:[eé]|ser[aá])\s+(?:a|o)\s+(?:consulta|exame|retorno))\b",
-    r"\b(agendar|marcar|remarcar|desmarcar|cancelar)\b.*\b(consulta|exame|retorno)\b",
-    r"\b(data|hor[aá]rio|dia)\b.*\b(consulta|exame|retorno)\b",
-]
-
-_EMOTIONAL_PATTERNS = [
-    r"\b(ansios[oa]|ansiedade|deprimi[do]|triste|medo|angustiad[oa])\b",
-    r"\b(chorand[oa]|n[aã]o\s+aguento\s+mais|desanimad[oa]|sem\s+esperan[cç]a)\b",
-    r"\b(sozinho|isolad[oa]|ningu[eé]m\s+me\s+entende)\b",
-    r"\b(vontade\s+de\s+desistir|n[aã]o\s+quero\s+mais\s+(?:tratar|viver))\b",
-    r"\b(psicologo|psicologica|emocional|saude\s+mental)\b",
-]
-
-_SYMPTOM_PATTERNS = [
-    r"\b(dor|d[oó]i|doendo|n[aá]usea|vomit|febre|tontura|cansa[cç]o|fadiga)\b",
-    r"\b(diarr[eé]ia|constipa[cç][aã]o|inchaço|edema|formigamento)\b",
-    r"\b(tosse|falta\s+de\s+ar|dispneia|queda\s+de\s+cabelo|mucosite)\b",
-    r"\b(insonia|n[aã]o\s+consigo\s+dormir|acordo\s+de\s+madrugada)\b",
-    r"\b(piora[ndr]|piorou|sint[ao]ma|efeito\s+colateral)\b",
-    r"\b(sangue|sangramento|hematoma|ferida|les[aã]o)\b",
-    r"\b(apetite|peso|emagrecendo|engordando)\b",
-]
-
-_QUESTION_INDICATORS = [
-    r"^(o\s+que|como|quando|onde|por\s*que|qual|quais|quanto)\b",
-    r"\?\s*$",
-    r"\b(pode\s+me\s+(?:explicar|dizer|falar)|gostaria\s+de\s+saber)\b",
-    r"\b(o\s+que\s+(?:[eé]|significa|quer\s+dizer))\b",
-    r"\b(posso|devo|preciso)\b.+\?",
-]
 
 
 _VALID_INTENTS = frozenset(
@@ -122,73 +78,12 @@ _LLM_INTENT_MAP = {
 
 class IntentClassifier:
     """
-    Classifies patient intent using a fast keyword/pattern approach
-    with an optional LLM fallback for ambiguous messages.
+    Classifies patient intent via LLM when keys are available;
+    otherwise returns GENERAL without calling the model.
     """
 
-    def classify(
-        self,
-        message: str,
-        agent_state: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
-        """
-        Classify the intent of a patient message (fast path, regex only).
-
-        Returns:
-            Dict with:
-                - intent: One of the INTENT_* constants
-                - confidence: 0.0 to 1.0
-                - skip_full_pipeline: Whether to bypass symptom analysis / protocol eval
-                - metadata: Extra info relevant to the detected intent
-        """
-        text = message.strip().lower()
-
-        if not text:
-            return self._result(INTENT_GENERAL, 0.3)
-
-        if self._matches_any(text, _EMERGENCY_PATTERNS):
-            return self._result(
-                INTENT_EMERGENCY,
-                0.95,
-                skip_pipeline=False,
-                metadata={
-                    "escalate_immediately": True,
-                },
-            )
-
-        if self._matches_any(text, _GREETING_PATTERNS) and len(text) < 40:
-            return self._result(INTENT_GREETING, 0.9, skip_pipeline=True)
-
-        has_symptom = self._matches_any(text, _SYMPTOM_PATTERNS)
-        has_emotional = self._matches_any(text, _EMOTIONAL_PATTERNS)
-        has_question = self._matches_any(text, _QUESTION_INDICATORS)
-        has_appointment = self._matches_any(text, _APPOINTMENT_PATTERNS)
-
-        if has_symptom and has_emotional:
-            return self._result(
-                INTENT_SYMPTOM_REPORT,
-                0.85,
-                metadata={
-                    "emotional_component": True,
-                },
-            )
-
-        if has_symptom:
-            return self._result(INTENT_SYMPTOM_REPORT, 0.85)
-
-        if has_emotional:
-            return self._result(INTENT_EMOTIONAL_SUPPORT, 0.8)
-
-        if has_appointment:
-            return self._result(INTENT_APPOINTMENT_QUERY, 0.8, skip_pipeline=True)
-
-        if has_question and not has_symptom:
-            return self._result(INTENT_QUESTION, 0.7)
-
-        return self._result(INTENT_GENERAL, 0.4)
-
-    def _matches_any(self, text: str, patterns: List[str]) -> bool:
-        return any(re.search(p, text, re.IGNORECASE) for p in patterns)
+    _NO_LLM_CONFIDENCE = 0.5
+    _LLM_SUCCESS_CONFIDENCE = 0.85
 
     def _result(
         self,
@@ -228,33 +123,118 @@ class IntentClassifier:
 
     def _skip_pipeline_for_intent(self, intent: str) -> bool:
         """Whether this intent should skip full symptom/protocol pipeline."""
-        return intent in (INTENT_GREETING, INTENT_APPOINTMENT_QUERY)
+        return intent == INTENT_GREETING
+
+    def _no_llm_result(self, reason: str = "no_llm_keys") -> Dict[str, Any]:
+        return self._result(
+            INTENT_GENERAL,
+            self._NO_LLM_CONFIDENCE,
+            skip_pipeline=False,
+            metadata={"source": "no_llm", "reason": reason},
+        )
+
+    def _llm_error_result(
+        self,
+        detail: str,
+        *,
+        llm_provider_name: Optional[str] = None,
+        llm_model_name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        meta: Dict[str, Any] = {"source": "llm_error", "detail": detail[:200]}
+        if llm_provider_name:
+            meta["llm_provider"] = llm_provider_name
+        if llm_model_name:
+            meta["llm_model"] = llm_model_name
+        return self._result(
+            INTENT_GENERAL,
+            self._NO_LLM_CONFIDENCE,
+            skip_pipeline=False,
+            metadata=meta,
+        )
+
+    def _normalize_conversation_turn(self, item: Any) -> Optional[Dict[str, str]]:
+        """Return a single {role, content} turn or None if invalid."""
+        if not isinstance(item, dict):
+            return None
+        role = item.get("role")
+        if role not in ("user", "assistant"):
+            return None
+        raw = item.get("content", "")
+        if not isinstance(raw, str):
+            raw = str(raw) if raw is not None else ""
+        content = raw.strip()
+        if not content:
+            return None
+        return {"role": role, "content": content}
+
+    def _build_intent_messages(
+        self,
+        message: str,
+        conversation_history: Optional[List[Dict[str, str]]],
+        agent_config: Dict[str, Any],
+    ) -> List[Dict[str, str]]:
+        """
+        Monta a lista de mensagens para o LLM: histórico normalizado, sem duplicar
+        a última mensagem user se já for igual à mensagem atual; truncado às últimas N.
+        """
+        max_messages = agent_config.get(
+            "intent_classifier_history_messages", MAX_INTENT_HISTORY_MESSAGES
+        )
+        try:
+            max_messages = int(max_messages)
+        except (TypeError, ValueError):
+            max_messages = MAX_INTENT_HISTORY_MESSAGES
+        if max_messages < 1:
+            max_messages = MAX_INTENT_HISTORY_MESSAGES
+
+        normalized: List[Dict[str, str]] = []
+        if conversation_history:
+            for item in conversation_history:
+                turn = self._normalize_conversation_turn(item)
+                if turn:
+                    normalized.append(turn)
+
+        msg_stripped = (message or "").strip()
+        messages = list(normalized)
+
+        if msg_stripped:
+            last = messages[-1] if messages else None
+            last_is_same_user = (
+                last is not None
+                and last.get("role") == "user"
+                and (last.get("content") or "").strip() == msg_stripped
+            )
+            if not last_is_same_user:
+                messages.append({"role": "user", "content": msg_stripped})
+
+        if len(messages) > max_messages:
+            messages = messages[-max_messages:]
+        return messages
 
     async def classify_async(
         self,
         message: str,
         agent_state: Optional[Dict[str, Any]] = None,
         agent_config: Optional[Dict[str, Any]] = None,
+        conversation_history: Optional[List[Dict[str, str]]] = None,
     ) -> Dict[str, Any]:
         """
-        Classify intent with optional LLM fallback for ambiguous messages.
-        Uses regex first; if confidence < threshold and API keys are configured,
-        calls LLM for disambiguation.
+        Classify intent using the LLM when API keys exist and
+        ``use_llm_intent_classifier`` is not False; otherwise GENERAL with
+        ``metadata["source"] == "no_llm"``.
         """
-        regex_result = self.classify(message, agent_state)
         agent_config = agent_config or {}
-        confidence = regex_result["confidence"]
-        intent = regex_result["intent"]
+        _ = agent_state  # Orchestrator passes state; reserved for future intent context.
+        text = (message or "").strip()
 
-        # Fast path: high confidence, no LLM needed
-        if confidence >= CONFIDENCE_THRESHOLD_LLM:
-            return regex_result
+        if not text:
+            return self._no_llm_result("empty_message")
 
         has_llm_keys = llm_provider.has_any_llm_key(agent_config)
-        use_llm = agent_config.get("use_llm_intent_classifier", True) and has_llm_keys
-
-        if not use_llm:
-            return regex_result
+        use_llm = agent_config.get("use_llm_intent_classifier", True) is not False
+        if not has_llm_keys or not use_llm:
+            reason = "disabled" if not use_llm else "no_llm_keys"
+            return self._no_llm_result(reason)
 
         try:
             llm_config = {
@@ -263,26 +243,58 @@ class IntentClassifier:
                 "llm_provider": agent_config.get("llm_provider", "anthropic"),
                 "llm_model": agent_config.get("llm_model", "claude-sonnet-4-6"),
             }
+            intent_messages = self._build_intent_messages(
+                text, conversation_history, agent_config
+            )
+            token_usage_events: List[Dict[str, Any]] = []
             resp = await llm_provider.generate(
                 system_prompt=_INTENT_LLM_SYSTEM,
-                messages=[{"role": "user", "content": message}],
+                messages=intent_messages,
                 config=llm_config,
+                usage_events=token_usage_events,
+                usage_step="intent_classification",
             )
-            parsed = self._parse_llm_intent(resp)
-            if parsed:
-                logger.info(
-                    f"Intent LLM fallback: '{message[:40]}...' -> {parsed} (was {intent})"
+            parsed = self._parse_llm_intent(resp if isinstance(resp, str) else str(resp))
+            if not parsed:
+                logger.warning("Intent LLM returned unparseable output; using GENERAL")
+                err = self._llm_error_result(
+                    "parse_failed",
+                    llm_provider_name=llm_config.get("llm_provider"),
+                    llm_model_name=llm_config.get("llm_model"),
                 )
-                return self._result(
-                    parsed,
-                    confidence=0.85,
-                    skip_pipeline=self._skip_pipeline_for_intent(parsed),
-                    metadata={**regex_result.get("metadata", {}), "source": "llm"},
-                )
-        except Exception as e:
-            logger.warning(f"Intent LLM fallback failed: {e}; using regex result")
+                err["token_usage_events"] = token_usage_events
+                return err
 
-        return regex_result
+            metadata: Dict[str, Any] = {
+                "source": "llm",
+                "llm_provider": llm_config.get("llm_provider"),
+                "llm_model": llm_config.get("llm_model"),
+            }
+            if parsed == INTENT_EMERGENCY:
+                metadata["escalate_immediately"] = True
+
+            logger.info(
+                "Intent LLM: '%s...' -> %s",
+                text[:40],
+                parsed,
+            )
+            out = self._result(
+                parsed,
+                confidence=self._LLM_SUCCESS_CONFIDENCE,
+                skip_pipeline=self._skip_pipeline_for_intent(parsed),
+                metadata=metadata,
+            )
+            out["token_usage_events"] = token_usage_events
+            return out
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Intent LLM classification failed: %s", e)
+            err = self._llm_error_result(
+                str(e),
+                llm_provider_name=agent_config.get("llm_provider", "anthropic"),
+                llm_model_name=agent_config.get("llm_model", "claude-sonnet-4-6"),
+            )
+            err["token_usage_events"] = []
+            return err
 
 
 intent_classifier = IntentClassifier()

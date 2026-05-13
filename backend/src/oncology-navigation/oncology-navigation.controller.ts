@@ -26,6 +26,8 @@ import { CreateConsultationAppointmentDto } from './dto/create-consultation-appo
 import { SendConsultationConfirmationDto } from './dto/send-consultation-confirmation.dto';
 import { UpdateNavigationStepDto } from './dto/update-navigation-step.dto';
 import { ConsultationAvailableSlotsQueryDto } from './dto/consultation-available-slots-query.dto';
+import { ConsultationAgendaDayOverviewQueryDto } from './dto/consultation-agenda-day-overview-query.dto';
+import { ConsultationAgendaMetricsQueryDto } from './dto/consultation-agenda-metrics-query.dto';
 import { UpsertConsultationAgendaConfigDto } from './dto/upsert-consultation-agenda-config.dto';
 import { CreateConsultationAgendaBlockDto } from './dto/create-consultation-agenda-block.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -64,6 +66,17 @@ function slotsQueryForActor(
   return { ...query, professionalId: userId };
 }
 
+function dayOverviewQueryForActor(
+  role: UserRole,
+  userId: string,
+  query: ConsultationAgendaDayOverviewQueryDto
+): ConsultationAgendaDayOverviewQueryDto {
+  if (role === UserRole.SECRETARY) {
+    return query;
+  }
+  return { ...query, professionalId: userId };
+}
+
 // Interface para o arquivo do Multer
 interface MulterFile {
   fieldname: string;
@@ -83,6 +96,15 @@ export class OncologyNavigationController {
   constructor(private readonly navigationService: OncologyNavigationService) {}
 
   @Get('consultation-agenda')
+  @Roles(
+    UserRole.ADMIN,
+    UserRole.COORDINATOR,
+    UserRole.ONCOLOGIST,
+    UserRole.DOCTOR,
+    UserRole.NURSE,
+    UserRole.NURSE_CHIEF,
+    UserRole.SECRETARY
+  )
   async getConsultationAgenda(
     @Query() query: ConsultationAgendaQueryDto,
     @Request() req: any
@@ -102,6 +124,52 @@ export class OncologyNavigationController {
     });
   }
 
+  @Get('consultation-agenda-metrics')
+  @Roles(
+    UserRole.ADMIN,
+    UserRole.COORDINATOR,
+    UserRole.ONCOLOGIST,
+    UserRole.DOCTOR,
+    UserRole.NURSE,
+    UserRole.NURSE_CHIEF,
+    UserRole.SECRETARY
+  )
+  async getConsultationAgendaMetrics(
+    @Query() query: ConsultationAgendaMetricsQueryDto,
+    @Request() req: any
+  ) {
+    const professionalId = effectiveConsultationAgendaProfessionalId(
+      req.user.role,
+      req.user.id,
+      query.professionalId
+    );
+    return this.navigationService.getConsultationAgendaMetrics(
+      req.user.tenantId,
+      {
+        from: query.from,
+        to: query.to,
+        professionalId,
+      }
+    );
+  }
+
+  /** Profissionais agendáveis no tenant (id, nome, papel) — para filtro da secretária sem expor `GET /users` completo. */
+  @Get('consultation-agenda-schedulable-professionals')
+  @Roles(
+    UserRole.ADMIN,
+    UserRole.COORDINATOR,
+    UserRole.ONCOLOGIST,
+    UserRole.DOCTOR,
+    UserRole.NURSE,
+    UserRole.NURSE_CHIEF,
+    UserRole.SECRETARY
+  )
+  async listConsultationAgendaSchedulableProfessionals(@Request() req: any) {
+    return this.navigationService.listConsultationAgendaSchedulableProfessionals(
+      req.user.tenantId
+    );
+  }
+
   @Get('consultation-available-slots')
   async getConsultationAvailableSlots(
     @Query() query: ConsultationAvailableSlotsQueryDto,
@@ -109,6 +177,18 @@ export class OncologyNavigationController {
   ) {
     const scoped = slotsQueryForActor(req.user.role, req.user.id, query);
     return this.navigationService.getConsultationAvailableSlots(
+      req.user.tenantId,
+      scoped
+    );
+  }
+
+  @Get('consultation-agenda-day-overview')
+  async getConsultationAgendaDayOverview(
+    @Query() query: ConsultationAgendaDayOverviewQueryDto,
+    @Request() req: any
+  ) {
+    const scoped = dayOverviewQueryForActor(req.user.role, req.user.id, query);
+    return this.navigationService.getConsultationAgendaDayOverview(
       req.user.tenantId,
       scoped
     );
@@ -313,11 +393,59 @@ export class OncologyNavigationController {
     );
   }
 
+  @Patch('steps/:id/consultation-check-in')
+  @Roles(UserRole.SECRETARY, UserRole.ADMIN)
+  async patchConsultationCheckIn(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Request() req: any
+  ) {
+    return this.navigationService.patchConsultationCheckIn(
+      id,
+      req.user.tenantId,
+      agendaActorFromRequest(req)
+    );
+  }
+
+  @Patch('steps/:id/consultation-no-show')
+  @Roles(UserRole.SECRETARY, UserRole.ADMIN)
+  async patchConsultationNoShow(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Request() req: any
+  ) {
+    return this.navigationService.patchConsultationNoShowManual(
+      id,
+      req.user.tenantId,
+      agendaActorFromRequest(req)
+    );
+  }
+
+  @Patch('steps/:id/consultation-start')
+  @Roles(
+    UserRole.ADMIN,
+    UserRole.COORDINATOR,
+    UserRole.ONCOLOGIST,
+    UserRole.DOCTOR,
+    UserRole.NURSE,
+    UserRole.NURSE_CHIEF
+  )
+  async patchConsultationStart(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Request() req: any
+  ) {
+    return this.navigationService.patchConsultationStart(
+      id,
+      req.user.tenantId,
+      agendaActorFromRequest(req)
+    );
+  }
+
   @Patch('steps/:id')
   @Roles(
     UserRole.ADMIN,
     UserRole.COORDINATOR,
     UserRole.ONCOLOGIST,
+    UserRole.NURSE,
+    UserRole.NURSE_CHIEF,
     UserRole.SECRETARY
   )
   async updateStep(

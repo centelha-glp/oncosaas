@@ -88,6 +88,10 @@ class AgentProcessResponse(BaseModel):
     decisions: List[AgentDecision] = Field(
         default_factory=list, description="Decisions made by the agent"
     )
+    pipeline_trace: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Observability trace: spans, pipeline_path, intent, clinical disposition",
+    )
 
 
 # ============================================

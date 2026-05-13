@@ -4,7 +4,6 @@ import {
   MinLength,
   IsEnum,
   IsOptional,
-  IsBoolean,
   MaxLength,
   IsIn,
 } from 'class-validator';
@@ -36,9 +35,7 @@ export class UpdateUserDto {
   @IsEnum(ClinicalSubrole)
   clinicalSubrole?: ClinicalSubrole | null;
 
-  @IsOptional()
-  @IsBoolean()
-  mfaEnabled?: boolean;
+  // mfaEnabled é deliberadamente não-aceito via API: ver create-user.dto.ts.
 
   @IsOptional()
   @IsString()
