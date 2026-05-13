@@ -261,7 +261,7 @@ INSERT INTO alerts (
 
 **Endpoint**: `POST http://localhost:3002/api/v1/alerts`
 
-**Código**: o fluxo produtivo passa pelo **`AgentOrchestrator`** (`ai-service/src/agent/orchestrator.py`). O backend Nest expõe **`POST /api/v1/agent/process`**, que encaminha ao AI Service (FastAPI, mesma rota versionada). O endpoint legado **`POST /api/v1/agent/message`** delega ao mesmo orquestrador. O módulo `whatsapp_agent.py` está **deprecado**. Alertas críticos são compilados no orquestrador e persistidos pelo backend quando aplicável (ver `agente-ia-criar-alerta.md`).
+**Código**: o fluxo produtivo passa pelo **`AgentOrchestrator`** (`ai-service/src/agent/orchestrator.py`). O backend Nest expõe **`POST /api/v1/agent/process`**, que encaminha ao AI Service (FastAPI, mesma rota versionada) — é o único endpoint conversacional. Alertas críticos são compilados no orquestrador e persistidos pelo backend quando aplicável (ver `agente-ia-criar-alerta.md`).
 
 **Fluxo**:
 
