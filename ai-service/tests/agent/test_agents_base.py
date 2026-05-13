@@ -32,6 +32,7 @@ from src.agent.subagents import (
 )
 from src.agent.orchestrator import orchestrator
 from src.agent.llm_provider import llm_provider
+from src.config.llm_defaults import merge_agent_llm_config
 # Importar sub-rotas diretamente — evita carregar `routes/__init__.py` (priority/LightGBM).
 from src.routes.agent import generate_checkin_message
 from src.routes.nurse import nurse_assist
@@ -129,18 +130,24 @@ async def test_intent_classifier_uses_llm_when_keys_available(monkeypatch):
     monkeypatch.setattr(llm_provider, "has_any_llm_key", lambda cfg=None: True)
     monkeypatch.setattr(llm_provider, "generate", _fake_generate)
 
+    agent_config: dict = {}
+    expected = merge_agent_llm_config(
+        agent_config,
+        has_anthropic_key=llm_provider.has_anthropic_key(agent_config),
+    )
+
     result = await intent_classifier.classify_async(
         message="não entendi",
         agent_state={},
-        agent_config={},
+        agent_config=agent_config,
     )
 
     assert result["intent"] == INTENT_APPOINTMENT_QUERY
     assert result["confidence"] == pytest.approx(0.85)
     assert result["skip_full_pipeline"] is False
     assert result["metadata"].get("source") == "llm"
-    assert result["metadata"].get("llm_provider") == "anthropic"
-    assert result["metadata"].get("llm_model") == "claude-sonnet-4-6"
+    assert result["metadata"].get("llm_provider") == expected["llm_provider"]
+    assert result["metadata"].get("llm_model") == expected["llm_model"]
 
 
 @pytest.mark.asyncio
@@ -170,16 +177,22 @@ async def test_intent_classifier_llm_unparseable_returns_llm_error(monkeypatch):
     monkeypatch.setattr(llm_provider, "has_any_llm_key", lambda cfg=None: True)
     monkeypatch.setattr(llm_provider, "generate", _fake_generate)
 
+    agent_config: dict = {}
+    expected = merge_agent_llm_config(
+        agent_config,
+        has_anthropic_key=llm_provider.has_anthropic_key(agent_config),
+    )
+
     result = await intent_classifier.classify_async(
         message="qualquer coisa",
         agent_state={},
-        agent_config={},
+        agent_config=agent_config,
     )
 
     assert result["intent"] == INTENT_GENERAL
     assert result["metadata"].get("source") == "llm_error"
-    assert result["metadata"].get("llm_provider") == "anthropic"
-    assert result["metadata"].get("llm_model") == "claude-sonnet-4-6"
+    assert result["metadata"].get("llm_provider") == expected["llm_provider"]
+    assert result["metadata"].get("llm_model") == expected["llm_model"]
 
 
 @pytest.mark.asyncio
@@ -347,19 +360,25 @@ async def test_symptom_analyzer_parses_function_arguments_from_llm_tools(monkeyp
 
     monkeypatch.setattr(llm_provider, "generate_with_tools", _fake_generate_with_tools)
 
+    llm_cfg = {"llm_provider": "openai", "openai_api_key": "sk-test"}
+    expected = merge_agent_llm_config(
+        llm_cfg,
+        has_anthropic_key=llm_provider.has_anthropic_key(llm_cfg),
+    )
+
     result = await symptom_analyzer.analyze(
         message="estou muito mal hoje",
         clinical_context=_minimal_clinical_context(),
         cancer_type="breast",
         use_llm=True,
-        llm_config={"llm_provider": "openai", "openai_api_key": "sk-test"},
+        llm_config=llm_cfg,
     )
     assert any(s.get("name") == "nausea" for s in result["detectedSymptoms"])
     meta = result.get("_symptomLlmMeta")
     assert meta is not None
     assert meta.get("called") is True
-    assert meta.get("provider") == "openai"
-    assert meta.get("model") == "claude-sonnet-4-6"
+    assert meta.get("provider") == expected["llm_provider"]
+    assert meta.get("model") == expected["llm_model"]
 
 
 def test_clinical_rules_no_symptoms_remote_nursing():
