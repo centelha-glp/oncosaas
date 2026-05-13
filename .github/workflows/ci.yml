@@ -328,7 +328,28 @@ jobs:
       - name: Build and start stack
         env:
           DATABASE_URL: postgresql://ONCONAV:ONCONAV_dev@postgres:5432/ONCONAV_development
-        run: docker compose -f docker-compose.dev.yml up -d --build
+        run: |
+          set -euo pipefail
+          # Volume novo no CI: sem migrate o Nest/Prisma quebra no bootstrap e o health falha.
+          docker compose -f docker-compose.dev.yml build
+          docker compose -f docker-compose.dev.yml up -d postgres redis rabbitmq
+          for i in $(seq 1 60); do
+            pg="$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' pg-database 2>/dev/null || echo '')"
+            rd="$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' redis-cache 2>/dev/null || echo '')"
+            mq="$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' msg-service 2>/dev/null || echo '')"
+            if [ "$pg" = "healthy" ] && [ "$rd" = "healthy" ] && [ "$mq" = "healthy" ]; then
+              echo "infra is healthy"
+              break
+            fi
+            if [ "$i" -eq 60 ]; then
+              echo "infra did not become healthy in time" >&2
+              docker compose -f docker-compose.dev.yml logs --no-color postgres redis rabbitmq || true
+              exit 1
+            fi
+            sleep 2
+          done
+          docker compose -f docker-compose.dev.yml run --rm --no-deps backend npx prisma migrate deploy
+          docker compose -f docker-compose.dev.yml up -d backend frontend ai-service
 
       - name: Wait for healthy containers
         run: |
