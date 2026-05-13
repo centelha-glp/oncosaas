@@ -171,6 +171,7 @@ async def patient_summary(
     _: None = Depends(require_service_token),
 ):
     from ..agent.llm_provider import llm_provider
+    from src.config.llm_defaults import merge_agent_llm_config
 
     steps_desc = []
     for s in request.navigation_steps:
@@ -223,10 +224,8 @@ Use a ferramenta generate_patient_summary para produzir:
 4. next_steps: Proximos passos recomendados com urgencia"""
 
     try:
-        llm_cfg = {
-            "llm_provider": "anthropic" if llm_provider.has_anthropic_key({}) else "openai",
-            "llm_model": "claude-sonnet-4-6" if llm_provider.has_anthropic_key({}) else "gpt-4o-mini",
-        }
+        ha = llm_provider.has_anthropic_key({})
+        llm_cfg = merge_agent_llm_config({}, has_anthropic_key=ha)
         result = await llm_provider.generate_with_tools(
             messages=[{"role": "user", "content": prompt}],
             tools=PATIENT_SUMMARY_TOOLS,

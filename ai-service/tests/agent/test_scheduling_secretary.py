@@ -2,13 +2,15 @@
 Tests for SchedulingSecretaryAgent and orchestrator scheduling tool parser.
 
 Cobre:
-- subagente expõe apenas as 4 tools de agenda
+- subagente expõe as 4 tools de mutação + a tool read-only de consulta de vagas
 - ORCHESTRATOR_ROUTING_TOOLS inclui `consultar_agente_secretaria`
 - parser do orchestrator gera as 4 actions/decisions corretas
-- payload incompleto NÃO gera ação (decisão de coleta)
-- ausência de confirmacao_paciente NÃO gera ação
+- parser emite CHECK_CONSULTATION_AVAILABILITY sem exigir confirmação
+- payload de vagas incompleto NÃO gera ação (decisão de coleta)
+- payload incompleto NÃO gera ação para mutações
+- ausência de confirmacao_paciente NÃO gera ação (mutações)
 - patientId xor patientIntake para criar_consulta
-- dedupe de actions de agenda
+- dedupe de actions de agenda (mutações idênticas vs vagas com ranges distintos)
 """
 
 from src.agent.orchestrator import orchestrator
@@ -24,10 +26,11 @@ def _names(tools):
     return {t["name"] for t in tools}
 
 
-def test_scheduling_secretary_exposes_only_appointment_tools():
+def test_scheduling_secretary_exposes_appointment_and_availability_tools():
     agent = SchedulingSecretaryAgent()
     tool_names = _names(agent.tools)
     assert tool_names == {
+        "consultar_vagas_consulta",
         "criar_consulta",
         "reagendar_consulta",
         "cancelar_consulta",
@@ -37,8 +40,29 @@ def test_scheduling_secretary_exposes_only_appointment_tools():
 
 def test_scheduling_tools_present_in_global_action_tools():
     names = _names(AGENT_ACTION_TOOLS)
-    for tool in ("criar_consulta", "reagendar_consulta", "cancelar_consulta", "confirmar_consulta"):
+    for tool in (
+        "consultar_vagas_consulta",
+        "criar_consulta",
+        "reagendar_consulta",
+        "cancelar_consulta",
+        "confirmar_consulta",
+    ):
         assert tool in names, f"tool {tool} ausente em AGENT_ACTION_TOOLS"
+
+
+def test_consultar_vagas_consulta_does_not_require_confirmacao_paciente():
+    tools_by_name = {t["name"]: t for t in AGENT_ACTION_TOOLS}
+    schema = tools_by_name["consultar_vagas_consulta"]["input_schema"]
+    required = set(schema.get("required", []))
+    assert "confirmacao_paciente" not in required, (
+        "consultar_vagas_consulta é read-only e NÃO deve exigir confirmacao_paciente"
+    )
+    assert "confirmacao_paciente" not in schema["properties"], (
+        "consultar_vagas_consulta não deve sequer expor confirmacao_paciente"
+    )
+    assert {"from", "to"}.issubset(required)
+    for opt in ("scheduledProfessionalId", "stepKey", "preferredDate", "motivo"):
+        assert opt in schema["properties"], f"campo {opt} ausente em consultar_vagas_consulta"
 
 
 def test_scheduling_tools_require_confirmacao_paciente_in_schema():
@@ -65,10 +89,133 @@ def test_orchestrator_routing_includes_secretary_and_keeps_navigation():
 
 def test_navigation_agent_does_not_expose_scheduling_tools():
     nav_tool_names = _names(NavigationAgent().tools)
-    scheduling = {"criar_consulta", "reagendar_consulta", "cancelar_consulta", "confirmar_consulta"}
+    scheduling = {
+        "consultar_vagas_consulta",
+        "criar_consulta",
+        "reagendar_consulta",
+        "cancelar_consulta",
+        "confirmar_consulta",
+    }
     assert nav_tool_names.isdisjoint(scheduling), (
-        "NavigationAgent não deve expor tools de mutação de agenda"
+        "NavigationAgent não deve expor tools de agenda da secretária"
     )
+
+
+# ----------------------------- parser: consultar_vagas_consulta -----------------------------
+
+def test_parse_consultar_vagas_with_full_range_emits_readonly_action():
+    tool_calls = [
+        {
+            "name": "consultar_vagas_consulta",
+            "input": {
+                "scheduledProfessionalId": "prof-1",
+                "stepKey": "retorno_oncologia",
+                "from": "2026-06-15T00:00:00-03:00",
+                "to": "2026-06-20T23:59:59-03:00",
+                "preferredDate": "2026-06-17T10:00:00-03:00",
+                "motivo": "paciente quer marcar retorno",
+            },
+        }
+    ]
+    actions, decisions = orchestrator._parse_tool_calls_to_actions(tool_calls)
+
+    assert len(actions) == 1
+    a = actions[0]
+    assert a["type"] == "CHECK_CONSULTATION_AVAILABILITY"
+    assert a["requiresApproval"] is False
+    assert a["source"] == "llm_tool_call"
+    assert "confirmedByPatient" not in a["payload"], (
+        "Action read-only não deve carregar confirmedByPatient"
+    )
+    payload = a["payload"]
+    assert payload["scheduledProfessionalId"] == "prof-1"
+    assert payload["stepKey"] == "retorno_oncologia"
+    assert payload["from"] == "2026-06-15T00:00:00-03:00"
+    assert payload["to"] == "2026-06-20T23:59:59-03:00"
+    assert payload["preferredDate"] == "2026-06-17T10:00:00-03:00"
+    assert payload["motivo"] == "paciente quer marcar retorno"
+
+    assert len(decisions) == 1
+    d = decisions[0]
+    assert d["decisionType"] == "APPOINTMENT_AVAILABILITY_QUERIED"
+    assert d["requiresApproval"] is False
+    assert d["outputAction"]["type"] == "CHECK_CONSULTATION_AVAILABILITY"
+    assert d["inputData"]["payload"]["motivo"] == "[redacted]"
+    assert d["outputAction"]["payload"]["motivo"] == "[redacted]"
+
+
+def test_parse_consultar_vagas_with_step_key_only_emits_action():
+    tool_calls = [
+        {
+            "name": "consultar_vagas_consulta",
+            "input": {
+                "stepKey": "retorno_oncologia",
+                "from": "2026-06-15T00:00:00-03:00",
+                "to": "2026-06-20T23:59:59-03:00",
+            },
+        }
+    ]
+    actions, decisions = orchestrator._parse_tool_calls_to_actions(tool_calls)
+    assert len(actions) == 1
+    assert actions[0]["type"] == "CHECK_CONSULTATION_AVAILABILITY"
+    assert "scheduledProfessionalId" not in actions[0]["payload"]
+    assert actions[0]["payload"]["stepKey"] == "retorno_oncologia"
+    assert decisions[0]["decisionType"] == "APPOINTMENT_AVAILABILITY_QUERIED"
+
+
+def test_parse_consultar_vagas_does_not_require_confirmacao_paciente_in_input():
+    """Mesmo sem `confirmacao_paciente` no input, a action read-only deve sair."""
+    tool_calls = [
+        {
+            "name": "consultar_vagas_consulta",
+            "input": {
+                "scheduledProfessionalId": "prof-1",
+                "from": "2026-06-15T00:00:00-03:00",
+                "to": "2026-06-20T23:59:59-03:00",
+            },
+        }
+    ]
+    actions, decisions = orchestrator._parse_tool_calls_to_actions(tool_calls)
+    assert len(actions) == 1
+    assert actions[0]["type"] == "CHECK_CONSULTATION_AVAILABILITY"
+    assert decisions[0]["decisionType"] == "APPOINTMENT_AVAILABILITY_QUERIED"
+
+
+def test_parse_consultar_vagas_missing_range_does_not_emit_action():
+    tool_calls = [
+        {
+            "name": "consultar_vagas_consulta",
+            "input": {
+                "scheduledProfessionalId": "prof-1",
+                "from": "2026-06-15T00:00:00-03:00",
+            },
+        }
+    ]
+    actions, decisions = orchestrator._parse_tool_calls_to_actions(tool_calls)
+    assert actions == []
+    assert len(decisions) == 1
+    d = decisions[0]
+    assert d["decisionType"] == "SCHEDULING_INTAKE_PENDING"
+    assert d["outputAction"]["type"] == "SCHEDULING_INTAKE_PENDING"
+    assert "to" in d["inputData"]["missing_fields"]
+    assert d["inputData"]["tool_name"] == "consultar_vagas_consulta"
+
+
+def test_parse_consultar_vagas_missing_scope_does_not_emit_action():
+    tool_calls = [
+        {
+            "name": "consultar_vagas_consulta",
+            "input": {
+                "from": "2026-06-15T00:00:00-03:00",
+                "to": "2026-06-20T23:59:59-03:00",
+            },
+        }
+    ]
+    actions, decisions = orchestrator._parse_tool_calls_to_actions(tool_calls)
+    assert actions == []
+    d = decisions[0]
+    assert d["decisionType"] == "SCHEDULING_INTAKE_PENDING"
+    assert "scheduledProfessionalId|stepKey" in d["inputData"]["missing_fields"]
 
 
 # ----------------------------- parser: criar_consulta -----------------------------
@@ -355,6 +502,107 @@ def test_merge_actions_keeps_distinct_create_consultation_dates():
                 "scheduledProfessionalId": "prof-1",
                 "expectedDate": "2026-07-20T10:00:00-03:00",
                 "patientId": "pat-1",
+            },
+        },
+    ]
+    merged = orchestrator._merge_actions(llm_actions, [])
+    assert len(merged) == 2
+
+
+def test_merge_actions_dedupes_identical_check_availability():
+    llm_actions = [
+        {
+            "type": "CHECK_CONSULTATION_AVAILABILITY",
+            "payload": {
+                "scheduledProfessionalId": "prof-1",
+                "stepKey": "retorno_oncologia",
+                "from": "2026-06-15T00:00:00-03:00",
+                "to": "2026-06-20T23:59:59-03:00",
+            },
+        }
+    ]
+    rule_actions = [
+        {
+            "type": "CHECK_CONSULTATION_AVAILABILITY",
+            "payload": {
+                "scheduledProfessionalId": "prof-1",
+                "stepKey": "retorno_oncologia",
+                "from": "2026-06-15T00:00:00-03:00",
+                "to": "2026-06-20T23:59:59-03:00",
+            },
+        }
+    ]
+    merged = orchestrator._merge_actions(llm_actions, rule_actions)
+    assert len(merged) == 1
+
+
+def test_merge_actions_keeps_distinct_check_availability_ranges():
+    """Faixas/ranges diferentes representam consultas legítimas distintas — não colapsar."""
+    llm_actions = [
+        {
+            "type": "CHECK_CONSULTATION_AVAILABILITY",
+            "payload": {
+                "scheduledProfessionalId": "prof-1",
+                "from": "2026-06-15T00:00:00-03:00",
+                "to": "2026-06-20T23:59:59-03:00",
+            },
+        },
+        {
+            "type": "CHECK_CONSULTATION_AVAILABILITY",
+            "payload": {
+                "scheduledProfessionalId": "prof-1",
+                "from": "2026-07-01T00:00:00-03:00",
+                "to": "2026-07-07T23:59:59-03:00",
+            },
+        },
+    ]
+    merged = orchestrator._merge_actions(llm_actions, [])
+    assert len(merged) == 2
+
+
+def test_merge_actions_keeps_check_availability_with_distinct_scope():
+    """Mesma faixa mas profissional/stepKey diferente também não colapsa."""
+    llm_actions = [
+        {
+            "type": "CHECK_CONSULTATION_AVAILABILITY",
+            "payload": {
+                "scheduledProfessionalId": "prof-1",
+                "from": "2026-06-15T00:00:00-03:00",
+                "to": "2026-06-20T23:59:59-03:00",
+            },
+        },
+        {
+            "type": "CHECK_CONSULTATION_AVAILABILITY",
+            "payload": {
+                "scheduledProfessionalId": "prof-2",
+                "from": "2026-06-15T00:00:00-03:00",
+                "to": "2026-06-20T23:59:59-03:00",
+            },
+        },
+    ]
+    merged = orchestrator._merge_actions(llm_actions, [])
+    assert len(merged) == 2
+
+
+def test_merge_actions_keeps_same_prof_and_range_distinct_step_key():
+    """Dedupe de CHECK inclui stepKey: mesmo profissional e janela, etapas diferentes → manter ambos."""
+    llm_actions = [
+        {
+            "type": "CHECK_CONSULTATION_AVAILABILITY",
+            "payload": {
+                "scheduledProfessionalId": "prof-1",
+                "stepKey": "navigation_consultation",
+                "from": "2026-06-15T00:00:00-03:00",
+                "to": "2026-06-20T23:59:59-03:00",
+            },
+        },
+        {
+            "type": "CHECK_CONSULTATION_AVAILABILITY",
+            "payload": {
+                "scheduledProfessionalId": "prof-1",
+                "stepKey": "specialist_consultation",
+                "from": "2026-06-15T00:00:00-03:00",
+                "to": "2026-06-20T23:59:59-03:00",
             },
         },
     ]

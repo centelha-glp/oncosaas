@@ -2,6 +2,9 @@ import re
 import json
 from typing import Dict, List, Optional, Any
 import logging
+
+from src.config.llm_defaults import merge_agent_llm_config
+
 from .llm_provider import llm_provider
 from .prompts.symptom_prompts import SYMPTOM_ANALYSIS_PROMPT, SYMPTOM_ANALYSIS_TOOLS
 
@@ -186,10 +189,16 @@ class SymptomAnalyzer:
         # 3. Optional LLM-based analysis for more nuanced detection
         llm_results = None
         llm_token_usage_events: List[Dict[str, Any]] = []
-        if use_llm and llm_config:
-            llm_results, llm_token_usage_events = await self._llm_analysis(
-                message, clinical_context, llm_config
+        merged_llm: Optional[Dict[str, Any]] = None
+        if use_llm:
+            merged_llm = merge_agent_llm_config(
+                llm_config or {},
+                has_anthropic_key=llm_provider.has_anthropic_key(llm_config or {}),
             )
+            if llm_provider.has_any_llm_key(merged_llm):
+                llm_results, llm_token_usage_events = await self._llm_analysis(
+                    message, clinical_context, merged_llm
+                )
 
         # 4. Merge results
         detected_symptoms = keyword_results["symptoms"]
@@ -254,11 +263,11 @@ class SymptomAnalyzer:
                 )
             ),
         }
-        if use_llm and llm_config:
+        if use_llm and merged_llm:
             out["_symptomLlmMeta"] = {
                 "called": llm_results is not None,
-                "provider": llm_config.get("llm_provider", "anthropic"),
-                "model": llm_config.get("llm_model", "claude-sonnet-4-6"),
+                "provider": merged_llm.get("llm_provider", "anthropic"),
+                "model": merged_llm.get("llm_model", "claude-sonnet-4-6"),
             }
             out["_symptomTokenUsageEvents"] = llm_token_usage_events
         return out

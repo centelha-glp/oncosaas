@@ -235,12 +235,76 @@ AGENT_ACTION_TOOLS = [
         },
     },
     {
+        "name": "consultar_vagas_consulta",
+        "description": (
+            "Consulta em TEMPO REAL a agenda do backend para listar horários disponíveis em uma "
+            "faixa de datas. Ação READ-ONLY: NÃO cria, reagenda nem cancela nada. USE SEMPRE "
+            "ANTES de oferecer datas/horários ao paciente quando: (1) o paciente pedir "
+            "disponibilidade ('quais horários têm?'), (2) quiser marcar sem ter escolhido "
+            "horário previamente validado por você, (3) pedir para reagendar para uma faixa/dia, "
+            "ou (4) você só souber prazo meta da etapa mas não o agendamento confirmado. "
+            "NÃO requer `confirmacao_paciente` por não mutar dados."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "scheduledProfessionalId": {
+                    "type": "string",
+                    "description": (
+                        "ID do profissional/médico cuja agenda deve ser consultada. "
+                        "Opcional se `stepKey` for fornecido, mas pelo menos um dos dois é "
+                        "obrigatório."
+                    ),
+                },
+                "stepKey": {
+                    "type": "string",
+                    "description": (
+                        "Chave da etapa de navegação associada à consulta (ex.: "
+                        "'retorno_oncologia', 'consulta_cistoscopia'). Opcional se "
+                        "`scheduledProfessionalId` for fornecido, mas pelo menos um dos dois é "
+                        "obrigatório."
+                    ),
+                },
+                "from": {
+                    "type": "string",
+                    "description": (
+                        "Início da faixa de consulta em ISO 8601 (ex.: "
+                        "'2026-06-15T00:00:00-03:00'). Obrigatório."
+                    ),
+                },
+                "to": {
+                    "type": "string",
+                    "description": (
+                        "Fim da faixa de consulta em ISO 8601 (ex.: "
+                        "'2026-06-20T23:59:59-03:00'). Obrigatório."
+                    ),
+                },
+                "preferredDate": {
+                    "type": "string",
+                    "description": (
+                        "Data/hora preferencial sinalizada pelo paciente em ISO 8601 (opcional, "
+                        "ajuda o backend a destacar horários próximos a essa preferência)."
+                    ),
+                },
+                "motivo": {
+                    "type": "string",
+                    "description": (
+                        "Motivo curto da consulta de disponibilidade (opcional, "
+                        "ex.: 'paciente quer marcar retorno', 'reagendamento por viagem')."
+                    ),
+                },
+            },
+            "required": ["from", "to"],
+        },
+    },
+    {
         "name": "criar_consulta",
         "description": (
             "Cria UMA consulta na agenda. USE SOMENTE quando médico/profissional, data/hora e "
             "identificação do paciente estiverem completos E o paciente tiver confirmado "
             "EXPLICITAMENTE o resumo no chat. Se o paciente não existir no sistema, "
-            "preencha `patientIntake` com os dados mínimos do cadastro rápido."
+            "preencha `patientIntake` com os dados mínimos do cadastro rápido. ANTES de oferecer "
+            "horários ao paciente, valide disponibilidade real via `consultar_vagas_consulta`."
         ),
         "input_schema": {
             "type": "object",

@@ -150,6 +150,7 @@ async def nurse_assist(
     import json
 
     from ..agent.llm_provider import llm_provider
+    from src.config.llm_defaults import merge_agent_llm_config
 
     if not llm_provider.has_any_llm_key(None):
         return _build_nurse_assist_fallback(request)
@@ -209,10 +210,8 @@ async def nurse_assist(
 
         user_message = f"Analise esta conversa e gere assistência para o enfermeiro:\n\n{history_text}"
 
-        llm_cfg = {
-            "llm_provider": "anthropic" if llm_provider.has_anthropic_key({}) else "openai",
-            "llm_model": "claude-sonnet-4-6" if llm_provider.has_anthropic_key({}) else "gpt-4o-mini",
-        }
+        ha = llm_provider.has_anthropic_key({})
+        llm_cfg = merge_agent_llm_config({}, has_anthropic_key=ha)
         result = await llm_provider.generate_with_tools(
             system_prompt=system_prompt,
             messages=[{"role": "user", "content": user_message}],

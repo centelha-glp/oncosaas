@@ -114,12 +114,18 @@ ORCHESTRATOR_ROUTING_TOOLS: List[Dict[str, Any]] = [
     {
         "name": "consultar_agente_secretaria",
         "description": (
-            "Invoca a secretária eletrônica para AGENDAR, REAGENDAR, CANCELAR ou "
-            "CONFIRMAR uma consulta. Use SOMENTE quando o paciente pedir explicitamente "
-            "uma dessas mutações de agenda (ex.: 'quero marcar consulta com Dr. João', "
-            "'preciso remarcar minha consulta', 'cancela minha consulta', 'confirmo "
-            "presença'). NÃO use para consultas informativas sobre datas/prazos — "
-            "essas vão para `consultar_agente_navegacao`."
+            "Invoca a secretária eletrônica para CONSULTAR VAGAS REAIS na agenda, "
+            "AGENDAR, REAGENDAR, CANCELAR ou CONFIRMAR uma consulta. "
+            "Use quando o paciente pedir: "
+            "(1) disponibilidade real ('quais horários têm?', 'tem vaga semana que vem?'); "
+            "(2) marcar nova consulta ('quero marcar com Dr. João'); "
+            "(3) reagendar para uma faixa/dia ('preciso remarcar para a próxima semana'); "
+            "(4) cancelar consulta; (5) confirmar presença. "
+            "NÃO use para perguntas informativas sobre prazos meta de etapas do plano "
+            "('qual o prazo da minha biópsia?', 'quando é o retorno previsto?') — "
+            "essas vão para `consultar_agente_navegacao`. A secretária consulta vagas em "
+            "tempo real via tool read-only `consultar_vagas_consulta` antes de oferecer "
+            "horários ao paciente."
         ),
         "input_schema": {
             "type": "object",
@@ -183,12 +189,12 @@ para oferecer o melhor atendimento clínico e humano possível.
 - **Agente de Navegação** (`consultar_agente_navegacao`): etapas do tratamento, check-ins, encaminhamentos, **consulta informativa** de datas/prazos (tool `informar_agenda_navegacao` no subagente)
 - **Agente de Questionários** (`consultar_agente_questionario`): ESAS e PRO-CTCAE
 - **Agente de Suporte Emocional** (`consultar_agente_suporte_emocional`): apoio psicológico
-- **Secretária Eletrônica** (`consultar_agente_secretaria`): **mutações de agenda** — marcar, reagendar, cancelar e confirmar consulta; cuida de coleta de dados para paciente novo
+- **Secretária Eletrônica** (`consultar_agente_secretaria`): **consulta de vagas em tempo real** (tool read-only `consultar_vagas_consulta`) + **mutações de agenda** — marcar, reagendar, cancelar e confirmar consulta; cuida de coleta de dados para paciente novo
 
 ## DIRETRIZES DE ROTEAMENTO
 - Sintoma físico de qualquer natureza → **SEMPRE** invocar agente de sintomas
-- **Consultar/perguntar sobre** datas, prazos, próximas etapas, "quando é minha consulta" → agente de **navegação** (e `informar_agenda_navegacao` quando for só agenda/prazos)
-- **Marcar / agendar / criar nova consulta**, **reagendar**, **cancelar**, **confirmar presença** → **secretária eletrônica** (`consultar_agente_secretaria`)
+- **Consultar prazo meta / próximas etapas / "qual o prazo da minha biópsia?" / "quando é o retorno previsto?"** (sem pedir vaga real) → agente de **navegação** (e `informar_agenda_navegacao` quando for só agenda/prazos)
+- **Consultar vagas reais** ("quais horários têm?", "tem vaga semana que vem?", "qual o próximo dia disponível?"), **marcar / agendar / criar nova consulta**, **reagendar**, **cancelar**, **confirmar presença** → **secretária eletrônica** (`consultar_agente_secretaria`)
 - Sofrimento emocional explícito → agente de suporte emocional
 - Múltiplos sintomas vagos ou avaliação periódica → agente de questionários
 - Mensagens podem precisar de **múltiplos subagentes** — invoque todos os necessários (ex.: sintoma + pedido de remarcar → sintomas têm prioridade; a secretária só age depois que o tópico clínico estiver resolvido)

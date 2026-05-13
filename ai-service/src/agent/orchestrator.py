@@ -3,6 +3,9 @@ import time
 import logging
 from typing import Dict, List, Optional, Any
 from datetime import datetime, timezone
+
+from src.config.llm_defaults import merge_agent_llm_config
+
 from .llm_provider import llm_provider
 from .context_builder import context_builder
 from .symptom_analyzer import symptom_analyzer
@@ -322,7 +325,7 @@ class AgentOrchestrator:
                 trace,
                 "orchestrator",
                 llm_meta.get("provider", "unknown"),
-                llm_meta.get("model", agent_config.get("orchestrator_model", "")),
+                llm_meta.get("model") or llm_meta.get("orchestrator_model", ""),
                 llm_dur,
             )
             if all_tool_calls:
@@ -743,15 +746,19 @@ class AgentOrchestrator:
             - all_tool_calls: List[Dict]
             - llm_meta: Dict[str, str] with provider/model
         """
+        merged = merge_agent_llm_config(
+            agent_config,
+            has_anthropic_key=llm_provider.has_anthropic_key(agent_config or {}),
+        )
         orch_config = {
-            **agent_config,
-            "llm_model": agent_config.get("orchestrator_model", "claude-opus-4-6"),
+            **merged,
+            "llm_model": merged.get("orchestrator_model"),
             "use_adaptive_thinking": True,
             "max_tokens": 4096,
         }
         subagent_config = {
-            **agent_config,
-            "llm_model": agent_config.get("subagent_model", "claude-sonnet-4-6"),
+            **merged,
+            "llm_model": merged.get("subagent_model"),
             "max_tokens": 1024,
         }
 
@@ -884,6 +891,7 @@ class AgentOrchestrator:
         llm_meta = {
             "provider": orch_result.get("provider", "unknown") if isinstance(orch_result, dict) else "unknown",
             "model": orch_result.get("model", orch_config.get("llm_model", "")) if isinstance(orch_result, dict) else orch_config.get("llm_model", ""),
+            "orchestrator_model": merged.get("orchestrator_model", ""),
         }
         return response_text, all_tool_calls, llm_meta
 
@@ -1285,6 +1293,15 @@ class AgentOrchestrator:
                     actions.append(scheduling_action)
                 decisions.append(scheduling_decision)
 
+            elif name == "consultar_vagas_consulta":
+                availability_action, availability_decision = self._parse_availability_tool_call(
+                    tool_call=tc,
+                    tool_input=inp,
+                )
+                if availability_action is not None:
+                    actions.append(availability_action)
+                decisions.append(availability_decision)
+
             else:
                 logger.warning(f"Unknown tool call from LLM: {name}")
 
@@ -1472,6 +1489,110 @@ class AgentOrchestrator:
         }
         return action, decision
 
+    def _parse_availability_tool_call(
+        self,
+        *,
+        tool_call: Dict[str, Any],
+        tool_input: Dict[str, Any],
+    ) -> tuple:
+        """
+        Defensive parser for `consultar_vagas_consulta` (read-only).
+
+        Differs from `_parse_scheduling_tool_call`:
+        - never requires `confirmacao_paciente` (no mutation)
+        - emits action with `requiresApproval=False`
+        - on incomplete payload, returns (None, SCHEDULING_INTAKE_PENDING decision)
+          so the backend has an auditable trace but does NOT execute a backend
+          read with a malformed range.
+        """
+        action_type = "CHECK_CONSULTATION_AVAILABILITY"
+        decision_type = "APPOINTMENT_AVAILABILITY_QUERIED"
+
+        scheduled_professional_id = tool_input.get("scheduledProfessionalId")
+        step_key = tool_input.get("stepKey")
+        range_from = tool_input.get("from")
+        range_to = tool_input.get("to")
+        preferred_date = tool_input.get("preferredDate")
+        motivo = tool_input.get("motivo")
+
+        missing: List[str] = []
+        if not range_from:
+            missing.append("from")
+        if not range_to:
+            missing.append("to")
+        if not scheduled_professional_id and not step_key:
+            missing.append("scheduledProfessionalId|stepKey")
+
+        if missing:
+            sanitized_input = self._sanitize_scheduling_input(tool_input)
+            reasoning = (
+                "Secretária pediu consulta de disponibilidade mas faltam dados "
+                f"({', '.join(missing[:6])}). Nenhuma consulta foi emitida ao "
+                "backend; o agente deve coletar o que falta."
+            )[:500]
+            decision = {
+                "decisionType": "SCHEDULING_INTAKE_PENDING",
+                "reasoning": reasoning,
+                "confidence": 0.6,
+                "inputData": {
+                    "tool_name": "consultar_vagas_consulta",
+                    "missing_fields": missing,
+                    "tool_call": {
+                        "name": tool_call.get("name"),
+                        "input": sanitized_input,
+                    },
+                },
+                "outputAction": {
+                    "type": "SCHEDULING_INTAKE_PENDING",
+                    "payload": {
+                        "tool_name": "consultar_vagas_consulta",
+                        "missing_fields": missing,
+                    },
+                },
+                "requiresApproval": False,
+            }
+            return None, decision
+
+        payload: Dict[str, Any] = {
+            "from": range_from,
+            "to": range_to,
+        }
+        if scheduled_professional_id:
+            payload["scheduledProfessionalId"] = scheduled_professional_id
+        if step_key:
+            payload["stepKey"] = step_key
+        if preferred_date:
+            payload["preferredDate"] = preferred_date
+        if motivo:
+            payload["motivo"] = motivo
+
+        # Texto livre do LLM — não persistir em decisão/auditoria (AgentDecisionLog).
+        audit_payload = dict(payload)
+        if audit_payload.get("motivo"):
+            audit_payload["motivo"] = "[redacted]"
+
+        action = {
+            "type": action_type,
+            "payload": payload,
+            "requiresApproval": False,
+            "source": "llm_tool_call",
+        }
+        decision = {
+            "decisionType": decision_type,
+            "reasoning": (
+                "Secretária consultou disponibilidade real da agenda (read-only) "
+                f"de {range_from} a {range_to}."
+            )[:500],
+            "confidence": 0.9,
+            "inputData": {
+                "tool_name": "consultar_vagas_consulta",
+                "payload": audit_payload,
+            },
+            "outputAction": {"type": action_type, "payload": audit_payload},
+            "requiresApproval": False,
+        }
+        return action, decision
+
     @staticmethod
     def _sanitize_scheduling_input(tool_input: Dict[str, Any]) -> Dict[str, Any]:
         """Remove PII bruta (cpf, telefone, email) antes de gravar no trace/decision."""
@@ -1563,6 +1684,14 @@ class AgentOrchestrator:
             identifier = (
                 payload.get("navigationStepId", ""),
                 payload.get("newExpectedDate", ""),
+            )
+        elif action_type == "CHECK_CONSULTATION_AVAILABILITY":
+            identifier = (
+                payload.get("scheduledProfessionalId", ""),
+                payload.get("stepKey", ""),
+                payload.get("from", ""),
+                payload.get("to", ""),
+                payload.get("preferredDate", ""),
             )
         elif "ALERT" in action_type:
             identifier = (

@@ -7,6 +7,8 @@ import os
 from pathlib import Path
 from dotenv import dotenv_values
 
+from src.config.llm_defaults import merge_agent_llm_config
+
 """
 Multi-LLM provider abstraction.
 Supports Anthropic (Claude) and OpenAI (GPT-4), configurable per tenant.
@@ -173,7 +175,9 @@ class LLMProvider:
         Returns:
             Generated text response
         """
-        config = config or {}
+        raw = config or {}
+        has_a = self.has_anthropic_key(raw)
+        config = merge_agent_llm_config(raw, has_anthropic_key=has_a)
         provider = config.get("llm_provider", "anthropic")
         model = config.get("llm_model", "claude-sonnet-4-6")
 
@@ -277,7 +281,9 @@ class LLMProvider:
         Returns:
             Dict with response text, tool_calls, and optional usage (input/output tokens).
         """
-        config = config or {}
+        raw = config or {}
+        has_a = self.has_anthropic_key(raw)
+        config = merge_agent_llm_config(raw, has_anthropic_key=has_a)
         provider = config.get("llm_provider", "anthropic")
         model = config.get("llm_model", "claude-sonnet-4-6")
 
@@ -591,7 +597,12 @@ class LLMProvider:
         if not client:
             return {"response": "", "tool_calls": [], "iterations": 0}
 
-        model = config.get("llm_fallback_model") or config.get("llm_model") or "gpt-4o"
+        model = (
+            config.get("llm_fallback_model")
+            or config.get("llm_model")
+            or config.get("llm_openai_agentic_model")
+            or "gpt-4o"
+        )
         openai_tools = self._tools_to_openai_format(tools)
         if not openai_tools:
             logger.warning("run_agentic_loop_openai: no valid tools")
@@ -719,7 +730,9 @@ class LLMProvider:
             Dict com response, tool_calls, iterations, provider, model e usage agregado
             (input_tokens, output_tokens, total_tokens) quando disponível.
         """
-        config = config or {}
+        raw = config or {}
+        has_a = self.has_anthropic_key(raw)
+        config = merge_agent_llm_config(raw, has_anthropic_key=has_a)
         result: Dict[str, Any] = {"response": "", "tool_calls": [], "iterations": 0}
 
         # 1) Prefer Anthropic
@@ -735,7 +748,7 @@ class LLMProvider:
                 all_tool_calls: List[Dict[str, Any]] = []
                 final_text = ""
                 iterations = 0
-                model = config.get("llm_model", "claude-opus-4-6")
+                model = config.get("llm_model") or "claude-opus-4-6"
                 extra_params: Dict[str, Any] = {}
                 if config.get("use_adaptive_thinking") and model in ("claude-opus-4-6", "claude-sonnet-4-6"):
                     extra_params["thinking"] = {"type": "adaptive"}
@@ -847,7 +860,12 @@ class LLMProvider:
                 )
                 if result.get("response"):
                     result["provider"] = "openai"
-                    result["model"] = config.get("llm_fallback_model") or config.get("llm_model") or "gpt-4o"
+                    result["model"] = (
+                        config.get("llm_fallback_model")
+                        or config.get("llm_model")
+                        or config.get("llm_openai_agentic_model")
+                        or "gpt-4o"
+                    )
                     logger.info("run_agentic_loop: using OpenAI fallback")
                     return result
             except Exception as e:

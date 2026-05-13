@@ -30,7 +30,6 @@ from src.agent.rag.defaults import (
     DEFAULT_SCORE_THRESHOLD,
     DEFAULT_TOP_K,
 )
-from src.routes import router
 
 
 class _JsonFormatter(logging.Formatter):
@@ -72,9 +71,19 @@ class Settings(BaseSettings):
     rag_embedding_model: str = DEFAULT_EMBEDDING_MODEL
     rag_top_k: int = DEFAULT_TOP_K
     rag_score_threshold: float = DEFAULT_SCORE_THRESHOLD
+    # LLM de chat (defaults; tenant em `agent_config` sobrescreve — ver `src/config/llm_defaults.py`)
+    llm_default_provider: str = ""
+    llm_default_model: str = ""
+    llm_fallback_provider: str = ""
+    llm_fallback_model: str = ""
+    llm_orchestrator_model: str = "claude-opus-4-6"
+    llm_subagent_model: str = "claude-sonnet-4-6"
+    llm_openai_agentic_model: str = "gpt-4o"
 
 
 settings = Settings()
+
+from src.routes import router  # noqa: E402 — após `settings` para `llm_defaults` importar `main.settings`
 
 if not settings.openai_api_key and not settings.anthropic_api_key:
     logger.warning(
