@@ -146,4 +146,73 @@ describe('DecisionGateService', () => {
     expect(result.needsApproval).toHaveLength(1);
     expect(result.autoApproved).toHaveLength(0);
   });
+
+  it('auto-aprova CHECK_CONSULTATION_AVAILABILITY com payload válido', () => {
+    const result = service.evaluate([
+      {
+        decisionType: AgentDecisionType.RESPONSE_GENERATED,
+        reasoning: 'vagas',
+        inputData: {},
+        outputAction: {
+          type: 'CHECK_CONSULTATION_AVAILABILITY',
+          payload: {
+            scheduledProfessionalId: '550e8400-e29b-41d4-a716-446655440000',
+            stepKey: 'navigation_consultation',
+            from: '2026-06-01T00:00:00.000Z',
+            to: '2026-06-10T00:00:00.000Z',
+          },
+        },
+        requiresApproval: false,
+      },
+    ] as unknown as AgentDecision[]);
+
+    expect(result.autoApproved).toHaveLength(1);
+    expect(result.needsApproval).toHaveLength(0);
+  });
+
+  it('exige aprovação para CHECK_CONSULTATION_AVAILABILITY quando intervalo inválido', () => {
+    const result = service.evaluate([
+      {
+        decisionType: AgentDecisionType.RESPONSE_GENERATED,
+        reasoning: 'vagas',
+        inputData: {},
+        outputAction: {
+          type: 'CHECK_CONSULTATION_AVAILABILITY',
+          payload: {
+            scheduledProfessionalId: '550e8400-e29b-41d4-a716-446655440000',
+            stepKey: 'navigation_consultation',
+            from: '2026-06-01T00:00:00.000Z',
+            to: '2026-08-15T00:00:00.000Z',
+          },
+        },
+        requiresApproval: false,
+      },
+    ] as unknown as AgentDecision[]);
+
+    expect(result.needsApproval).toHaveLength(1);
+    expect(result.autoApproved).toHaveLength(0);
+  });
+
+  it('exige aprovação para CHECK_CONSULTATION_AVAILABILITY quando stepKey não é de consulta', () => {
+    const result = service.evaluate([
+      {
+        decisionType: AgentDecisionType.RESPONSE_GENERATED,
+        reasoning: 'vagas',
+        inputData: {},
+        outputAction: {
+          type: 'CHECK_CONSULTATION_AVAILABILITY',
+          payload: {
+            scheduledProfessionalId: '550e8400-e29b-41d4-a716-446655440000',
+            stepKey: 'etapa_invalida',
+            from: '2026-06-01T00:00:00.000Z',
+            to: '2026-06-10T00:00:00.000Z',
+          },
+        },
+        requiresApproval: false,
+      },
+    ] as unknown as AgentDecision[]);
+
+    expect(result.needsApproval).toHaveLength(1);
+    expect(result.autoApproved).toHaveLength(0);
+  });
 });

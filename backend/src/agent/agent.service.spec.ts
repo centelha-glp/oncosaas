@@ -15,9 +15,12 @@ import { OncologyNavigationService } from '../oncology-navigation/oncology-navig
 import { PatientsService } from '../patients/patients.service';
 import {
   CANCEL_CONSULTATION_APPOINTMENT,
+  CHECK_CONSULTATION_AVAILABILITY,
   CONFIRM_CONSULTATION_APPOINTMENT,
   CREATE_CONSULTATION_APPOINTMENT,
   RESCHEDULE_CONSULTATION_APPOINTMENT,
+  SCHEDULING_SECRETARY_AVAILABILITY_OFFERED_SLOTS_MAX,
+  SCHEDULING_SECRETARY_AVAILABILITY_STATE_TTL_MS,
 } from './scheduling-secretary.constants';
 import { hashPhoneNumber } from '../common/utils/phone.util';
 
@@ -35,6 +38,9 @@ const mockPrisma = {
   navigationStep: {
     findFirst: jest.fn(),
   },
+  conversation: {
+    findFirst: jest.fn(),
+  },
 };
 
 const mockPatientsService = {
@@ -46,6 +52,7 @@ const mockPatientsService = {
 const mockOncologyNavigationService = {
   createConsultationAppointment: jest.fn(),
   updateStep: jest.fn(),
+  getConsultationAvailableSlots: jest.fn(),
 };
 
 describe('AgentService — intake WhatsApp e secretária', () => {
@@ -53,6 +60,10 @@ describe('AgentService — intake WhatsApp e secretária', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    mockPrisma.conversation.findFirst.mockResolvedValue({ agentState: null });
+    mockOncologyNavigationService.getConsultationAvailableSlots.mockResolvedValue({
+      slots: [],
+    });
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -362,6 +373,10 @@ describe('AgentService — intake WhatsApp e secretária', () => {
         TENANT,
         undefined
       );
+      expect(mockPrisma.conversation.findFirst).toHaveBeenCalledWith({
+        where: { id: convId, tenantId: TENANT },
+        select: { agentState: true },
+      });
     });
 
     it('CANCEL: etapa cancelada não chama updateStep', async () => {
@@ -412,6 +427,379 @@ describe('AgentService — intake WhatsApp e secretária', () => {
         TENANT,
         undefined
       );
+    });
+  });
+
+  describe('executeApprovedDecision — CHECK_CONSULTATION_AVAILABILITY', () => {
+    const convId = 'conv-uuid-check';
+
+    it('consulta slots com tenantId do servidor (ignora tenant no payload)', async () => {
+      mockOncologyNavigationService.getConsultationAvailableSlots.mockResolvedValue({
+        slots: ['2026-06-01T15:00:00.000Z'],
+      });
+
+      await service.executeApprovedDecision({
+        tenantId: TENANT,
+        patientId: PATIENT_CTX,
+        conversationId: convId,
+        outputAction: {
+          type: CHECK_CONSULTATION_AVAILABILITY,
+          payload: {
+            scheduledProfessionalId: PRO_ID,
+            stepKey: 'navigation_consultation',
+            from: '2026-06-01T00:00:00.000Z',
+            to: '2026-06-05T23:59:59.000Z',
+            tenantId: OTHER_TENANT,
+          },
+        },
+        inputData: {},
+      });
+
+      expect(mockOncologyNavigationService.getConsultationAvailableSlots).toHaveBeenCalledWith(
+        TENANT,
+        expect.objectContaining({
+          professionalId: PRO_ID,
+          stepKey: 'navigation_consultation',
+          from: '2026-06-01T00:00:00.000Z',
+          to: '2026-06-05T23:59:59.000Z',
+        })
+      );
+      expect(
+        mockOncologyNavigationService.getConsultationAvailableSlots.mock.calls[0][0]
+      ).not.toBe(OTHER_TENANT);
+    });
+
+    it('sem vagas: resposta determinística e bloco scheduling com slots vazios + expiresAt', async () => {
+      mockOncologyNavigationService.getConsultationAvailableSlots.mockResolvedValue({
+        slots: [],
+      });
+
+      const exec = service as unknown as {
+        executeCheckConsultationAvailability: (
+          decision: { outputAction?: { type?: string; payload?: unknown } },
+          tenantId: string,
+          conversationId: string
+        ) => Promise<{
+          overridePatientResponse?: string;
+          schedulingAvailableSlots?: Record<string, unknown>;
+        }>;
+      };
+
+      const side = await exec.executeCheckConsultationAvailability(
+        {
+          outputAction: {
+            type: CHECK_CONSULTATION_AVAILABILITY,
+            payload: {
+              scheduledProfessionalId: PRO_ID,
+              stepKey: 'navigation_consultation',
+              from: '2026-06-01T00:00:00.000Z',
+              to: '2026-06-05T23:59:59.000Z',
+            },
+          },
+        },
+        TENANT,
+        convId
+      );
+
+      expect(side.overridePatientResponse).toMatch(/não há horários livres/i);
+      expect(side.schedulingAvailableSlots?.slots).toEqual([]);
+      expect(typeof side.schedulingAvailableSlots?.expiresAt).toBe('string');
+      const expMs = new Date(
+        String(side.schedulingAvailableSlots?.expiresAt)
+      ).getTime();
+      expect(expMs - Date.now()).toBeGreaterThan(
+        SCHEDULING_SECRETARY_AVAILABILITY_STATE_TTL_MS - 5000
+      );
+      expect(expMs - Date.now()).toBeLessThanOrEqual(
+        SCHEDULING_SECRETARY_AVAILABILITY_STATE_TTL_MS + 5000
+      );
+    });
+
+    it('payload incompleto (sem profissional): não chama OncologyNavigation e mensagem orientativa', async () => {
+      const exec = service as unknown as {
+        executeCheckConsultationAvailability: (
+          decision: { outputAction?: { type?: string; payload?: unknown } },
+          tenantId: string,
+          conversationId: string
+        ) => Promise<{ overridePatientResponse?: string }>;
+      };
+
+      mockOncologyNavigationService.getConsultationAvailableSlots.mockClear();
+
+      const side = await exec.executeCheckConsultationAvailability(
+        {
+          outputAction: {
+            type: CHECK_CONSULTATION_AVAILABILITY,
+            payload: {
+              stepKey: 'navigation_consultation',
+              from: '2026-06-01T00:00:00.000Z',
+              to: '2026-06-05T23:59:59.000Z',
+            },
+          },
+        },
+        TENANT,
+        convId
+      );
+
+      expect(mockOncologyNavigationService.getConsultationAvailableSlots).not.toHaveBeenCalled();
+      expect(side.overridePatientResponse).toMatch(/faltam profissional/i);
+    });
+
+    it('ordena e limita vagas ofertadas ao máximo configurado', async () => {
+      const many = [
+        '2026-06-10T16:00:00.000Z',
+        '2026-06-02T09:00:00.000Z',
+        '2026-06-05T11:00:00.000Z',
+        '2026-06-03T08:00:00.000Z',
+        '2026-06-09T14:00:00.000Z',
+        '2026-06-11T10:00:00.000Z',
+        '2026-06-12T12:00:00.000Z',
+      ];
+      mockOncologyNavigationService.getConsultationAvailableSlots.mockResolvedValue({
+        slots: many,
+      });
+
+      const exec = service as unknown as {
+        executeCheckConsultationAvailability: (
+          decision: { outputAction?: { type?: string; payload?: unknown } },
+          tenantId: string,
+          conversationId: string
+        ) => Promise<{ schedulingAvailableSlots?: { slots: string[] } }>;
+      };
+
+      const side = await exec.executeCheckConsultationAvailability(
+        {
+          outputAction: {
+            type: CHECK_CONSULTATION_AVAILABILITY,
+            payload: {
+              scheduledProfessionalId: PRO_ID,
+              stepKey: 'navigation_consultation',
+              from: '2026-06-01T00:00:00.000Z',
+              to: '2026-06-30T23:59:59.000Z',
+            },
+          },
+        },
+        TENANT,
+        convId
+      );
+
+      expect(side.schedulingAvailableSlots?.slots).toHaveLength(
+        SCHEDULING_SECRETARY_AVAILABILITY_OFFERED_SLOTS_MAX
+      );
+      const offered = side.schedulingAvailableSlots?.slots ?? [];
+      for (let i = 1; i < offered.length; i++) {
+        expect(new Date(offered[i - 1]).getTime()).toBeLessThanOrEqual(
+          new Date(offered[i]).getTime()
+        );
+      }
+    });
+  });
+
+  describe('executeApprovedDecision — revalidação de slot (cache scheduling.availableSlots)', () => {
+    const convId = 'conv-uuid-reval';
+
+    const validCreatePayload = {
+      scheduledProfessionalId: PRO_ID,
+      expectedDate: '2026-06-15T14:00:00.000Z',
+      stepKey: 'navigation_consultation',
+      stepName: 'Consulta de navegação',
+      journeyStage: 'TREATMENT',
+    };
+
+    it('CREATE: cache válido e não expirado com o horário escolhido evita nova consulta de slots', async () => {
+      mockPrisma.patient.findFirst.mockResolvedValue({ id: PATIENT_CTX });
+      mockPrisma.conversation.findFirst.mockResolvedValue({
+        agentState: {
+          scheduling: {
+            availableSlots: {
+              slots: ['2026-06-15T14:00:00.000Z'],
+              expiresAt: new Date(Date.now() + 120_000).toISOString(),
+            },
+          },
+        },
+      });
+      mockOncologyNavigationService.createConsultationAppointment.mockResolvedValue(undefined);
+      mockOncologyNavigationService.getConsultationAvailableSlots.mockClear();
+
+      await service.executeApprovedDecision({
+        tenantId: TENANT,
+        patientId: PATIENT_CTX,
+        conversationId: convId,
+        outputAction: {
+          type: CREATE_CONSULTATION_APPOINTMENT,
+          payload: validCreatePayload,
+        },
+        inputData: {},
+      });
+
+      expect(mockOncologyNavigationService.getConsultationAvailableSlots).not.toHaveBeenCalled();
+      expect(mockOncologyNavigationService.createConsultationAppointment).toHaveBeenCalled();
+    });
+
+    it('CREATE: cache expirado reconsulta e não agenda se o horário sumiu da agenda', async () => {
+      mockPrisma.patient.findFirst.mockResolvedValue({ id: PATIENT_CTX });
+      mockPrisma.conversation.findFirst.mockResolvedValue({
+        agentState: {
+          scheduling: {
+            availableSlots: {
+              slots: ['2026-06-15T14:00:00.000Z'],
+              expiresAt: new Date(Date.now() - 60_000).toISOString(),
+            },
+          },
+        },
+      });
+      mockOncologyNavigationService.getConsultationAvailableSlots.mockResolvedValue({
+        slots: [],
+      });
+
+      await service.executeApprovedDecision({
+        tenantId: TENANT,
+        patientId: PATIENT_CTX,
+        conversationId: convId,
+        outputAction: {
+          type: CREATE_CONSULTATION_APPOINTMENT,
+          payload: validCreatePayload,
+        },
+        inputData: {},
+      });
+
+      expect(mockOncologyNavigationService.getConsultationAvailableSlots).toHaveBeenCalled();
+      expect(mockOncologyNavigationService.createConsultationAppointment).not.toHaveBeenCalled();
+    });
+
+    it('CREATE: cache expirado reconsulta e agenda quando o horário ainda aparece na agenda', async () => {
+      mockPrisma.patient.findFirst.mockResolvedValue({ id: PATIENT_CTX });
+      mockPrisma.conversation.findFirst.mockResolvedValue({
+        agentState: {
+          scheduling: {
+            availableSlots: {
+              slots: ['2026-06-15T14:00:00.000Z'],
+              expiresAt: new Date(Date.now() - 60_000).toISOString(),
+            },
+          },
+        },
+      });
+      mockOncologyNavigationService.getConsultationAvailableSlots.mockResolvedValue({
+        slots: ['2026-06-15T14:00:00.000Z'],
+      });
+      mockOncologyNavigationService.createConsultationAppointment.mockResolvedValue(undefined);
+
+      await service.executeApprovedDecision({
+        tenantId: TENANT,
+        patientId: PATIENT_CTX,
+        conversationId: convId,
+        outputAction: {
+          type: CREATE_CONSULTATION_APPOINTMENT,
+          payload: validCreatePayload,
+        },
+        inputData: {},
+      });
+
+      expect(mockOncologyNavigationService.createConsultationAppointment).toHaveBeenCalled();
+    });
+
+    it('RESCHEDULE: cache expirado revalida slot antes de updateStep', async () => {
+      mockPrisma.navigationStep.findFirst.mockResolvedValue({
+        id: STEP_ID,
+        stepKey: 'navigation_consultation',
+        status: NavigationStepStatus.PENDING,
+        scheduledProfessionalId: PRO_ID,
+      });
+      mockPrisma.conversation.findFirst.mockResolvedValue({
+        agentState: {
+          scheduling: {
+            availableSlots: {
+              slots: ['2026-08-01T09:00:00.000Z'],
+              expiresAt: new Date(Date.now() - 30_000).toISOString(),
+            },
+          },
+        },
+      });
+      mockOncologyNavigationService.getConsultationAvailableSlots.mockResolvedValue({
+        slots: ['2026-08-01T09:00:00.000Z'],
+      });
+      mockOncologyNavigationService.updateStep.mockResolvedValue(undefined);
+
+      await service.executeApprovedDecision({
+        tenantId: TENANT,
+        patientId: PATIENT_CTX,
+        conversationId: convId,
+        outputAction: {
+          type: RESCHEDULE_CONSULTATION_APPOINTMENT,
+          payload: {
+            navigationStepId: STEP_ID,
+            newExpectedDate: '2026-08-01T09:00:00.000Z',
+          },
+        },
+        inputData: {},
+      });
+
+      expect(mockOncologyNavigationService.getConsultationAvailableSlots).toHaveBeenCalled();
+      expect(mockOncologyNavigationService.updateStep).toHaveBeenCalled();
+    });
+
+    it('RESCHEDULE: falha revalidação leve quando horário não está mais na agenda', async () => {
+      mockPrisma.navigationStep.findFirst.mockResolvedValue({
+        id: STEP_ID,
+        stepKey: 'navigation_consultation',
+        status: NavigationStepStatus.PENDING,
+        scheduledProfessionalId: PRO_ID,
+      });
+      mockPrisma.conversation.findFirst.mockResolvedValue({
+        agentState: {
+          scheduling: {
+            availableSlots: {
+              slots: ['2026-08-01T09:00:00.000Z'],
+              expiresAt: new Date(Date.now() - 30_000).toISOString(),
+            },
+          },
+        },
+      });
+      mockOncologyNavigationService.getConsultationAvailableSlots.mockResolvedValue({
+        slots: [],
+      });
+
+      await service.executeApprovedDecision({
+        tenantId: TENANT,
+        patientId: PATIENT_CTX,
+        conversationId: convId,
+        outputAction: {
+          type: RESCHEDULE_CONSULTATION_APPOINTMENT,
+          payload: {
+            navigationStepId: STEP_ID,
+            newExpectedDate: '2026-08-01T09:00:00.000Z',
+          },
+        },
+        inputData: {},
+      });
+
+      expect(mockOncologyNavigationService.updateStep).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('mergeAgentStateForPersistence — availableSlots', () => {
+    it('incorpora availableSlots em scheduling sem apagar chaves irmãs', () => {
+      const merge = (service as unknown as {
+        mergeAgentStateForPersistence: (
+          previous: Record<string, unknown> | null,
+          aiNewState: Record<string, unknown> | undefined,
+          availabilitySlots: Record<string, unknown> | undefined
+        ) => Record<string, unknown>;
+      }).mergeAgentStateForPersistence;
+
+      const merged = merge(
+        { scheduling: { lastIntent: 'agenda' }, other: 1 },
+        undefined,
+        { slots: ['2026-06-01T10:00:00.000Z'], expiresAt: '2026-06-01T11:00:00.000Z' }
+      );
+
+      expect(merged.other).toBe(1);
+      const sched = merged.scheduling as Record<string, unknown>;
+      expect(sched.lastIntent).toBe('agenda');
+      expect(sched.availableSlots).toEqual({
+        slots: ['2026-06-01T10:00:00.000Z'],
+        expiresAt: '2026-06-01T11:00:00.000Z',
+      });
     });
   });
 });
