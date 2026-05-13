@@ -79,8 +79,9 @@ services:
           node -e "require('http').get('http://backend:3002/api/v1/health',function(r){process.exit(r.statusCode===200?0:1)}).on('error',function(){process.exit(1)})"
       interval: 30s
       timeout: 10s
-      retries: 5
-      start_period: 60s
+      retries: 8
+      # Primeiro cold start do nest --watch no CI costuma passar de 60s antes de responder 200.
+      start_period: 180s
     develop:
       watch:
         - path: ./backend/src
