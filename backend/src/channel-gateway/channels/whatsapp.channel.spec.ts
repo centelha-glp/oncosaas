@@ -144,3 +144,78 @@ describe('WhatsAppChannel.validateWebhookSignature', () => {
     });
   });
 });
+
+describe('WhatsAppChannel.parseWebhookPayload', () => {
+  let channel: WhatsAppChannel;
+  let configGet: jest.Mock;
+
+  beforeEach(async () => {
+    configGet = jest.fn().mockReturnValue(undefined);
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        WhatsAppChannel,
+        { provide: PrismaService, useValue: mockPrisma },
+        { provide: ConfigService, useValue: { get: configGet } },
+      ],
+    }).compile();
+    channel = module.get<WhatsAppChannel>(WhatsAppChannel);
+  });
+
+  it('propaga metadata.phone_number_id para cada mensagem', () => {
+    const body = {
+      entry: [
+        {
+          changes: [
+            {
+              field: 'messages',
+              value: {
+                metadata: { phone_number_id: 'PNID-999' },
+                messages: [
+                  {
+                    from: '5511999999999',
+                    id: 'wamid.1',
+                    timestamp: '1700000000',
+                    type: 'text',
+                    text: { body: 'Oi' },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    };
+    const parsed = channel.parseWebhookPayload(body);
+    expect(parsed).toHaveLength(1);
+    expect(parsed[0].whatsappPhoneNumberId).toBe('PNID-999');
+    expect(parsed[0].phone).toBe('5511999999999');
+    expect(parsed[0].content).toBe('Oi');
+  });
+
+  it('omite whatsappPhoneNumberId quando metadata ausente', () => {
+    const body = {
+      entry: [
+        {
+          changes: [
+            {
+              field: 'messages',
+              value: {
+                messages: [
+                  {
+                    from: '5511888888888',
+                    id: 'wamid.2',
+                    timestamp: '1700000001',
+                    type: 'text',
+                    text: { body: 'x' },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    };
+    const parsed = channel.parseWebhookPayload(body);
+    expect(parsed[0].whatsappPhoneNumberId).toBeUndefined();
+  });
+});

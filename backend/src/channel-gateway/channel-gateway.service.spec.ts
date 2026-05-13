@@ -1,5 +1,4 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { NotFoundException } from '@nestjs/common';
 import { ChannelGatewayService } from './channel-gateway.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { MessagesGateway } from '../gateways/messages.gateway';
@@ -34,6 +33,7 @@ const mockWhatsApp = {
 
 const mockAgent = {
   processIncomingMessage: jest.fn(),
+  ensureWhatsAppIntakePatient: jest.fn(),
 };
 
 const mockRedis = {
@@ -66,18 +66,133 @@ describe('ChannelGatewayService', () => {
   });
 
   describe('processIncomingMessage', () => {
-    it('deve retornar null quando paciente nao encontrado pelo hash de telefone', async () => {
+    it('sem phone_number_id: não consulta WhatsAppConnection e retorna null se paciente inexistente', async () => {
       mockPrisma.patient.findFirst.mockResolvedValue(null);
 
       const result = await service.processIncomingMessage(
         '+5511999999999',
         'Olá',
         'WHATSAPP',
-        'ext-msg-1',
+        'ext-no-pnid',
         new Date()
       );
 
       expect(result).toBeNull();
+      expect(mockPrisma.whatsAppConnection.findFirst).not.toHaveBeenCalled();
+      expect(mockAgent.ensureWhatsAppIntakePatient).not.toHaveBeenCalled();
+    });
+
+    it('com phone_number_id sem conexão ativa: retorna null e não chama intake', async () => {
+      mockPrisma.whatsAppConnection.findFirst.mockResolvedValue(null);
+      mockPrisma.patient.findFirst.mockResolvedValue(null);
+
+      const result = await service.processIncomingMessage(
+        '+5511999999999',
+        'Olá',
+        'WHATSAPP',
+        'ext-bad-pnid',
+        new Date(),
+        'TEXT',
+        undefined,
+        undefined,
+        'meta-phone-number-id-invalido'
+      );
+
+      expect(result).toBeNull();
+      expect(mockAgent.ensureWhatsAppIntakePatient).not.toHaveBeenCalled();
+    });
+
+    it('com phone_number_id e conexão: usa tenant da conexão e pode criar intake', async () => {
+      mockPrisma.whatsAppConnection.findFirst.mockResolvedValue({
+        tenantId: TENANT,
+      });
+      mockPrisma.patient.findFirst.mockResolvedValue(null);
+      mockAgent.ensureWhatsAppIntakePatient.mockResolvedValue({
+        id: PATIENT_ID,
+        tenantId: TENANT,
+      });
+      mockPrisma.message.findUnique.mockResolvedValue(null);
+      mockPrisma.conversation.findFirst.mockResolvedValue({ id: 'conv-1' });
+      mockPrisma.conversation.update.mockResolvedValue({ id: 'conv-1' });
+      mockPrisma.message.create.mockResolvedValue({
+        id: 'msg-1',
+        patientId: PATIENT_ID,
+        direction: 'INBOUND',
+        type: 'TEXT',
+        content: 'Olá',
+        patient: { id: PATIENT_ID, name: 'X' },
+      });
+      mockAgent.processIncomingMessage.mockResolvedValue(undefined);
+
+      const result = await service.processIncomingMessage(
+        '+5511999999999',
+        'Olá',
+        'WHATSAPP',
+        'ext-intake-1',
+        new Date(),
+        'TEXT',
+        undefined,
+        undefined,
+        'pnid-123'
+      );
+
+      expect(mockPrisma.whatsAppConnection.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            phoneNumberId: 'pnid-123',
+            isActive: true,
+            status: 'CONNECTED',
+          }),
+        })
+      );
+      expect(mockAgent.ensureWhatsAppIntakePatient).toHaveBeenCalledWith(
+        TENANT,
+        '+5511999999999'
+      );
+      expect(result?.patient?.id).toBe(PATIENT_ID);
+    });
+
+    it('com phone_number_id e conexão: paciente já existente no tenant não chama intake', async () => {
+      mockPrisma.whatsAppConnection.findFirst.mockResolvedValue({
+        tenantId: TENANT,
+      });
+      mockPrisma.patient.findFirst.mockResolvedValue({
+        id: PATIENT_ID,
+        tenantId: TENANT,
+      });
+      mockPrisma.message.findUnique.mockResolvedValue(null);
+      mockPrisma.conversation.findFirst.mockResolvedValue({ id: 'conv-1' });
+      mockPrisma.conversation.update.mockResolvedValue({ id: 'conv-1' });
+      mockPrisma.message.create.mockResolvedValue({
+        id: 'msg-1',
+        patientId: PATIENT_ID,
+        direction: 'INBOUND',
+        type: 'TEXT',
+        content: 'Oi',
+        patient: { id: PATIENT_ID, name: 'Paciente' },
+      });
+      mockAgent.processIncomingMessage.mockResolvedValue(undefined);
+
+      await service.processIncomingMessage(
+        '+5511999999999',
+        'Oi',
+        'WHATSAPP',
+        'ext-existing-pnid',
+        new Date(),
+        'TEXT',
+        undefined,
+        undefined,
+        'pnid-existing-456'
+      );
+
+      expect(mockPrisma.patient.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            tenantId: TENANT,
+          }),
+        })
+      );
+      expect(mockAgent.ensureWhatsAppIntakePatient).not.toHaveBeenCalled();
     });
 
     it('[A-06] com Redis ativo, incrementa contador ao não encontrar paciente', async () => {

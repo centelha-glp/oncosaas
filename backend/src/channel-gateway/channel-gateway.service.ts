@@ -68,9 +68,11 @@ export class ChannelGatewayService {
     timestamp: Date,
     type: 'TEXT' | 'AUDIO' | 'IMAGE' | 'DOCUMENT' = 'TEXT',
     mediaUrl?: string,
-    audioDuration?: number
+    audioDuration?: number,
+    /** ID do número WhatsApp Business na Meta — usado só após validação HMAC do webhook. */
+    whatsappPhoneNumberId?: string
   ) {
-    // 1. Find patient by phone hash
+    // 1. Find patient by phone hash (tenant quando temos phone_number_id assinado pela Meta)
     const normalizedPhone = normalizePhoneNumber(phone);
     const phoneHash = hashPhoneNumber(phone);
 
@@ -82,19 +84,53 @@ export class ChannelGatewayService {
       return null;
     }
 
-    const patient = await this.prisma.patient.findFirst({
-      where: { phoneHash },
-    });
-
-    if (!patient) {
-      await this.recordUnknownPhoneAttempt(phoneHash);
-      this.logger.warn(
-        `No patient found for phone hash. Normalized: ${normalizedPhone.substring(0, 5)}***`
-      );
-      return null;
+    let tenantIdFromConnection: string | null = null;
+    if (whatsappPhoneNumberId) {
+      const connection = await this.prisma.whatsAppConnection.findFirst({
+        where: {
+          phoneNumberId: whatsappPhoneNumberId,
+          isActive: true,
+          status: 'CONNECTED',
+        },
+        select: { tenantId: true },
+      });
+      if (!connection) {
+        this.logger.warn(
+          'WhatsApp webhook: metadata.phone_number_id sem WhatsAppConnection ativa (CONNECTED)'
+        );
+        await this.recordUnknownPhoneAttempt(phoneHash);
+        return null;
+      }
+      tenantIdFromConnection = connection.tenantId;
     }
 
-    const tenantId = patient.tenantId;
+    const patient = tenantIdFromConnection
+      ? await this.prisma.patient.findFirst({
+          where: { phoneHash, tenantId: tenantIdFromConnection },
+        })
+      : await this.prisma.patient.findFirst({
+          where: { phoneHash },
+        });
+
+    let resolvedPatient = patient;
+
+    if (!resolvedPatient) {
+      if (tenantIdFromConnection) {
+        resolvedPatient = await this.agentService.ensureWhatsAppIntakePatient(
+          tenantIdFromConnection,
+          phone
+        );
+      }
+      if (!resolvedPatient) {
+        await this.recordUnknownPhoneAttempt(phoneHash);
+        this.logger.warn(
+          `No patient found for phone hash. Normalized: ${normalizedPhone.substring(0, 5)}***`
+        );
+        return null;
+      }
+    }
+
+    const tenantId = resolvedPatient.tenantId;
 
     // Idempotency: skip already-processed messages (Meta may retry webhooks)
     const existingMessage = await this.prisma.message.findUnique({
@@ -109,7 +145,7 @@ export class ChannelGatewayService {
 
     // 2. Get or create active conversation
     const conversation = await this.getOrCreateConversation(
-      patient.id,
+      resolvedPatient.id,
       tenantId,
       channel
     );
@@ -142,7 +178,7 @@ export class ChannelGatewayService {
     const message = await this.prisma.message.create({
       data: {
         tenantId,
-        patientId: patient.id,
+        patientId: resolvedPatient.id,
         conversationId: conversation.id,
         channel,
         whatsappMessageId: externalMessageId,
@@ -173,7 +209,7 @@ export class ChannelGatewayService {
     this.messagesGateway.emitNewMessage(tenantId, message);
 
     this.logger.log(
-      `Incoming ${channel} message from patient ${patient.id} in conversation ${conversation.id}`
+      `Incoming ${channel} message from patient ${resolvedPatient.id} in conversation ${conversation.id}`
     );
 
     // 6. Forward to agent pipeline (fire-and-forget; only for text messages)
@@ -183,7 +219,7 @@ export class ChannelGatewayService {
       setImmediate(() => {
         this.agentService
           .processIncomingMessage(
-            patient.id,
+            resolvedPatient.id,
             tenantId,
             conversation.id,
             content
@@ -204,7 +240,7 @@ export class ChannelGatewayService {
     return {
       message,
       conversation,
-      patient,
+      patient: resolvedPatient,
       tenantId,
     };
   }

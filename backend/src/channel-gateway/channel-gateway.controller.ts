@@ -142,7 +142,9 @@ export class ChannelGatewayController {
               msg.messageId,
               msg.timestamp,
               msg.type,
-              msg.mediaUrl
+              msg.mediaUrl,
+              undefined,
+              msg.whatsappPhoneNumberId
             );
 
             if (!result) {
