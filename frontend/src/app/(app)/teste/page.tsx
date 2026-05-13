@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { OrchestratorTracePanel } from '@/components/teste/OrchestratorTracePanel';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/auth-store';
 import { usePatients } from '@/hooks/usePatients';
@@ -20,6 +21,9 @@ export default function TestePage() {
   const [selectedPatient, setSelectedPatient] = useState<string | null>(null);
   const [messageInput, setMessageInput] = useState('');
   const [isSending, setIsSending] = useState(false);
+  const [selectedMessageId, setSelectedMessageId] = useState<string | null>(
+    null
+  );
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const { data: patients } = usePatients();
@@ -48,6 +52,10 @@ export default function TestePage() {
   }, [messages]);
 
   const selectedPatientData = patients?.find((p) => p.id === selectedPatient);
+
+  useEffect(() => {
+    setSelectedMessageId(null);
+  }, [selectedPatient]);
 
   const handleSendAsPatient = async () => {
     if (!selectedPatient || !messageInput.trim() || isSending) return;
@@ -177,8 +185,9 @@ export default function TestePage() {
           </div>
         </div>
 
-        {/* Chat area */}
-        <div className="flex-1 flex flex-col">
+        {/* Chat + painel orquestrador */}
+        <div className="flex-1 flex min-w-0">
+          <div className="flex-1 flex flex-col min-w-0">
           {selectedPatient && selectedPatientData ? (
             <>
               {/* Chat header */}
@@ -223,16 +232,36 @@ export default function TestePage() {
                   <>
                     {messages.map((msg) => {
                       const isPatient = msg.direction === 'INBOUND';
+                      const isSelected = selectedMessageId === msg.id;
                       return (
                         <div
                           key={msg.id}
                           className={`flex ${isPatient ? 'justify-end' : 'justify-start'}`}
                         >
                           <div
-                            className={`max-w-[70%] rounded-lg px-3 py-2 ${
+                            role="button"
+                            tabIndex={0}
+                            aria-pressed={isSelected}
+                            aria-label={
+                              isPatient
+                                ? 'Mensagem do paciente — ver pipeline na coluna direita'
+                                : 'Mensagem do agente ou enfermagem — ver pipeline na coluna direita'
+                            }
+                            onClick={() => setSelectedMessageId(msg.id)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                setSelectedMessageId(msg.id);
+                              }
+                            }}
+                            className={`max-w-[70%] rounded-lg px-3 py-2 cursor-pointer transition-shadow outline-none focus-visible:ring-2 focus-visible:ring-green-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0b141a] ${
                               isPatient
                                 ? 'bg-green-800 text-green-50'
                                 : 'bg-gray-700 text-gray-200'
+                            } ${
+                              isSelected
+                                ? 'ring-2 ring-green-400 ring-offset-2 ring-offset-[#0b141a]'
+                                : ''
                             }`}
                           >
                             <div className="text-xs font-semibold mb-0.5 opacity-70">
@@ -304,6 +333,14 @@ export default function TestePage() {
                 </p>
               </div>
             </div>
+          )}
+          </div>
+
+          {selectedPatient && selectedPatientData && (
+            <OrchestratorTracePanel
+              messages={messages ?? []}
+              selectedMessageId={selectedMessageId}
+            />
           )}
         </div>
       </div>
