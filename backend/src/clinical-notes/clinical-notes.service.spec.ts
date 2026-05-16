@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { getQueueToken } from '@nestjs/bullmq';
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import {
   ClinicalNoteStatus,
   ClinicalNoteType,
@@ -10,9 +11,16 @@ import {
 import { ClinicalNotesService } from './clinical-notes.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
+import { OncologyNavigationService } from '../oncology-navigation/oncology-navigation.service';
+import { CLINICAL_NOTE_EXTRACTION_QUEUE } from '../clinical-note-extraction/clinical-note-extraction.constants';
 
 describe('ClinicalNotesService', () => {
   let service: ClinicalNotesService;
+
+  const mockOncologyNavigation = {
+    bootstrapProntuarioEvolutionNavigationStep: jest.fn(),
+    markConsultationNavigationStepCompletedFromSignedEvolution: jest.fn(),
+  };
 
   const mockPrisma = {
     navigationStep: {
@@ -24,10 +32,19 @@ describe('ClinicalNotesService', () => {
     clinicalNote: {
       findMany: jest.fn(),
       count: jest.fn(),
+      findFirst: jest.fn(),
+      update: jest.fn(),
+    },
+    clinicalNoteExtractionRun: {
+      upsert: jest.fn().mockResolvedValue({}),
     },
   };
 
   const mockAudit = { log: jest.fn() };
+
+  const mockExtractionQueue = {
+    add: jest.fn().mockResolvedValue(undefined),
+  };
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -43,6 +60,14 @@ describe('ClinicalNotesService', () => {
           useValue: { get: jest.fn().mockReturnValue('x'.repeat(32)) },
         },
         { provide: AuditLogService, useValue: mockAudit },
+        {
+          provide: OncologyNavigationService,
+          useValue: mockOncologyNavigation,
+        },
+        {
+          provide: getQueueToken(CLINICAL_NOTE_EXTRACTION_QUEUE),
+          useValue: mockExtractionQueue,
+        },
       ],
     }).compile();
 
@@ -235,6 +260,174 @@ describe('ClinicalNotesService', () => {
       expect(r.latestVersionNumber).toBe(2);
       expect(r.sectionsContentHash).toBe('abc');
       expect(r.navigationStepId).toBe('ns-1');
+    });
+  });
+
+  describe('sign', () => {
+    const tenantId = 'tenant-1';
+    const noteId = '11111111-1111-4111-8111-111111111111';
+    const stepId = '99999999-9999-4999-8999-999999999999';
+    const actor = { id: 'user-n1', role: UserRole.NURSE, clinicalSubrole: null as null };
+
+    const baseDraftNote = {
+      id: noteId,
+      patientId: 'p-1',
+      tenantId,
+      status: ClinicalNoteStatus.DRAFT,
+      noteType: ClinicalNoteType.NURSING,
+      navigationStepId: stepId,
+      amendsClinicalNoteId: null,
+      versions: [{ versionNumber: 1, sectionsContentHash: 'h1' }],
+    };
+
+    beforeEach(() => {
+      mockOncologyNavigation.markConsultationNavigationStepCompletedFromSignedEvolution.mockReset();
+    });
+
+    it('após assinar com navigationStepId delega conclusão da etapa de consulta à oncology', async () => {
+      mockPrisma.clinicalNote.findFirst.mockResolvedValueOnce(baseDraftNote);
+      mockPrisma.clinicalNote.update.mockResolvedValueOnce({
+        ...baseDraftNote,
+        status: ClinicalNoteStatus.SIGNED,
+        signedById: actor.id,
+        signedAt: new Date(),
+        versions: [{ versionNumber: 1, sectionsContentHash: 'h1' }],
+      });
+
+      await service.sign(noteId, tenantId, actor);
+
+      expect(mockPrisma.clinicalNote.update).toHaveBeenCalled();
+      expect(mockExtractionQueue.add).toHaveBeenCalled();
+      expect(
+        mockOncologyNavigation.markConsultationNavigationStepCompletedFromSignedEvolution
+      ).toHaveBeenCalledWith(stepId, tenantId, actor.id);
+    });
+
+    it('persiste run FAILED quando enfileiramento BullMQ falha', async () => {
+      mockPrisma.clinicalNote.findFirst.mockResolvedValueOnce(baseDraftNote);
+      mockPrisma.clinicalNote.update.mockResolvedValueOnce({
+        ...baseDraftNote,
+        status: ClinicalNoteStatus.SIGNED,
+        signedById: actor.id,
+        signedAt: new Date(),
+        versions: [{ versionNumber: 1, sectionsContentHash: 'h1' }],
+      });
+      mockExtractionQueue.add.mockRejectedValueOnce(new Error('redis unavailable'));
+
+      await service.sign(noteId, tenantId, actor);
+
+      expect(mockPrisma.clinicalNoteExtractionRun.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            clinicalNoteId_sectionsContentHash: {
+              clinicalNoteId: noteId,
+              sectionsContentHash: 'h1',
+            },
+          },
+          create: expect.objectContaining({
+            status: 'FAILED',
+            errorMessage: expect.stringContaining('EXTRACTION_ENQUEUE_FAILED'),
+          }),
+        })
+      );
+    });
+
+    it('não chama oncology quando a nota não tem navigationStepId', async () => {
+      mockPrisma.clinicalNote.findFirst.mockResolvedValueOnce({
+        ...baseDraftNote,
+        navigationStepId: null,
+      });
+      mockPrisma.clinicalNote.update.mockResolvedValueOnce({
+        ...baseDraftNote,
+        status: ClinicalNoteStatus.SIGNED,
+        navigationStepId: null,
+        versions: [{ versionNumber: 1, sectionsContentHash: 'h1' }],
+      });
+
+      await service.sign(noteId, tenantId, actor);
+
+      expect(mockExtractionQueue.add).toHaveBeenCalled();
+      expect(
+        mockOncologyNavigation.markConsultationNavigationStepCompletedFromSignedEvolution
+      ).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('bootstrapEvolutionNavigationStep', () => {
+    const patientId = '22222222-2222-4222-8222-222222222222';
+    const tenantId = 'tenant-1';
+
+    beforeEach(() => {
+      mockOncologyNavigation.bootstrapProntuarioEvolutionNavigationStep.mockReset();
+    });
+
+    it('deve lançar ForbiddenException quando o papel não pode criar o tipo de nota', async () => {
+      await expect(
+        service.bootstrapEvolutionNavigationStep(
+          patientId,
+          tenantId,
+          { id: 'u1', role: UserRole.NURSE, clinicalSubrole: null },
+          ClinicalNoteType.MEDICAL
+        )
+      ).rejects.toThrow(ForbiddenException);
+      expect(
+        mockOncologyNavigation.bootstrapProntuarioEvolutionNavigationStep
+      ).not.toHaveBeenCalled();
+    });
+
+    it('NURSE+NURSING delega oncology com navigation_consultation e devolve id', async () => {
+      mockPrisma.patient.findFirst.mockResolvedValueOnce({ id: patientId });
+      mockOncologyNavigation.bootstrapProntuarioEvolutionNavigationStep.mockResolvedValueOnce(
+        { id: 'new-step' }
+      );
+
+      const r = await service.bootstrapEvolutionNavigationStep(
+        patientId,
+        tenantId,
+        { id: 'n1', role: UserRole.NURSE, clinicalSubrole: null },
+        ClinicalNoteType.NURSING
+      );
+
+      expect(r).toEqual({ id: 'new-step' });
+      expect(
+        mockOncologyNavigation.bootstrapProntuarioEvolutionNavigationStep
+      ).toHaveBeenCalledWith(tenantId, patientId, 'n1', 'navigation_consultation');
+    });
+
+    it('DOCTOR+MEDICAL delega com specialist_consultation', async () => {
+      mockPrisma.patient.findFirst.mockResolvedValueOnce({ id: patientId });
+      mockOncologyNavigation.bootstrapProntuarioEvolutionNavigationStep.mockResolvedValueOnce(
+        { id: 's1' }
+      );
+
+      await service.bootstrapEvolutionNavigationStep(
+        patientId,
+        tenantId,
+        { id: 'd1', role: UserRole.DOCTOR, clinicalSubrole: null },
+        ClinicalNoteType.MEDICAL
+      );
+
+      expect(
+        mockOncologyNavigation.bootstrapProntuarioEvolutionNavigationStep
+      ).toHaveBeenCalledWith(tenantId, patientId, 'd1', 'specialist_consultation');
+    });
+
+    it('propaga BadRequestException da oncology (elegibilidade do profissional à consulta)', async () => {
+      mockPrisma.patient.findFirst.mockResolvedValueOnce({ id: patientId });
+      mockOncologyNavigation.bootstrapProntuarioEvolutionNavigationStep.mockRejectedValueOnce(
+        new BadRequestException(
+          'Consulta especializada: selecione um médico (ou coordenador/administrador com subpapel médico)'
+        )
+      );
+
+      await expect(
+        service.bootstrapEvolutionNavigationStep(
+          patientId,
+          tenantId,
+          { id: 'u1', role: UserRole.DOCTOR, clinicalSubrole: null },
+          ClinicalNoteType.MEDICAL
+        )
+      ).rejects.toThrow(BadRequestException);
     });
   });
 

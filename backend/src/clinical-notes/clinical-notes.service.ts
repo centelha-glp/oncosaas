@@ -2,11 +2,15 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import * as crypto from 'crypto';
 import {
+  ClinicalNoteExtractionRunStatus,
   ClinicalNoteStatus,
   ClinicalNoteType,
   ClinicalNoteVersionChangeType,
@@ -16,12 +20,15 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { AuditAction } from '@generated/prisma/client';
+import { OncologyNavigationService } from '../oncology-navigation/oncology-navigation.service';
 import {
   encryptSensitiveData,
   decryptSensitiveData,
 } from '../whatsapp-connections/utils/encryption.util';
 import { CLINICAL_NOTE_NAVIGATION_STEP_KEY } from './clinical-notes.constants';
 import { decodeDecryptedClinicalNoteToMarkdown } from './clinical-note-legacy-content.util';
+import { CLINICAL_NOTE_EXTRACTION_QUEUE } from '../clinical-note-extraction/clinical-note-extraction.constants';
+import type { ClinicalNoteExtractionJobPayload } from '../clinical-note-extraction/clinical-note-extraction.types';
 import {
   CreateClinicalNoteDto,
   UpdateClinicalNoteDto,
@@ -37,10 +44,15 @@ export interface ClinicalNoteActor {
 
 @Injectable()
 export class ClinicalNotesService {
+  private readonly logger = new Logger(ClinicalNotesService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
-    private readonly auditLogService: AuditLogService
+    private readonly auditLogService: AuditLogService,
+    private readonly oncologyNavigationService: OncologyNavigationService,
+    @InjectQueue(CLINICAL_NOTE_EXTRACTION_QUEUE)
+    private readonly clinicalNoteExtractionQueue: Queue<ClinicalNoteExtractionJobPayload>
   ) {}
 
   private get encryptionKey(): string {
@@ -282,6 +294,46 @@ export class ClinicalNotesService {
     });
 
     return this.toMutationResponse(row);
+  }
+
+  /**
+   * Cria etapa de navegação compatível com o tipo de evolução quando ainda não existe candidata
+   * (prontuário). Delega criação a {@link OncologyNavigationService.bootstrapProntuarioEvolutionNavigationStep}.
+   */
+  async bootstrapEvolutionNavigationStep(
+    patientId: string,
+    tenantId: string,
+    actor: ClinicalNoteActor,
+    noteType: ClinicalNoteType
+  ): Promise<{ id: string }> {
+    if (!this.canCreateOrSignNoteType(actor.role, actor.clinicalSubrole, noteType)) {
+      throw new ForbiddenException(
+        'Sem permissão para criar este tipo de nota clínica'
+      );
+    }
+
+    const patient = await this.prisma.patient.findFirst({
+      where: { id: patientId, tenantId },
+      select: { id: true },
+    });
+    if (!patient) {
+      throw new NotFoundException(`Patient ${patientId} not found`);
+    }
+
+    const consultationStepKey =
+      noteType === ClinicalNoteType.MEDICAL
+        ? CLINICAL_NOTE_NAVIGATION_STEP_KEY.MEDICAL
+        : CLINICAL_NOTE_NAVIGATION_STEP_KEY.NURSING;
+
+    const step =
+      await this.oncologyNavigationService.bootstrapProntuarioEvolutionNavigationStep(
+        tenantId,
+        patientId,
+        actor.id,
+        consultationStepKey
+      );
+
+    return { id: step.id };
   }
 
   async findAllForPatient(
@@ -600,6 +652,72 @@ export class ClinicalNotesService {
         },
       },
     });
+
+    if (note.navigationStepId) {
+      await this.oncologyNavigationService.markConsultationNavigationStepCompletedFromSignedEvolution(
+        note.navigationStepId,
+        tenantId,
+        actor.id
+      );
+    }
+
+    const v = row.versions[0];
+    if (v) {
+      try {
+        await this.clinicalNoteExtractionQueue.add(
+          'structure-after-sign',
+          {
+            tenantId,
+            patientId: row.patientId,
+            clinicalNoteId: row.id,
+            signedByUserId: actor.id,
+            latestVersionNumber: v.versionNumber,
+            sectionsContentHash: v.sectionsContentHash,
+          } satisfies ClinicalNoteExtractionJobPayload,
+          {
+            removeOnComplete: true,
+            attempts: 3,
+            backoff: { type: 'exponential', delay: 5000 },
+          }
+        );
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        this.logger.warn(
+          `Falha ao enfileirar extração estruturada da evolução note=${row.id}: ${msg}`
+        );
+        try {
+          await this.prisma.clinicalNoteExtractionRun.upsert({
+            where: {
+              clinicalNoteId_sectionsContentHash: {
+                clinicalNoteId: row.id,
+                sectionsContentHash: v.sectionsContentHash,
+              },
+            },
+            create: {
+              tenantId,
+              patientId: row.patientId,
+              clinicalNoteId: row.id,
+              sectionsContentHash: v.sectionsContentHash,
+              latestVersionNumber: v.versionNumber,
+              signedByUserId: actor.id,
+              status: ClinicalNoteExtractionRunStatus.FAILED,
+              errorMessage: `EXTRACTION_ENQUEUE_FAILED: ${msg.slice(0, 1800)}`,
+            },
+            update: {
+              status: ClinicalNoteExtractionRunStatus.FAILED,
+              errorMessage: `EXTRACTION_ENQUEUE_FAILED: ${msg.slice(0, 1800)}`,
+            },
+          });
+        } catch (persistErr) {
+          this.logger.error(
+            `Não foi possível gravar run FAILED após falha de fila note=${row.id}: ${
+              persistErr instanceof Error ? persistErr.message : String(persistErr)
+            }`,
+            persistErr instanceof Error ? persistErr.stack : undefined
+          );
+        }
+      }
+    }
 
     return this.toMutationResponse(row);
   }

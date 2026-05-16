@@ -4,8 +4,10 @@ import {
   Inject,
   forwardRef,
   BadRequestException,
+  Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import {
   getAiServiceConfig,
   getAiServiceHeadersWithTenant,
@@ -16,7 +18,10 @@ import { ConversationService } from './conversation.service';
 import { DecisionGateService } from './decision-gate.service';
 import { AlertsGateway } from '../gateways/alerts.gateway';
 import { PriorityRecalculationService } from '../oncology-navigation/priority-recalculation.service';
-import { OncologyNavigationService } from '../oncology-navigation/oncology-navigation.service';
+import {
+  OncologyNavigationService,
+  isUserEligibleForConsultationStepKey,
+} from '../oncology-navigation/oncology-navigation.service';
 import { CreateConsultationAppointmentDto } from '../oncology-navigation/dto/create-consultation-appointment.dto';
 import { UpdateNavigationStepDto } from '../oncology-navigation/dto/update-navigation-step.dto';
 import { isConsultationStepKey } from '../oncology-navigation/consultation-step-keys';
@@ -29,10 +34,12 @@ import {
 } from '../common/utils/phone.util';
 import {
   AppointmentConfirmationStatus,
+  ClinicalSubrole,
   HealthCoverageType,
   JourneyStage,
   NavigationStepStatus,
   Patient,
+  UserRole,
 } from '@generated/prisma/client';
 import {
   CANCEL_CONSULTATION_APPOINTMENT,
@@ -50,6 +57,7 @@ import {
 } from './interfaces/agent-decision.interface';
 import { resolveNavigationStepIdForAgentQuestionnaire } from './questionnaire-navigation.helper';
 import { mergeOutboundStructuredData } from './merge-outbound-structured-data';
+import { PROTOCOL_SCHEDULE_REEVALUATION_EVENT } from './protocol-evaluation.events';
 
 /** Paciente mínimo criado pelo channel-gateway para conversas WhatsApp antes do cadastro completo (secretária). */
 const WHATSAPP_INTAKE_STUB_PATIENT_NAME = 'Cadastro WhatsApp (incompleto)';
@@ -58,6 +66,28 @@ const WHATSAPP_INTAKE_STUB_PATIENT_NAME = 'Cadastro WhatsApp (incompleto)';
 type AgentDecisionExecuteSideEffect = {
   overridePatientResponse?: string;
   schedulingAvailableSlots?: Record<string, unknown>;
+};
+
+type SchedulingAvailabilityQuery = {
+  professionalId: string;
+  stepKey: string;
+  from: string;
+  to: string;
+};
+
+type SchedulingAvailabilityResult = {
+  slots: string[];
+  query: SchedulingAvailabilityQuery;
+  fetchedAt: string;
+  expiresAt: string;
+};
+
+type SchedulingProfessionalResult = {
+  id: string;
+  name: string;
+  role: UserRole;
+  clinicalSubrole: ClinicalSubrole | null;
+  consultationStepKeys: string[];
 };
 
 @Injectable()
@@ -76,8 +106,28 @@ export class AgentService {
     @Inject(forwardRef(() => OncologyNavigationService))
     private readonly oncologyNavigationService: OncologyNavigationService,
     @Inject(forwardRef(() => PatientsService))
-    private readonly patientsService: PatientsService
+    private readonly patientsService: PatientsService,
+    @Optional() private readonly eventEmitter?: EventEmitter2
   ) {}
+
+  private computeAgeFromBirthDate(
+    birthDate: Date | null | undefined
+  ): number | undefined {
+    if (!birthDate) {
+      return undefined;
+    }
+    const birth = new Date(birthDate);
+    const today = new Date();
+    let age = today.getFullYear() - birth.getFullYear();
+    const monthDiff = today.getMonth() - birth.getMonth();
+    if (
+      monthDiff < 0 ||
+      (monthDiff === 0 && today.getDate() < birth.getDate())
+    ) {
+      age--;
+    }
+    return age;
+  }
 
   /**
    * Garante um registro de paciente no tenant para um número WhatsApp ainda não cadastrado.
@@ -437,6 +487,8 @@ export class AgentService {
       (s: { journeyStage?: string }) => s.journeyStage === currentStage,
     );
 
+    const patientAge = this.computeAgeFromBirthDate(patient?.birthDate);
+
     return {
       patient: {
         id: patient?.id || patientId,
@@ -448,6 +500,11 @@ export class AgentService {
         priorityScore: patient?.priorityScore || 0,
         priorityCategory: patient?.priorityCategory || 'LOW',
         clinicalDisposition: patient?.clinicalDisposition || undefined,
+        clinicalDispositionReason: patient?.clinicalDispositionReason || undefined,
+        clinicalDispositionAt: patient?.clinicalDispositionAt
+          ? patient.clinicalDispositionAt.toISOString()
+          : undefined,
+        ...(patientAge !== undefined ? { age: patientAge } : {}),
       },
       diagnoses,
       treatments,
@@ -728,6 +785,7 @@ export class AgentService {
         case 'PROTOCOL_ALERT':
         case 'RESPOND_TO_QUESTION':
         case 'GREETING_RESPONSE':
+        case 'SCHEDULING_INTAKE_PENDING':
           // These are handled by the orchestrator response or are informational
           this.logger.debug(`Action handled by orchestrator: ${actionType}`);
           break;
@@ -910,12 +968,9 @@ export class AgentService {
     )}\n\nQual horário você prefere? Se precisar de outro período, é só dizer.`;
   }
 
-  private async executeCheckConsultationAvailability(
-    decision: { outputAction?: { payload?: unknown } },
-    tenantId: string,
-    _conversationId: string
-  ): Promise<AgentDecisionExecuteSideEffect> {
-    const payload = this.schedulingPayload(decision);
+  private normalizeConsultationAvailabilityPayload(
+    payload: Record<string, unknown>
+  ): SchedulingAvailabilityQuery | null {
     const professionalId =
       typeof payload.scheduledProfessionalId === 'string' &&
       this.isUuidString(payload.scheduledProfessionalId)
@@ -931,6 +986,109 @@ export class AgentService {
     const to = typeof payload.to === 'string' ? payload.to.trim() : '';
 
     if (!professionalId || !stepKey || !from || !to) {
+      return null;
+    }
+
+    return { professionalId, stepKey, from, to };
+  }
+
+  private async buildConsultationAvailabilityResult(
+    tenantId: string,
+    query: SchedulingAvailabilityQuery
+  ): Promise<SchedulingAvailabilityResult> {
+    const { slots: rawSlots } =
+      await this.oncologyNavigationService.getConsultationAvailableSlots(
+        tenantId,
+        query
+      );
+
+    const now = new Date();
+    const sorted = [...rawSlots]
+      .filter((slot) => {
+        const t = new Date(slot).getTime();
+        return !Number.isNaN(t) && t >= now.getTime();
+      })
+      .sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+    const offered = sorted.slice(
+      0,
+      SCHEDULING_SECRETARY_AVAILABILITY_OFFERED_SLOTS_MAX
+    );
+    const expiresAt = new Date(
+      now.getTime() + SCHEDULING_SECRETARY_AVAILABILITY_STATE_TTL_MS
+    );
+
+    return {
+      slots: offered,
+      query,
+      fetchedAt: now.toISOString(),
+      expiresAt: expiresAt.toISOString(),
+    };
+  }
+
+  async getInternalConsultationAvailability(
+    tenantId: string,
+    payload: Record<string, unknown>
+  ): Promise<SchedulingAvailabilityResult> {
+    const query = this.normalizeConsultationAvailabilityPayload(payload);
+    if (!query) {
+      throw new BadRequestException(
+        'professionalId, stepKey, from e to são obrigatórios'
+      );
+    }
+
+    return this.buildConsultationAvailabilityResult(tenantId, query);
+  }
+
+  async getInternalConsultationProfessionals(
+    tenantId: string,
+    payload: Record<string, unknown>
+  ): Promise<{ professionals: SchedulingProfessionalResult[]; query: { stepKey: string | null } }> {
+    const stepKey =
+      typeof payload.stepKey === 'string' && isConsultationStepKey(payload.stepKey)
+        ? payload.stepKey
+        : null;
+    const professionals =
+      await this.oncologyNavigationService.listConsultationAgendaSchedulableProfessionals(
+        tenantId
+      );
+
+    const mapped = professionals
+      .map((p) => {
+        const consultationStepKeys = [
+          'specialist_consultation',
+          'navigation_consultation',
+        ].filter((key) =>
+          isUserEligibleForConsultationStepKey(
+            { role: p.role, clinicalSubrole: p.clinicalSubrole },
+            key
+          )
+        );
+
+        return {
+          id: p.id,
+          name: p.name,
+          role: p.role,
+          clinicalSubrole: p.clinicalSubrole,
+          consultationStepKeys,
+        };
+      })
+      .filter((p) => !stepKey || p.consultationStepKeys.includes(stepKey));
+
+    return {
+      professionals: mapped,
+      query: { stepKey },
+    };
+  }
+
+  private async executeCheckConsultationAvailability(
+    decision: { outputAction?: { payload?: unknown } },
+    tenantId: string,
+    _conversationId: string
+  ): Promise<AgentDecisionExecuteSideEffect> {
+    const payload = this.schedulingPayload(decision);
+    const query = this.normalizeConsultationAvailabilityPayload(payload);
+
+    if (!query) {
       return {
         overridePatientResponse:
           'Não foi possível consultar a agenda: faltam profissional, tipo de consulta ou período. Reformule o pedido, por favor.',
@@ -938,45 +1096,13 @@ export class AgentService {
     }
 
     try {
-      const { slots: rawSlots } =
-        await this.oncologyNavigationService.getConsultationAvailableSlots(
-          tenantId,
-          {
-            professionalId,
-            stepKey,
-            from,
-            to,
-          }
-        );
-
-      const sorted = [...rawSlots].sort(
-        (a, b) => new Date(a).getTime() - new Date(b).getTime()
-      );
-      const offered = sorted.slice(
-        0,
-        SCHEDULING_SECRETARY_AVAILABILITY_OFFERED_SLOTS_MAX
-      );
-      const now = new Date();
-      const expiresAt = new Date(
-        now.getTime() + SCHEDULING_SECRETARY_AVAILABILITY_STATE_TTL_MS
-      );
-
-      const schedulingAvailableSlots = {
-        slots: offered,
-        query: {
-          professionalId,
-          stepKey,
-          from,
-          to,
-        },
-        fetchedAt: now.toISOString(),
-        expiresAt: expiresAt.toISOString(),
-      };
+      const schedulingAvailableSlots =
+        await this.buildConsultationAvailabilityResult(tenantId, query);
 
       const overridePatientResponse =
-        offered.length === 0
+        schedulingAvailableSlots.slots.length === 0
           ? 'No período informado não há horários livres na agenda desse profissional. Você pode informar outras datas (até 30 dias de intervalo) ou outro profissional, se houver.'
-          : this.formatAvailabilityReplyToPatient(offered);
+          : this.formatAvailabilityReplyToPatient(schedulingAvailableSlots.slots);
 
       return {
         overridePatientResponse,
@@ -1954,6 +2080,12 @@ export class AgentService {
           completedAt: new Date(),
           navigationStepId,
         },
+      });
+
+      this.eventEmitter?.emit(PROTOCOL_SCHEDULE_REEVALUATION_EVENT, {
+        patientId,
+        tenantId,
+        reason: 'agent_questionnaire_completed',
       });
 
       this.priorityRecalculationService.triggerRecalculation(

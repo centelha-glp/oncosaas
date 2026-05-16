@@ -133,6 +133,9 @@ export class ThrottleGuard implements CanActivate {
     ) {
       return this.webhookLimit;
     }
+    if (path.includes('/public/exam-ingest')) {
+      return 20;
+    }
     if (path.includes('/auth/profile')) {
       return this.profileLimit;
     }

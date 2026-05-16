@@ -21,6 +21,7 @@ import { ClinicalNoteType, UserRole } from '@generated/prisma/client';
 import { ClinicalNotesService } from './clinical-notes.service';
 import { ClinicalNoteSectionSuggestionService } from './clinical-note-section-suggestion.service';
 import { CreateClinicalNoteDto } from './dto/clinical-note-sections.dto';
+import { BootstrapEvolutionNavigationStepDto } from './dto/bootstrap-evolution-navigation-step.dto';
 
 @Controller('patients/:patientId/clinical-notes')
 @UseGuards(JwtAuthGuard, TenantGuard, RolesGuard)
@@ -60,6 +61,28 @@ export class PatientClinicalNotesController {
       dto,
       user.tenantId,
       this.actor(user)
+    );
+  }
+
+  @Post('bootstrap-evolution-navigation-step')
+  @Roles(
+    UserRole.NURSE,
+    UserRole.NURSE_CHIEF,
+    UserRole.DOCTOR,
+    UserRole.ONCOLOGIST,
+    UserRole.COORDINATOR,
+    UserRole.ADMIN
+  )
+  bootstrapEvolutionNavigationStep(
+    @Param('patientId', ParseUUIDPipe) patientId: string,
+    @Body() dto: BootstrapEvolutionNavigationStepDto,
+    @CurrentUser() user: CurrentUserType
+  ) {
+    return this.clinicalNotesService.bootstrapEvolutionNavigationStep(
+      patientId,
+      user.tenantId,
+      this.actor(user),
+      dto.noteType
     );
   }
 

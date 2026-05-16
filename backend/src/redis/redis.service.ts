@@ -57,6 +57,19 @@ export class RedisService implements OnModuleDestroy {
     return this.client.ttl(key);
   }
 
+  /** Anexa à lista Redis (buffer efémero, ex.: uploads de sessão). */
+  async rpush(key: string, value: string): Promise<number> {
+    return this.client.rpush(key, value);
+  }
+
+  async llen(key: string): Promise<number> {
+    return this.client.llen(key);
+  }
+
+  async lrange(key: string, start: number, stop: number): Promise<string[]> {
+    return this.client.lrange(key, start, stop);
+  }
+
   isConnected(): boolean {
     return this.client.status === 'ready';
   }

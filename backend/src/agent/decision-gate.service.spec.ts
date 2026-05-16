@@ -170,7 +170,7 @@ describe('DecisionGateService', () => {
     expect(result.needsApproval).toHaveLength(0);
   });
 
-  it('exige aprovação para CHECK_CONSULTATION_AVAILABILITY quando intervalo inválido', () => {
+  it('auto-aprova CHECK_CONSULTATION_AVAILABILITY mesmo quando payload precisa fallback operacional', () => {
     const result = service.evaluate([
       {
         decisionType: AgentDecisionType.RESPONSE_GENERATED,
@@ -189,11 +189,12 @@ describe('DecisionGateService', () => {
       },
     ] as unknown as AgentDecision[]);
 
-    expect(result.needsApproval).toHaveLength(1);
-    expect(result.autoApproved).toHaveLength(0);
+    expect(result.autoApproved).toHaveLength(1);
+    expect(result.needsApproval).toHaveLength(0);
+    expect(result.autoApproved[0].requiresApproval).toBe(false);
   });
 
-  it('exige aprovação para CHECK_CONSULTATION_AVAILABILITY quando stepKey não é de consulta', () => {
+  it('auto-aprova CHECK_CONSULTATION_AVAILABILITY sem revisão humana mesmo com stepKey inválido', () => {
     const result = service.evaluate([
       {
         decisionType: AgentDecisionType.RESPONSE_GENERATED,
@@ -212,7 +213,28 @@ describe('DecisionGateService', () => {
       },
     ] as unknown as AgentDecision[]);
 
-    expect(result.needsApproval).toHaveLength(1);
-    expect(result.autoApproved).toHaveLength(0);
+    expect(result.autoApproved).toHaveLength(1);
+    expect(result.needsApproval).toHaveLength(0);
+  });
+
+  it('auto-aprova SCHEDULING_INTAKE_PENDING como decisão informativa sem revisão humana', () => {
+    const result = service.evaluate([
+      {
+        decisionType: 'SCHEDULING_INTAKE_PENDING',
+        reasoning: 'faltam dados para consultar vagas',
+        inputData: {},
+        outputAction: {
+          type: 'SCHEDULING_INTAKE_PENDING',
+          payload: {
+            tool_name: 'consultar_vagas_consulta',
+            missing_fields: ['scheduledProfessionalId'],
+          },
+        },
+        requiresApproval: false,
+      },
+    ] as unknown as AgentDecision[]);
+
+    expect(result.autoApproved).toHaveLength(1);
+    expect(result.needsApproval).toHaveLength(0);
   });
 });

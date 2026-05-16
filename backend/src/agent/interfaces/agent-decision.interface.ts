@@ -49,6 +49,11 @@ export interface ClinicalContext {
     priorityScore: number;
     priorityCategory: string;
     clinicalDisposition?: string;
+    clinicalDispositionReason?: string;
+    /** ISO 8601 quando a disposição clínica foi registrada */
+    clinicalDispositionAt?: string;
+    /** Idade em anos (derivada de `birthDate` no backend quando disponível) */
+    age?: number;
   };
   diagnoses: any[];
   treatments: any[];

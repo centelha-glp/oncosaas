@@ -673,6 +673,155 @@ export class OncologyNavigationService {
     return step;
   }
 
+  /** Nome/descrição alinhados a `mergeUniversalStepConfigs` (etapas transversais). */
+  private getUniversalConsultationStepDisplay(consultationStepKey: string): {
+    stepName: string;
+    stepDescription: string;
+  } {
+    if (consultationStepKey === 'specialist_consultation') {
+      return {
+        stepName: 'Consulta especializada',
+        stepDescription:
+          'Consulta com especialista da linha de cuidado (não substitui a navegação oncológica).',
+      };
+    }
+    if (consultationStepKey === 'navigation_consultation') {
+      return {
+        stepName: 'Consulta de navegação oncológica',
+        stepDescription:
+          'Atendimento com o navegador oncológico para coordenação de acesso, barreiras e continuidade do cuidado.',
+      };
+    }
+    throw new BadRequestException(
+      'stepKey deve ser consulta especializada ou consulta de navegação oncológica'
+    );
+  }
+
+  /**
+   * Cria etapa de consulta para amarrar evolução de prontuário quando ainda não existe candidata.
+   * `expectedDate` é o instante de criação no servidor (UTC no Prisma), alinhado à consulta «agora».
+   * **Não** valida slot na agenda nem sobreposição de intervalos; mantém
+   * {@link assertSchedulableProfessional} para o tipo de consulta.
+   */
+  async bootstrapProntuarioEvolutionNavigationStep(
+    tenantId: string,
+    patientId: string,
+    scheduledProfessionalId: string,
+    consultationStepKey: string
+  ): Promise<NavigationStep> {
+    if (!isConsultationStepKey(consultationStepKey)) {
+      throw new BadRequestException(
+        `stepKey deve ser uma consulta clínica: ${CONSULTATION_STEP_KEYS.join(', ')}`
+      );
+    }
+
+    const patient = await this.prisma.patient.findFirst({
+      where: { id: patientId, tenantId },
+      select: { id: true, cancerType: true, currentStage: true },
+    });
+    if (!patient) {
+      throw new NotFoundException('Patient not found');
+    }
+
+    const expectedAt = new Date();
+    await this.assertSchedulableProfessional(
+      tenantId,
+      scheduledProfessionalId,
+      consultationStepKey
+    );
+
+    const resolvedCancerType = await this.resolveNavigationStepCancerType(
+      undefined,
+      patientId,
+      patient.cancerType,
+      tenantId
+    );
+
+    const diagnosis = await this.prisma.cancerDiagnosis.findFirst({
+      where: { patientId, tenantId, isActive: true },
+      orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
+      select: { id: true },
+    });
+
+    const journey = await this.prisma.patientJourney.findUnique({
+      where: { patientId },
+    });
+
+    const { stepName, stepDescription } =
+      this.getUniversalConsultationStepDisplay(consultationStepKey);
+
+    const stepOrder = await this.getNextStepOrderForStage(
+      patientId,
+      tenantId,
+      patient.currentStage
+    );
+
+    const metadata: Prisma.InputJsonValue = {
+      source: 'prontuario_evolution_bootstrap',
+      skipAgendaSlotValidation: true,
+    };
+
+    return this.prisma.navigationStep.create({
+      data: {
+        tenantId,
+        patientId,
+        journeyId: journey?.id,
+        diagnosisId: diagnosis?.id ?? undefined,
+        cancerType: resolvedCancerType,
+        journeyStage: patient.currentStage,
+        stepKey: consultationStepKey,
+        stepName,
+        stepDescription,
+        isRequired: false,
+        expectedDate: expectedAt,
+        scheduledProfessionalId,
+        metadata,
+        status: NavigationStepStatus.PENDING,
+        isCompleted: false,
+        stepOrder,
+      },
+    });
+  }
+
+  /**
+   * Marca etapa de consulta clínica como realizada quando a evolução de prontuário vinculada é assinada.
+   * Não revalida slot na agenda (ex.: etapa criada pelo bootstrap de prontuário sem validação de intervalo).
+   */
+  async markConsultationNavigationStepCompletedFromSignedEvolution(
+    stepId: string,
+    tenantId: string,
+    completedByUserId: string
+  ): Promise<void> {
+    const existingStep = await this.prisma.navigationStep.findFirst({
+      where: { id: stepId, tenantId },
+    });
+    if (!existingStep) {
+      throw new NotFoundException('Navigation step not found');
+    }
+    if (!isConsultationStepKey(existingStep.stepKey)) {
+      return;
+    }
+    if (existingStep.isCompleted) {
+      return;
+    }
+    const now = new Date();
+    await this.cancelPendingConsultationScheduledActionsForNavigationStep(
+      tenantId,
+      stepId
+    );
+    const updatedStep = await this.prisma.navigationStep.update({
+      where: { id: stepId, tenantId },
+      data: {
+        isCompleted: true,
+        status: NavigationStepStatus.COMPLETED,
+        completedAt: now,
+        completedBy: completedByUserId,
+        actualDate: existingStep.actualDate ?? now,
+      },
+    });
+    await this.runAfterMarkingStepCompleted(updatedStep, tenantId);
+  }
+
   /**
    * Agenda consulta clínica (stepKey ∈ CONSULTATION_STEP_KEYS) com data obrigatória.
    * Confirmação por WhatsApp é agendada automaticamente conforme `whatsappConfirmationLeadHours` na config da agenda do profissional.
@@ -919,6 +1068,17 @@ export class OncologyNavigationService {
       `Por favor, confirme se poderá comparecer respondendo a esta mensagem. ` +
       `Em caso de dúvidas, entre em contato com a equipe de saúde.`
     );
+  }
+
+  /** Efeitos de domínio após marcar uma etapa como concluída (cascatas, bifurcação, checkpoints). */
+  private async runAfterMarkingStepCompleted(
+    completedStep: NavigationStep,
+    tenantId: string
+  ): Promise<void> {
+    await this.maybeCreateNextStageSteps(completedStep, tenantId);
+    await this.cascadeDependentStepDates(completedStep, tenantId);
+    await this.applyBladderCancerBifurcation(completedStep, tenantId);
+    await this.checkLegalCheckpoints(completedStep, tenantId);
   }
 
   /**
@@ -1208,11 +1368,7 @@ export class OncologyNavigationService {
 
     // Cascade de prazos e bifurcação ao completar
     if (updateDto.isCompleted && !existingStep.isCompleted) {
-      // Criar steps da próxima fase se ainda não existirem (ex: conclusão de SCREENING → cria DIAGNOSIS)
-      await this.maybeCreateNextStageSteps(updatedStep, tenantId);
-      await this.cascadeDependentStepDates(updatedStep, tenantId);
-      await this.applyBladderCancerBifurcation(updatedStep, tenantId);
-      await this.checkLegalCheckpoints(updatedStep, tenantId);
+      await this.runAfterMarkingStepCompleted(updatedStep, tenantId);
     }
 
     // Resetar prazos de dependentes ao desmarcar conclusão

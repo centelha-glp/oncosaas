@@ -1,14 +1,17 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../prisma/prisma.service';
 import { PriorityRecalculationService } from '../oncology-navigation/priority-recalculation.service';
 import { CreateQuestionnaireResponseDto } from './dto/create-questionnaire-response.dto';
 import { QuestionnaireResponse } from '@generated/prisma/client';
+import { PROTOCOL_SCHEDULE_REEVALUATION_EVENT } from '../agent/protocol-evaluation.events';
 
 @Injectable()
 export class QuestionnaireResponsesService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly priorityRecalculationService: PriorityRecalculationService
+    private readonly priorityRecalculationService: PriorityRecalculationService,
+    @Optional() private readonly eventEmitter?: EventEmitter2
   ) {}
 
   /** Valida etapa do paciente/tenant quando informada (qualquer stepKey). */
@@ -86,6 +89,12 @@ export class QuestionnaireResponsesService {
       createDto.patientId,
       tenantId
     );
+
+    this.eventEmitter?.emit(PROTOCOL_SCHEDULE_REEVALUATION_EVENT, {
+      patientId: createDto.patientId,
+      tenantId,
+      reason: 'questionnaire_response_created',
+    });
 
     return response;
   }

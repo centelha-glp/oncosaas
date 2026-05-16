@@ -2,7 +2,10 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AgentDecisionType } from '@generated/prisma/client';
 import { AgentDecision } from './interfaces/agent-decision.interface';
-import { isSchedulingSecretaryOutputActionType } from './scheduling-secretary.constants';
+import {
+  CHECK_CONSULTATION_AVAILABILITY,
+  isSchedulingSecretaryOutputActionType,
+} from './scheduling-secretary.constants';
 import { schedulingSecretaryPayloadValidForAutoApprove } from './scheduling-secretary-gate';
 
 /**
@@ -29,6 +32,13 @@ const AUTO_APPROVED_ACTIONS = new Set([
   'GREETING_RESPONSE',
   // Resposta sobre próximos exames/consultas
   'APPOINTMENT_RESPONSE',
+  // Coleta incompleta/informativa da secretária; não é mutação e não requer humano.
+  'SCHEDULING_INTAKE_PENDING',
+]);
+
+const READ_ONLY_NO_REVIEW_ACTIONS = new Set([
+  CHECK_CONSULTATION_AVAILABILITY,
+  'SCHEDULING_INTAKE_PENDING',
 ]);
 
 /**
@@ -47,6 +57,8 @@ const DECISION_TYPE_ALIASES: Record<string, AgentDecisionType> = {
   GREETING_HANDLED: AgentDecisionType.RESPONSE_GENERATED,
   PRIORITY_RECALCULATED: AgentDecisionType.PRIORITY_UPDATED,
   APPOINTMENT_QUERY_HANDLED: AgentDecisionType.RESPONSE_GENERATED,
+  APPOINTMENT_AVAILABILITY_QUERIED: AgentDecisionType.RESPONSE_GENERATED,
+  SCHEDULING_INTAKE_PENDING: AgentDecisionType.RESPONSE_GENERATED,
 };
 
 const VALID_DECISION_TYPES = new Set<AgentDecisionType>(
@@ -72,6 +84,12 @@ export class DecisionGateService {
 
     for (const decision of decisions) {
       const actionType = decision.outputAction?.type || '';
+
+      if (READ_ONLY_NO_REVIEW_ACTIONS.has(actionType)) {
+        decision.requiresApproval = false;
+        autoApproved.push(decision);
+        continue;
+      }
 
       if (decision.requiresApproval || NEEDS_APPROVAL_ACTIONS.has(actionType)) {
         decision.requiresApproval = true;
