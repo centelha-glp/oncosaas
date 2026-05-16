@@ -4,12 +4,26 @@ Builds formatted clinical context from patient data for the LLM system prompt.
 Integrates with the oncology knowledge RAG for evidence-based responses.
 """
 
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Literal, Tuple
 import logging
 
 from .rag import knowledge_rag
 
 logger = logging.getLogger(__name__)
+
+# Papel do subagente para `build_slice` — texto no mesmo formato `###` que `build()`.
+SubAgentClinicalContextRole = Literal[
+    "navigation",
+    "symptom",
+    "questionnaire",
+    "emotional_support",
+    "scheduling_secretary",
+]
+
+# Últimas mensagens do diálogo no contexto estruturado (user/assistant); ~1 linha cada.
+_RECENT_DIALOGUE_MAX_MESSAGES = 5
+_RECENT_DIALOGUE_MAX_CHARS = 180
+_LAYER1_REASONING_MAX_CHARS = 600
 
 
 class ClinicalContextBuilder:
@@ -25,6 +39,7 @@ class ClinicalContextBuilder:
         symptom_analysis: Optional[Dict[str, Any]] = None,
         conversation_history: Optional[List[Dict[str, str]]] = None,
         agent_state: Optional[Dict[str, Any]] = None,
+        layer1_clinical_rules: Optional[Any] = None,
     ) -> str:
         """
         Build formatted clinical context string for the system prompt.
@@ -35,13 +50,13 @@ class ClinicalContextBuilder:
             symptom_analysis: Current symptom analysis results
             conversation_history: Recent conversation messages
             agent_state: Agent state with last_symptoms, last_symptom_severity
+            layer1_clinical_rules: Resultado do motor de regras (Layer 1) deste turno, se aplicável
 
         Returns:
             Formatted string for inclusion in the system prompt
         """
         sections = []
 
-        symptom_topic_active = False
         if agent_state and agent_state.get("last_symptoms"):
             severity = agent_state.get("last_symptom_severity", "LOW")
             symptoms = ", ".join(s.get("name", "?") for s in agent_state["last_symptoms"])
@@ -50,11 +65,23 @@ class ClinicalContextBuilder:
                 f"O paciente está discutindo sintoma(s): **{symptoms}** "
                 f"[{severity}]. Conclua esse tópico antes de falar de exames ou agendamentos."
             )
-            symptom_topic_active = severity in ("HIGH", "CRITICAL")
+        _, symptom_topic_active = self._symptom_topic_navigation_flags(agent_state)
+
+        dialogue_block = self._format_recent_dialogue_snippets(conversation_history or [])
+        if dialogue_block:
+            sections.append(dialogue_block)
+
+        aq_block = self._format_active_questionnaire(agent_state)
+        if aq_block:
+            sections.append(aq_block)
 
         patient = clinical_context.get("patient", {})
         if patient:
             sections.append(self._format_patient_data(patient))
+
+        layer1_block = self._format_layer1_turn_triage(layer1_clinical_rules, symptom_analysis)
+        if layer1_block:
+            sections.append(layer1_block)
 
         diagnoses = clinical_context.get("diagnoses", [])
         if diagnoses:
@@ -102,6 +129,116 @@ class ClinicalContextBuilder:
 
         return "\n\n".join(sections) if sections else "Contexto clínico não disponível."
 
+    def build_slice(
+        self,
+        role: SubAgentClinicalContextRole,
+        clinical_context: Dict[str, Any],
+        _protocol: Optional[Dict[str, Any]] = None,
+        _symptom_analysis: Optional[Dict[str, Any]] = None,
+        conversation_history: Optional[List[Dict[str, str]]] = None,
+        agent_state: Optional[Dict[str, Any]] = None,
+        _layer1_clinical_rules: Optional[Any] = None,
+    ) -> str:
+        """
+        Contexto clínico reduzido por papel de subagente (mesmos `###` que `build()`).
+
+        O orquestrador principal continua a usar só `build()` completo. Slices evitam
+        enviar observações/protocolo/diálogo inteiro a subagentes que não precisam.
+
+        Os parâmetros `protocol`, `symptom_analysis` e `layer1_clinical_rules` existem por
+        simetria com `build()` e para evoluções futuras; nas combinações actuais podem
+        não ser usados.
+
+        Papéis não mapeados no pedido de produto:
+        - `emotional_support`: paciente mínimo + diálogo recente (tom empático sem PHI extra).
+        - `scheduling_secretary`: igual a `navigation` (etapas + paciente mínimo); tools síncronas
+          usam backend via executor, não este texto.
+        """
+        sections: List[str] = []
+        patient = clinical_context.get("patient") or {}
+        _, nav_placeholder = self._symptom_topic_navigation_flags(agent_state)
+
+        if role == "navigation" or role == "scheduling_secretary":
+            minimal = self._format_patient_minimal(patient)
+            if minimal:
+                sections.append(minimal)
+            nav_steps = clinical_context.get("navigationSteps", [])
+            if nav_steps:
+                if nav_placeholder:
+                    sections.append(
+                        "### Etapas de Navegação\n"
+                        "(Omitidas neste turno — concluir discussão do sintoma antes de mencionar exames ou agendamentos.)"
+                    )
+                else:
+                    sections.append(self._format_navigation_steps(nav_steps))
+            return self._join_sections(sections)
+
+        if role == "symptom":
+            if agent_state and agent_state.get("last_symptoms"):
+                severity = agent_state.get("last_symptom_severity", "LOW")
+                symptoms = ", ".join(s.get("name", "?") for s in agent_state["last_symptoms"])
+                sections.append(
+                    f"### TÓPICO EM DISCUSSÃO (prioridade sobre etapas de navegação)\n"
+                    f"O paciente está discutindo sintoma(s): **{symptoms}** "
+                    f"[{severity}]. Conclua esse tópico antes de falar de exames ou agendamentos."
+                )
+            diagnoses = clinical_context.get("diagnoses", [])
+            if diagnoses:
+                sections.append(self._format_diagnoses(diagnoses))
+            treatments = clinical_context.get("treatments", [])
+            if treatments:
+                sections.append(self._format_treatments(treatments))
+            medications = clinical_context.get("medications", [])
+            if medications:
+                sections.append(self._format_medications(medications))
+            comorbidities = clinical_context.get("comorbidities", [])
+            if comorbidities:
+                sections.append(self._format_comorbidities(comorbidities))
+            alerts = clinical_context.get("recentAlerts", [])
+            if alerts:
+                sections.append(self._format_recent_alerts(alerts))
+            return self._join_sections(sections)
+
+        if role == "questionnaire":
+            aq_block = self._format_active_questionnaire(agent_state)
+            if aq_block:
+                sections.append(aq_block)
+            qr = clinical_context.get("questionnaireResponses", [])
+            if qr:
+                sections.append(self._format_questionnaire_history(qr))
+            return self._join_sections(sections)
+
+        if role == "emotional_support":
+            minimal = self._format_patient_minimal(patient)
+            if minimal:
+                sections.append(minimal)
+            dialogue_block = self._format_recent_dialogue_snippets(conversation_history or [])
+            if dialogue_block:
+                sections.append(dialogue_block)
+            return self._join_sections(sections)
+
+        logger.warning("build_slice: unknown role %s — returning empty marker", role)
+        return self._join_sections(sections)
+
+    @staticmethod
+    def _join_sections(sections: List[str]) -> str:
+        return "\n\n".join(sections) if sections else "Contexto clínico não disponível."
+
+    @staticmethod
+    def _symptom_topic_navigation_flags(
+        agent_state: Optional[Dict[str, Any]],
+    ) -> Tuple[bool, bool]:
+        """
+        Returns:
+            (topic_section_relevant, use_nav_placeholder)
+        """
+        if not agent_state or not agent_state.get("last_symptoms"):
+            return False, False
+        severity = agent_state.get("last_symptom_severity", "LOW")
+        topic = True
+        nav_placeholder = severity in ("HIGH", "CRITICAL")
+        return topic, nav_placeholder
+
     _GENERIC_REPLIES = frozenset({"sim", "não", "nao", "ok", "é", "eh", "isso", "exato", "correto", "verdade", "isso mesmo"})
 
     def build_with_rag(
@@ -112,13 +249,14 @@ class ClinicalContextBuilder:
         symptom_analysis: Optional[Dict[str, Any]] = None,
         conversation_history: Optional[List[Dict[str, str]]] = None,
         agent_state: Optional[Dict[str, Any]] = None,
+        layer1_clinical_rules: Optional[Any] = None,
     ) -> str:
         """
-        Build clinical context enriched with RAG knowledge retrieval.
-        Searches the oncology knowledge base for passages relevant to the
-        patient's message, then appends them to the standard clinical context.
-        For generic replies (sim, não, ok), uses the last assistant message as query
-        to maintain context coherence.
+        Legado / testes: monta `build()` e acrescenta passagens do corpus.
+
+        O caminho principal do orquestrador **não** usa este método: o contexto
+        estruturado vem só de `build()`; o Opus obtém trechos educativos via a tool
+        `buscar_conhecimento_oncologico` quando necessário.
         """
         base_context = self.build(
             clinical_context=clinical_context,
@@ -126,10 +264,11 @@ class ClinicalContextBuilder:
             symptom_analysis=symptom_analysis,
             conversation_history=conversation_history,
             agent_state=agent_state,
+            layer1_clinical_rules=layer1_clinical_rules,
         )
 
-        cancer_type = self._extract_cancer_type(clinical_context)
-        rag_query = self._rag_query_for_message(
+        cancer_type = self.extract_cancer_type_for_rag(clinical_context)
+        rag_query = self.rag_query_for_message(
             patient_message, conversation_history or []
         )
         passages = knowledge_rag.retrieve(query=rag_query, cancer_type=cancer_type)
@@ -144,12 +283,12 @@ class ClinicalContextBuilder:
 
         return base_context
 
-    def _rag_query_for_message(
+    def rag_query_for_message(
         self, patient_message: str, conversation_history: List[Dict[str, str]]
     ) -> str:
         """
-        Build RAG query. For generic confirmations (sim, não, ok), use the last
-        assistant message to avoid retrieving irrelevant passages.
+        Monta a query de retrieval. Para confirmações genéricas (sim, não, ok),
+        usa a última mensagem do assistente para manter coerência com o turno.
         """
         msg_lower = patient_message.strip().lower()
         if len(msg_lower) < 15 or msg_lower in self._GENERIC_REPLIES:
@@ -160,8 +299,10 @@ class ClinicalContextBuilder:
                         return f"{last_question} {patient_message}"
         return patient_message
 
-    def _extract_cancer_type(self, clinical_context: Dict[str, Any]) -> Optional[str]:
-        """Extract primary cancer type from clinical context for RAG filtering."""
+    def extract_cancer_type_for_rag(
+        self, clinical_context: Dict[str, Any]
+    ) -> Optional[str]:
+        """Tipo de câncer primário do contexto clínico (filtro do RAG), em maiúsculas."""
         patient = clinical_context.get("patient", {})
         ct = patient.get("cancerType")
         if ct:
@@ -177,6 +318,8 @@ class ClinicalContextBuilder:
         """Format basic patient data."""
         lines = ["### Dados do Paciente"]
         lines.append(f"- **Nome**: {patient.get('name', 'Não informado')}")
+        if patient.get("age") is not None:
+            lines.append(f"- **Idade**: {patient['age']} anos")
 
         if patient.get("cancerType"):
             lines.append(f"- **Tipo de câncer**: {patient['cancerType']}")
@@ -190,6 +333,146 @@ class ClinicalContextBuilder:
         priority = patient.get("priorityCategory", "LOW")
         score = patient.get("priorityScore", 0)
         lines.append(f"- **Prioridade**: {priority} (score: {score})")
+
+        disp = patient.get("clinicalDisposition")
+        if disp:
+            lines.append(f"- **Disposição clínica (registro no prontuário)**: {disp}")
+            reason = patient.get("clinicalDispositionReason")
+            if reason:
+                r = str(reason).strip()
+                if len(r) > 400:
+                    r = r[:397] + "..."
+                lines.append(f"  - Motivo registrado: {r}")
+            at = patient.get("clinicalDispositionAt")
+            if at:
+                lines.append(f"  - Registrada em: {at}")
+
+        return "\n".join(lines)
+
+    def _format_patient_minimal(self, patient: Dict) -> Optional[str]:
+        """Paciente reduzido para subagentes (navegação / secretária / suporte emocional)."""
+        if not patient:
+            return None
+        lines = ["### Dados do Paciente (resumo)"]
+        pid = patient.get("id")
+        if pid:
+            lines.append(f"- **ID**: {pid}")
+        lines.append(f"- **Nome**: {patient.get('name', 'Não informado')}")
+        if patient.get("age") is not None:
+            lines.append(f"- **Idade**: {patient['age']} anos")
+        if patient.get("cancerType"):
+            lines.append(f"- **Tipo de câncer**: {patient['cancerType']}")
+        if patient.get("currentStage"):
+            lines.append(f"- **Etapa da jornada**: {patient['currentStage']}")
+        return "\n".join(lines)
+
+    def _role_label_pt(self, role: str) -> str:
+        r = (role or "").lower()
+        if r in ("user", "patient"):
+            return "Paciente"
+        if r in ("assistant", "agent"):
+            return "Assistente"
+        if r == "nursing":
+            return "Enfermagem"
+        return role or "?"
+
+    def _format_recent_dialogue_snippets(
+        self, conversation_history: List[Dict[str, Any]]
+    ) -> Optional[str]:
+        """Últimas mensagens em ordem cronológica, texto curto por linha."""
+        if not conversation_history:
+            return None
+        tail = conversation_history[-_RECENT_DIALOGUE_MAX_MESSAGES:]
+        lines_out: List[str] = ["### Diálogo recente (resumo)"]
+        for m in tail:
+            role = self._role_label_pt(str(m.get("role", "")))
+            content = (m.get("content") or "").strip().replace("\n", " ")
+            if not content:
+                continue
+            if len(content) > _RECENT_DIALOGUE_MAX_CHARS:
+                content = content[: _RECENT_DIALOGUE_MAX_CHARS - 1] + "…"
+            lines_out.append(f"- **{role}**: {content}")
+        return "\n".join(lines_out) if len(lines_out) > 1 else None
+
+    def _format_active_questionnaire(
+        self, agent_state: Optional[Dict[str, Any]]
+    ) -> Optional[str]:
+        """Secção legível quando há ESAS/PRO-CTCAE em curso (tipo, passo, pergunta atual)."""
+        if not agent_state:
+            return None
+        aq = agent_state.get("active_questionnaire")
+        if not isinstance(aq, dict) or not aq:
+            return None
+        q_type = aq.get("type") or "desconhecido"
+        items = aq.get("items") or []
+        idx = int(aq.get("currentIndex") or 0)
+        total = len(items)
+        step_label = f"{idx + 1}/{total}" if total else str(idx + 1)
+        current_q = ""
+        try:
+            from .questionnaire_engine import questionnaire_engine
+
+            current_q = (questionnaire_engine.get_current_question(aq) or "").strip()
+        except Exception as exc:
+            logger.warning("active_questionnaire preview failed: %s", exc)
+        lines = [
+            "### Questionário ativo",
+            "- **Roteamento (orquestrador)**: entre domínios em conflito, o questionário fica **por último** na ordem de prioridade — **não** suspenda triagem de sintomas urgentes nem ignore foco explícito seguro do paciente em outros temas.",
+            f"- **Tipo**: {q_type}",
+            f"- **Passo atual**: {step_label}",
+        ]
+        if current_q:
+            cap = 420
+            short = current_q[:cap] + ("…" if len(current_q) > cap else "")
+            lines.append(f"- **Pergunta ao paciente**: {short}")
+        return "\n".join(lines)
+
+    def _format_layer1_turn_triage(
+        self, layer1: Any, symptom_analysis: Optional[Dict[str, Any]]
+    ) -> Optional[str]:
+        """Layer 1 deste turno (regras determinísticas) + resumo da análise de sintomas."""
+        if layer1 is None:
+            return None
+        disposition = getattr(layer1, "disposition", None)
+        if not disposition:
+            return None
+        reasoning = (getattr(layer1, "reasoning", None) or "").strip()
+        if len(reasoning) > _LAYER1_REASONING_MAX_CHARS:
+            reasoning = reasoning[: _LAYER1_REASONING_MAX_CHARS - 1] + "…"
+
+        findings = getattr(layer1, "findings", None) or []
+        rule_ids: List[str] = []
+        for f in findings[:12]:
+            rid = getattr(f, "rule_id", None) or (f.get("rule_id") if isinstance(f, dict) else None)
+            if rid:
+                rule_ids.append(str(rid))
+
+        lines = [
+            "### Triagem deste turno (Layer 1 — regras determinísticas)",
+            f"- **Disposição**: {disposition}",
+        ]
+        if rule_ids:
+            lines.append(f"- **Regras disparadas (IDs)**: {', '.join(rule_ids)}")
+        if reasoning:
+            lines.append(f"- **Síntese do raciocínio**: {reasoning}")
+
+        if symptom_analysis:
+            names = [
+                s.get("name")
+                for s in (symptom_analysis.get("detectedSymptoms") or [])
+                if isinstance(s, dict) and s.get("name")
+            ]
+            overall = symptom_analysis.get("overallSeverity")
+            esc = bool(symptom_analysis.get("requiresEscalation"))
+            extra: List[str] = []
+            if names:
+                extra.append(f"sintomas detectados: {', '.join(names[:8])}")
+            if overall:
+                extra.append(f"severidade geral: {overall}")
+            if esc:
+                extra.append("requer escalação: sim")
+            if extra:
+                lines.append("- **Análise de sintomas (mensagem atual)**: " + "; ".join(extra))
 
         return "\n".join(lines)
 

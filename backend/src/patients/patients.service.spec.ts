@@ -64,6 +64,7 @@ const mockPrisma = {
 const mockNavigationService = {
   initializeNavigationSteps: jest.fn(),
   clearFuturePhaseStepDates: jest.fn(),
+  getPatientNavigationSteps: jest.fn().mockResolvedValue([]),
 };
 
 const mockPriorityRecalculation = {
@@ -264,6 +265,35 @@ describe('PatientsService', () => {
       const result = await service.findOne(PATIENT_ID, TENANT);
 
       expect(result.id).toBe(PATIENT_ID);
+    });
+  });
+
+  // ─── getDetail ─────────────────────────────────────────────────────────────
+
+  describe('getDetail', () => {
+    it('deve escopar ao tenant e omitir resultados de exame soft-deleted', async () => {
+      mockPrisma.patient.findFirst.mockResolvedValue({
+        ...basePatient,
+        complementaryExams: [],
+      } as any);
+
+      await service.getDetail(PATIENT_ID, TENANT);
+
+      expect(mockPrisma.patient.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: PATIENT_ID, tenantId: TENANT },
+          include: expect.objectContaining({
+            complementaryExams: {
+              include: {
+                results: {
+                  where: { deletedAt: null },
+                  orderBy: { performedAt: 'desc' },
+                },
+              },
+            },
+          }),
+        })
+      );
     });
   });
 

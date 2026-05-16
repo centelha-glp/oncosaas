@@ -16,66 +16,57 @@ Rules extraídas do código real em `ai-service/src/`. Qualquer alteração nest
 
 ## 1. Estrutura do Agente Conversacional
 
-O ponto de entrada é `AgentOrchestrator.process()` em `src/agent/orchestrator.py`. O método recebe um dict com `message`, `patient_id`, `tenant_id`, `clinical_context`, `protocol`, `conversation_history`, `agent_state` e `agent_config`, e retorna `response`, `actions`, `symptom_analysis`, `new_state`, `decisions`.
+O ponto de entrada é `AgentOrchestrator.process()` em `src/agent/orchestrator.py`. O método recebe um dict com `message`, `patient_id`, `tenant_id`, `clinical_context`, `protocol`, `conversation_history`, `agent_state` e `agent_config`, e retorna `response`, `actions`, `symptom_analysis`, `new_state`, `decisions` (sem campo `intent` estável no dict de retorno interno).
 
 ### Ordem obrigatória dos steps no pipeline principal
 
-```
-1.   Questionnaire fast-path    — agent_state["active_questionnaire"] presente
-1.5. Intent classification      — intent_classifier.classify_async()
-     (com chaves LLM: `llm_provider.generate` num prompt curto de intent; sem chaves ou
-     `use_llm_intent_classifier: False` → `GENERAL`, `metadata.source: no_llm`)
-     Fast-paths: EMERGENCY → _build_emergency_response()
-                 GREETING   → triagem mínima → _build_greeting_response() (+ metadados Layer 1)
-     Ramo `appointment_query`: `INTENT_APPOINTMENT_QUERY` → **sem** `symptom_analyzer` e **sem** Layer 1;
-                 placeholders mínimos para `build_with_rag` (sem bloco Layer 1 no contexto RAG);
-                 mesmo fluxo multi-agent (`run_agentic_loop` + roteamento) com `intent_hint` de agenda;
-                 `NavigationAgent` + tool `informar_agenda_navegacao` (auditoria). `skip_full_pipeline` não se aplica a agenda (só `GREETING`).
+O `orchestrator` **não** chama `intent_classifier` nem triagem síncrona pré-`run_agentic_loop`.
 
-2.   Symptom analysis           — symptom_analyzer.analyze()   (apenas ramo `main`; omitido em `appointment_query`)
-2.5. Layer 1 — Clinical rules   — clinical_rules_engine.evaluate()   ← PRE-ML no ramo `main`; omitido em `appointment_query` (placeholder `REMOTE_NURSING` só para contrato/trace)
-3.   Protocol evaluation        — protocol_engine.evaluate()
-4.   RAG context build          — context_builder.build_with_rag()
-5.   Multi-agent LLM pipeline   — llm_provider.run_agentic_loop()   (se LLM disponível)
-6.   Fallback se sem chaves      — llm_provider._fallback_response()
-7.   Action compilation         — merge rules actions + LLM tool-call actions
 ```
+1.   Sem chaves LLM              — `_apply_deterministic_triage()` uma vez → `trace.triage_source=deterministic_no_llm` → `context_builder.build()` com triagem real → `_fallback_response()`
+2.   Com chaves LLM              — primeiro `context_builder.build(..., symptom_analysis=None, layer1_clinical_rules=None)` (+ secção **Questionário ativo** no estado)
+3.   Multi-agent LLM             — `run_agentic_loop` (Opus) + `routing_tool_executor` (subagentes)
+4.   Agregação Layer 0+1         — apenas `_merge_triage_snapshots(symptom_triage_snapshots)`; se **vazio**: contrato explícito `_skipped_llm_branch_triage_contract()` (REMOTE_NURSING, findings=[], reasoning em PT), `trace.triage_source=skipped_no_snapshots`, `trace.triage_skipped=True` — **sem** `_apply_deterministic_triage` nem span `triage_fallback_last_resort` neste ramo
+5.   Protocol evaluation         — `protocol_engine.evaluate()` com o `symptom_analysis` + Layer 1 resultantes do passo 4
+6.   Action compilation          — `_compile_actions` + merge com tool calls dos subagentes (exceto a tool de triagem, consumida só para estado)
+7.   Pós-main questionário       — se havia ESAS/PRO ativo e `clinical_rules_result.is_immediate`, `_build_layer1_override_response()`; continuação do questionário só se `_message_plausible_questionnaire_answer` (evita consumir turno com pergunta longa fora do item)
+```
+
+**Triagem determinística no subagente:** `SymptomAgent` expõe a tool `executar_triagem_seguranca` e usa `tool_executor` **apenas** para essa tool (padrão análogo ao `SchedulingSecretaryAgent`); as demais tools do subagente continuam enfileiradas.
+
+**Política sem retrieve automático:** o orquestrador **não** chama `knowledge_rag.retrieve` em todo request. Chamadas `llm_provider.generate()` fora do loop agentic (ex.: mensagens de check-in em `routes/agent.py`) usam apenas `context_builder.build()` — sem corpus RAG salvo exceção explícita futura.
 
 Cada step é envolvido por um span de tracer: `tracer.start_span(trace, "nome_do_step")` / `span.finish(...)`.
 
 ### Regras do pipeline
 
-- A ordem dos steps é invariante de segurança. **Nunca mova clinical_rules para depois do LLM.**
+- **Ramo com LLM sem snapshots:** disposição `REMOTE_NURSING` com reasoning explícito de ausência de Layer 1 neste turno; **não** emitir ações como se regras R01–R23 tivessem disparado (`findings` vazios; `_compile_clinical_rules_actions` ignora REMOTE_NURSING “neutro”).
+- **Ramo sem LLM:** triagem síncrona única permanece a fonte de verdade para Layer 1 nesse turno.
 - `ER_IMMEDIATE` produzido por Layer 1 nunca é rebaixado por nenhum step posterior.
-- Subagents (`SymptomAgent`, `NavigationAgent`, `QuestionnaireAgent`, `EmotionalSupportAgent`) **coletam** tool calls mas **não os executam**. Tool calls são devolvidos ao orquestrador e retornados como `actions` na resposta da API.
+- Subagentes **em geral** enfileiram tool calls (`tool_executor=None` no `BaseSubAgent`). **Exceções documentadas:** `SymptomAgent` (tool `executar_triagem_seguranca`) e secretária de agendamento — executor parcial só para tools determinísticas acordadas.
 - Nunca chame `backend_client` de dentro do caminho crítico do pipeline. O backend NestJS executa as actions.
 
 ---
 
-## 2. Como adicionar novos intents ou steps ao fluxo
+## 2. Como adicionar novos ramos heurísticos ou steps ao fluxo
 
-### Novo intent
+### Novo ramo por heurística de texto
 
-1. Declare a constante em `src/agent/intent_classifier.py`.
-2. Adicione ao conjunto de intents reconhecidos dentro do classificador.
-3. No `orchestrator.py`, adicione a verificação logo após o bloco de intents existente (ex.: após `INTENT_GREETING`).
-
-```python
-if intent == INTENT_MEDICATION_QUERY and intent_result.get("skip_full_pipeline"):
-    trace.pipeline_path = "medication_query"
-    return self._build_medication_query_response(clinical_context, agent_state)
-```
-
-4. Implemente `_build_<intent>_response()` como método privado de `AgentOrchestrator`.
-5. Se o intent deve passar pelo pipeline principal (sem fast-path), adicione apenas o `intent_hint` ao `final_message` antes do step 5.
+1. Avaliar impacto em questionário ativo e em `protocol_engine`; preferir ajustes em `context_builder` / prompts do Opus antes de novo ramo paralelo.
+2. Ajuste `build_orchestrator_prompt` / `orchestrator_prompt.py` se o prompt precisar de nota específica.
+3. Cubra com testes em `tests/agent/test_agents_base.py`.
 
 ### Novo step intermediário
 
 1. Crie o módulo em `src/agent/<modulo>.py` com um singleton no final.
 2. Importe o singleton no topo do orchestrator.
-3. Insira o step na posição correta da sequência — **no ramo `main`, clinical_rules deve ser step 2.5** (omitido no ramo `appointment_query`).
+3. Insira o step **depois** da agregação de triagem e antes ou depois de `protocol_engine`, conforme o contrato clínico.
 4. Envolva com `tracer.start_span(trace, "nome_legivel")` / `span.finish(resultado)`.
 5. Trate exceções localmente quando o step é não-bloqueante.
+
+### Classificador de intent (`intent_classifier.py`)
+
+Módulo **ainda existe** para testes/telemetria eventual, mas **não** faz parte do `AgentOrchestrator.process()`. Não adicionar de volta triagem pré-LLM no orquestrador sem revisão de produto e segurança.
 
 ---
 

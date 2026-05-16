@@ -28,11 +28,11 @@ O sistema tem três camadas de prompt distintas:
 
 ### Ponto de entrada principal
 
-`build_orchestrator_prompt(clinical_context: str) -> str` em `orchestrator_prompt.py` é chamado pelo orchestrator a cada request. Recebe o contexto clínico já formatado e enriquecido com RAG.
+`build_orchestrator_prompt(clinical_context: str) -> str` em `orchestrator_prompt.py` é chamado pelo orchestrator a cada request. O argumento é o texto **estruturado** de `context_builder.build()` apenas; passagens do corpus entram no turno só se o Opus chamar `buscar_conhecimento_oncologico`.
 
 ### Função de construção de contexto
 
-`ClinicalContextBuilder.build_with_rag()` em `context_builder.py` é o único ponto de montagem de contexto clínico. Retorna uma string pronta para injeção no system prompt.
+`ClinicalContextBuilder.build()` em `context_builder.py` monta o bloco estruturado (única fonte para orquestrador e subagentes). **`build_with_rag()`** permanece para legado/testes (concatena `build()` + corpus); o pipeline principal do orchestrator não o usa.
 
 ---
 
@@ -65,20 +65,23 @@ O bloco `## CONTEXTO CLÍNICO DO PACIENTE` é sempre a **última seção** — o
 
 ```
 1. TÓPICO EM DISCUSSÃO          ← se agent_state["last_symptoms"] presente
-2. Dados do paciente            ← _format_patient_data(patient)
-3. Diagnósticos                 ← _format_diagnoses(diagnoses)
-4. Tratamentos                  ← _format_treatments(treatments)
-5. Medicamentos                 ← _format_medications(medications)
-6. Comorbidades                 ← _format_comorbidities(comorbidities)
-7. Etapas de Navegação          ← _format_navigation_steps(nav_steps)
-                                   (omitidas se sintoma HIGH/CRITICAL ativo)
-8. Alertas Recentes             ← _format_recent_alerts(alerts)
-9. Histórico de Questionários   ← _format_questionnaire_history(qr)
-10. Observações                 ← _format_observations(observations)
-11. Protocolo Clínico           ← _format_protocol_context(protocol)
-12. Análise de Sintomas         ← _format_symptom_analysis(symptom_analysis)
-13. Base de Conhecimento RAG    ← appended por build_with_rag() se houver resultados
+2. Diálogo recente              ← _format_recent_dialogue_snippets (se houver histórico)
+3. Questionário ativo           ← _format_active_questionnaire (ESAS/PRO em curso)
+4. Dados do paciente            ← _format_patient_data(patient)
+5. Triagem deste turno (Layer 1) ← _format_layer1_turn_triage (omitido se layer1/sintomas None)
+6. Diagnósticos                 ← _format_diagnoses(diagnoses)
+7. Tratamentos                  ← _format_treatments(treatments)
+8. Medicamentos                 ← _format_medications(medications)
+9. Comorbidades                 ← _format_comorbidities(comorbidities)
+10. Etapas de Navegação         ← _format_navigation_steps (omitidas se sintoma HIGH/CRITICAL ativo)
+11. Alertas Recentes            ← _format_recent_alerts(alerts)
+12. Histórico de Questionários ← _format_questionnaire_history(qr)
+13. Observações                 ← _format_observations(observations)
+14. Protocolo Clínico           ← _format_protocol_context(protocol)
+15. Análise de Sintomas         ← _format_symptom_analysis (só se symptom_analysis com detectedSymptoms)
 ```
+
+Passagens do corpus (**não** listadas acima) são obtidas sob demanda via tool `buscar_conhecimento_oncologico` no orquestrador, não acrescentadas por `build()`.
 
 Seções ausentes no `clinical_context` são simplesmente omitidas — nunca geram texto vazio ou placeholder.
 
@@ -125,16 +128,18 @@ Fadiga limitante, náusea recorrente, constipação >3 dias, insônia, ansiedade
 
 ---
 
-## 6. Ferramentas de Roteamento (`ORCHESTRATOR_ROUTING_TOOLS`)
+## 6. Ferramentas de roteamento (`ORCHESTRATOR_ROUTING_TOOLS`)
 
-Definidas em `orchestrator_prompt.py`. São 4 tools que o orchestrator usa para invocar subagentes:
+Definidas em `orchestrator_prompt.py`. Incluem as tools dos subagentes mais **`buscar_conhecimento_oncologico`** (`consulta: string`) para material educativo do corpus (não substitui triagem).
 
-| Tool name | Subagente | Input schema |
+| Tool name | Destino | Input schema |
 |---|---|---|
 | `consultar_agente_sintomas` | `SymptomAgent` | `foco: string` (opcional) |
 | `consultar_agente_navegacao` | `NavigationAgent` | `foco: string` (opcional) |
 | `consultar_agente_questionario` | `QuestionnaireAgent` | `tipo_sugerido: enum ESAS\|PRO_CTCAE\|auto` |
 | `consultar_agente_suporte_emocional` | `EmotionalSupportAgent` | `emocao: string` (opcional) |
+| `consultar_agente_secretaria` | `SchedulingSecretaryAgent` | `acao`, `foco` (ver schema na fonte) |
+| `buscar_conhecimento_oncologico` | Corpus RAG (`knowledge_rag`) | `consulta: string` **obrigatória** |
 
 ### Como adicionar nova ferramenta de roteamento
 
@@ -153,7 +158,7 @@ Definidas em `orchestrator_prompt.py`. São 4 tools que o orchestrator usa para 
 |---|---|---|
 | System prompt base (orchestrator) | ~600 | Parte estática, cacheable |
 | Contexto clínico do paciente | ~800–2000 | Depende da complexidade |
-| Bloco RAG (4 passagens) | ~600 | Appended pelo `build_with_rag()` |
+| Bloco RAG (passagens corpus) | ~600 | Só após tool `buscar_conhecimento_oncologico` (não no `build()` por defeito) |
 | Histórico de conversa (últimas N mensagens) | variável | Truncado pelo backend NestJS |
 | `max_tokens` do orchestrator | 16000 | Inclui adaptive thinking budget |
 

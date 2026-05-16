@@ -1,6 +1,7 @@
 import json
 import time
 import logging
+import copy
 from typing import Dict, List, Optional, Any
 from datetime import datetime, timezone
 
@@ -11,26 +12,25 @@ from .context_builder import context_builder
 from .symptom_analyzer import symptom_analyzer
 from .protocol_engine import protocol_engine
 from .questionnaire_engine import questionnaire_engine
-from .intent_classifier import (
-    intent_classifier,
-    INTENT_GREETING,
-    INTENT_EMERGENCY,
-    INTENT_APPOINTMENT_QUERY,
-    INTENT_EMOTIONAL_SUPPORT,
-    INTENT_SYMPTOM_REPORT,
+from .prompts.orchestrator_prompt import (
+    build_orchestrator_prompt,
+    ORCHESTRATOR_ROUTING_TOOLS,
+    ORCHESTRATOR_ONCOLOGY_KNOWLEDGE_TOOL,
 )
-from .prompts.orchestrator_prompt import build_orchestrator_prompt, ORCHESTRATOR_ROUTING_TOOLS
+from .rag import knowledge_rag
 from .subagents import (
     SymptomAgent,
     NavigationAgent,
     QuestionnaireAgent,
     EmotionalSupportAgent,
     SchedulingSecretaryAgent,
+    SYMPTOM_TRIAGE_TOOL_NAME,
 )
 from .clinical_rules import (
     ClinicalRulesResult,
     ER_IMMEDIATE,
     REMOTE_NURSING,
+    RuleFinding,
     clinical_rules_engine,
 )
 from .tracer import (
@@ -42,6 +42,11 @@ from .tracer import (
     tracer,
 )
 from .llm_pricing import sum_usage_events
+from src.services.backend_client import (
+    backend_client,
+    internal_consultation_availability_payload,
+    missing_internal_availability_fields,
+)
 
 """
 Agent Orchestrator.
@@ -50,6 +55,179 @@ Receives message + context → returns response + actions.
 """
 
 logger = logging.getLogger(__name__)
+
+_DISPOSITION_SEVERITY = {
+    REMOTE_NURSING: 0,
+    "SCHEDULED_CONSULT": 1,
+    "ADVANCE_CONSULT": 2,
+    "ER_DAYS": 3,
+    ER_IMMEDIATE: 4,
+}
+
+_EXPLICIT_SYMPTOM_HINTS = (
+    "dor ",
+    " dor",
+    "febre",
+    "náusea",
+    "nausea",
+    "vômito",
+    "vomito",
+    "sangue",
+    "sangramento",
+    "dispneia",
+    "falta de ar",
+    "mal estar",
+    "mal-estar",
+    "cefaleia",
+    "diarreia",
+    "constipação",
+    "constipacao",
+    "tontura",
+    "confusão",
+    "confusao",
+    "inchaço",
+    "inchaco",
+    "hematúria",
+    "hematuria",
+    "mucosite",
+    "neutropenia",
+)
+
+
+def _looks_like_explicit_symptom_report(text: str) -> bool:
+    """Substitui o ramo INTENT_SYMPTOM_REPORT para fusão com questionário ativo."""
+    raw = (text or "").strip()
+    if not raw:
+        return False
+    if raw.isdigit() and len(raw) <= 2:
+        return False
+    m = raw.lower()
+    return any(k in m for k in _EXPLICIT_SYMPTOM_HINTS)
+
+
+# Convênio produto: bloco UX primário (início/continuação de questionário ou aviso de urgência) primeiro; texto já gerado pelo pipeline (multi-agente ou fallback do turno) depois, sem descartar nenhum dos dois.
+_RESPONSE_MERGE_SEPARATOR = "\n\n---\n\n"
+
+
+def _merge_primary_and_pipeline_patient_text(primary_block: str, pipeline_text: str) -> str:
+    """Junta texto primário (UX/clínica) com resposta do pipeline; ignora partes vazias após strip."""
+    p = (primary_block or "").strip()
+    t = (pipeline_text or "").strip()
+    if p and t:
+        return f"{p}{_RESPONSE_MERGE_SEPARATOR}{t}"
+    return p or t
+
+
+def _message_plausible_questionnaire_answer(text: str) -> bool:
+    """
+    Evita tratar perguntas longas / fora do item atual como resposta ao questionário ativo.
+    Não é classificador de intent: só filtra continuação literal ESAS/PRO quando a mensagem
+    parece resposta curta ao passo (vs. mudança de assunto em texto longo ou com interrogação).
+    """
+    raw = (text or "").strip()
+    if not raw:
+        return False
+    if len(raw) > 80:
+        return False
+    if "?" in raw and len(raw) > 25:
+        return False
+    return True
+
+
+def _skipped_llm_branch_triage_contract() -> tuple:
+    """
+    Contrato quando o ramo com LLM não recebe snapshots da tool `executar_triagem_seguranca`.
+
+    Não passa por symptom_analyzer nem clinical_rules_engine — sem findings fictícios.
+    _compile_clinical_rules_actions ignora REMOTE_NURSING sem findings (sem alertas Layer1).
+    """
+    symptom_analysis: Dict[str, Any] = {
+        "detectedSymptoms": [],
+        "overallSeverity": "LOW",
+        "requiresEscalation": False,
+        "structuredData": {},
+    }
+    clinical_rules_result = ClinicalRulesResult(
+        disposition=REMOTE_NURSING,
+        reasoning=(
+            "Triagem determinística (Layer 1) não foi executada neste turno: a ferramenta "
+            "`executar_triagem_seguranca` não foi invocada e este ramo não aplica substituto "
+            "síncrono automático após o ciclo LLM. A resposta e o protocolo seguem sem disposição "
+            "derivada das regras R01–R23 para esta mensagem."
+        ),
+        findings=[],
+        requires_immediate_action=False,
+        confidence=1.0,
+    )
+    return symptom_analysis, clinical_rules_result
+
+
+def _clinical_rules_to_payload(result: ClinicalRulesResult) -> Dict[str, Any]:
+    return {
+        "disposition": result.disposition,
+        "reasoning": result.reasoning,
+        "requires_immediate_action": result.requires_immediate_action,
+        "confidence": result.confidence,
+        "findings": [
+            {
+                "rule_id": f.rule_id,
+                "disposition": f.disposition,
+                "reason": f.reason,
+                "confidence": f.confidence,
+                "evidence": dict(f.evidence or {}),
+            }
+            for f in result.findings
+        ],
+    }
+
+
+def _clinical_rules_from_payload(data: Dict[str, Any]) -> ClinicalRulesResult:
+    findings: List[RuleFinding] = []
+    for f in data.get("findings") or []:
+        findings.append(
+            RuleFinding(
+                rule_id=f.get("rule_id", ""),
+                disposition=f.get("disposition", REMOTE_NURSING),
+                reason=f.get("reason", ""),
+                confidence=float(f.get("confidence", 1.0)),
+                evidence=dict(f.get("evidence") or {}),
+            )
+        )
+    return ClinicalRulesResult(
+        disposition=data.get("disposition", REMOTE_NURSING),
+        reasoning=data.get("reasoning", ""),
+        findings=findings,
+        requires_immediate_action=bool(data.get("requires_immediate_action")),
+        confidence=float(data.get("confidence", 1.0)),
+    )
+
+
+def _merge_triage_snapshots(
+    snapshots: List[Dict[str, Any]],
+) -> Optional[tuple]:
+    """
+    Escolhe o par (symptom_analysis, ClinicalRulesResult) com maior severidade
+    de disposição entre execuções da tool de triagem no turno.
+    """
+    if not snapshots:
+        return None
+    best: Optional[tuple] = None
+    best_rank = -1
+    for snap in snapshots:
+        cr = _clinical_rules_from_payload(snap.get("clinical_rules") or {})
+        rank = _DISPOSITION_SEVERITY.get(cr.disposition, 0)
+        if rank > best_rank:
+            best_rank = rank
+            sa = snap.get("symptom_analysis")
+            if not isinstance(sa, dict):
+                sa = {
+                    "detectedSymptoms": [],
+                    "overallSeverity": "LOW",
+                    "requiresEscalation": False,
+                    "structuredData": {},
+                }
+            best = (sa, cr)
+    return best
 
 
 def _pending_navigation_steps(clinical_context: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -106,6 +284,8 @@ class AgentOrchestrator:
             result = await self._process_with_trace(
                 trace, message, clinical_context, protocol,
                 conversation_history, agent_state, agent_config,
+                patient_id=patient_id,
+                tenant_id=tenant_id,
                 has_llm_keys=has_llm_keys,
                 has_anthropic=has_anthropic,
             )
@@ -127,6 +307,8 @@ class AgentOrchestrator:
         agent_state: Dict[str, Any],
         agent_config: Dict[str, Any],
         *,
+        patient_id: str,
+        tenant_id: str,
         has_llm_keys: bool,
         has_anthropic: bool,
     ) -> Dict[str, Any]:
@@ -135,120 +317,7 @@ class AgentOrchestrator:
         # Estado no início do turno — usado para fase pós-main de questionário (sem fast-path de coleta).
         had_active_questionnaire = bool(agent_state.get("active_questionnaire"))
 
-        # 1. Classify intent (LLM via classify_async quando há chaves; senão GENERAL)
-        span_intent = tracer.start_span(trace, "intent_classification")
-        intent_result = await intent_classifier.classify_async(
-            message,
-            agent_state,
-            agent_config,
-            conversation_history=conversation_history,
-        )
-        intent = intent_result["intent"]
-        tu = intent_result.pop("token_usage_events", None)
-        if tu:
-            trace.token_usage_events.extend(tu)
-        span_intent.finish(intent=intent, confidence=intent_result.get("confidence"))
-        trace.intent = intent
-        trace.intent_confidence = intent_result.get("confidence")
-        logger.info(f"Intent classified: {intent} (confidence={intent_result['confidence']:.2f})")
-
-        if intent == INTENT_EMERGENCY:
-            emergency_meta = intent_result.get("metadata", {})
-            if emergency_meta.get("escalate_immediately"):
-                trace.pipeline_path = "emergency"
-                symptom_analysis, clinical_rules_result = await self._run_safety_triage(
-                    trace=trace,
-                    message=message,
-                    clinical_context=clinical_context,
-                    agent_config=agent_config,
-                    has_llm_keys=has_llm_keys,
-                )
-                response = self._build_emergency_response(
-                    message, clinical_context, agent_state, symptom_analysis
-                )
-                rule_actions, rule_decisions = self._compile_clinical_rules_actions(
-                    clinical_rules_result,
-                    requires_escalation=True,
-                )
-                response["actions"] = self._merge_actions(response["actions"], rule_actions)
-                response["decisions"].extend(rule_decisions)
-                response["clinical_disposition"] = clinical_rules_result.disposition
-                response["clinical_disposition_reason"] = clinical_rules_result.reasoning
-                response["clinical_rules_findings"] = [
-                    {"rule_id": f.rule_id, "disposition": f.disposition, "reason": f.reason}
-                    for f in clinical_rules_result.findings
-                ]
-                response["intent"] = intent_result
-                trace.actions_generated = [a.get("type", "UNKNOWN") for a in response["actions"]]
-                return response
-
-        # Questionário ativo: não há fast-path de coleta antes do main (plano pós-pipeline).
-        # ER imediato é tratado após o main com merge por precedência de urgência (ver fim do ramo main).
-
-        # Saudação: triagem mínima (Layer 1) antes do return rápido — não prevalece sobre ER.
-        if intent == INTENT_GREETING and intent_result.get("skip_full_pipeline"):
-            trace.pipeline_path = "greeting"
-            symptom_analysis, clinical_rules_result = await self._run_safety_triage(
-                trace=trace,
-                message=message,
-                clinical_context=clinical_context,
-                agent_config=agent_config,
-                has_llm_keys=has_llm_keys,
-            )
-            if clinical_rules_result.is_er:
-                trace.pipeline_path = "greeting_safety_override"
-                response = self._build_layer1_override_response(
-                    message=message,
-                    clinical_context=clinical_context,
-                    agent_state=agent_state,
-                    symptom_analysis=symptom_analysis,
-                    clinical_rules_result=clinical_rules_result,
-                    intent_result=intent_result,
-                    interrupt_kind="fast_path",
-                )
-                trace.actions_generated = [
-                    a.get("type", "UNKNOWN") for a in response["actions"]
-                ]
-                return response
-            base = self._build_greeting_response(clinical_context, agent_state)
-            return self._attach_layer1_audit_fields(
-                base, symptom_analysis, clinical_rules_result, intent_result
-            )
-
-        appointment_query_branch = intent == INTENT_APPOINTMENT_QUERY
-
-        if appointment_query_branch:
-            trace.pipeline_path = "appointment_query"
-            # Contrato SymptomAnalysisResult / AgentProcessResponse: overallSeverity é str obrigatória.
-            symptom_analysis = {
-                "detectedSymptoms": [],
-                "overallSeverity": "LOW",
-                "requiresEscalation": False,
-                "structuredData": {},
-            }
-            clinical_rules_result = ClinicalRulesResult(
-                disposition=REMOTE_NURSING,
-                reasoning=(
-                    "Ramo appointment_query: análise de sintomas e Layer 1 não executadas neste turno; "
-                    "resposta produzida pelo pipeline multi-agente com foco em navegação/agenda."
-                ),
-                findings=[],
-                requires_immediate_action=False,
-                confidence=1.0,
-            )
-            trace.symptoms_detected = 0
-            trace.overall_severity = None
-            trace.clinical_disposition = clinical_rules_result.disposition
-            trace.clinical_rules_fired = []
-        else:
-            trace.pipeline_path = "main"
-            symptom_analysis, clinical_rules_result = await self._run_safety_triage(
-                trace=trace,
-                message=message,
-                clinical_context=clinical_context,
-                agent_config=agent_config,
-                has_llm_keys=has_llm_keys,
-            )
+        trace.pipeline_path = "main"
 
         cancer_type = clinical_context.get("patient", {}).get("cancerType")
         journey_stage = clinical_context.get("patient", {}).get("currentStage")
@@ -259,68 +328,101 @@ class AgentOrchestrator:
             [k for k in (agent_config or {}).keys()],
         )
 
-        # 3. Evaluate protocol rules (check-ins, questionnaire triggers, critical symptoms)
-        span_protocol = tracer.start_span(trace, "protocol_evaluation")
-        protocol_actions = protocol_engine.evaluate(
-            cancer_type=cancer_type,
-            journey_stage=journey_stage,
-            symptom_analysis=symptom_analysis,
-            agent_state=agent_state,
-            protocol=protocol,
-        )
-        span_protocol.finish(actions_count=len(protocol_actions))
+        llm_actions: List[Dict[str, Any]] = []
+        llm_decisions: List[Dict[str, Any]] = []
+        all_tool_calls: List[Dict[str, Any]] = []
+        llm_meta: Dict[str, Any] = {}
 
-        # 4. Build clinical context for the prompt (RAG with knowledge retrieval)
-        span_rag = tracer.start_span(trace, "rag_context_build")
-        rag_context = context_builder.build_with_rag(
-            patient_message=message,
-            clinical_context=clinical_context,
-            protocol=protocol,
-            symptom_analysis=symptom_analysis,
-            conversation_history=conversation_history,
-            agent_state=agent_state,
-        )
-        trace.rag_context_output = pack_trace_text(rag_context, TRACE_RAG_CONTEXT_MAX_CHARS)
-        span_rag.finish(
-            total_chars=len(rag_context or ""),
-            truncated=trace.rag_context_output.get("truncated", False),
-        )
-
-        # 5. Build protocol context string
-        # 7. Multi-agent pipeline: orchestrator (Opus) routes to specialized subagents
-        llm_actions = []
-        llm_decisions = []
-
-        intent_hint = ""
-        if intent == INTENT_EMOTIONAL_SUPPORT:
-            intent_hint = "\n[CONTEXTO: O paciente está em sofrimento emocional. Responda com empatia e acolhimento.]\n"
-        elif intent == INTENT_APPOINTMENT_QUERY:
-            intent_hint = (
-                "\n[CONTEXTO: Intenção APPOINTMENT_QUERY — consulta sobre datas/horários de consultas, "
-                "exames ou retornos. Invoque `consultar_agente_navegacao` e, ao concluir a orientação, "
-                "use a ferramenta `informar_agenda_navegacao` no subagente de navegação para registro "
-                "de auditoria.]\n"
+        if not has_llm_keys:
+            # Sem LLM não há ciclo agentic: triagem determinística síncrona única (segurança).
+            symptom_analysis, clinical_rules_result = await self._apply_deterministic_triage(
+                trace=trace,
+                message=message,
+                clinical_context=clinical_context,
+                agent_config=agent_config,
+                has_llm_keys=False,
             )
-        elif intent_result.get("metadata", {}).get("emotional_component"):
-            intent_hint = "\n[CONTEXTO: O paciente relata sintomas com componente emocional. Aborde ambos.]\n"
+            trace.triage_source = "deterministic_no_llm"
+            trace.triage_skipped = False
+            span_protocol = tracer.start_span(trace, "protocol_evaluation")
+            raw_protocol_actions = protocol_engine.evaluate(
+                cancer_type=cancer_type,
+                journey_stage=journey_stage,
+                symptom_analysis=symptom_analysis,
+                agent_state=agent_state,
+                protocol=protocol,
+            )
+            _time_based_protocol = frozenset({"START_QUESTIONNAIRE", "SCHEDULE_CHECK_IN"})
+            protocol_actions = [
+                a
+                for a in raw_protocol_actions
+                if a.get("type") not in _time_based_protocol
+            ]
+            span_protocol.finish(actions_count=len(protocol_actions))
 
-        final_message = f"{intent_hint}{message}" if intent_hint else message
+            span_structured = tracer.start_span(trace, "structured_context_build")
+            structured_context = context_builder.build(
+                clinical_context=clinical_context,
+                protocol=protocol,
+                symptom_analysis=symptom_analysis,
+                conversation_history=conversation_history,
+                agent_state=agent_state,
+                layer1_clinical_rules=clinical_rules_result,
+            )
+            trace.rag_context_output = pack_trace_text(
+                structured_context, TRACE_RAG_CONTEXT_MAX_CHARS
+            )
+            span_structured.finish(
+                total_chars=len(structured_context or ""),
+                truncated=trace.rag_context_output.get("truncated", False),
+            )
+            response_text = llm_provider._fallback_response()
+        else:
+            span_structured = tracer.start_span(trace, "structured_context_build")
+            structured_context = context_builder.build(
+                clinical_context=clinical_context,
+                protocol=protocol,
+                symptom_analysis=None,
+                conversation_history=conversation_history,
+                agent_state=agent_state,
+                layer1_clinical_rules=None,
+            )
+            trace.rag_context_output = pack_trace_text(
+                structured_context, TRACE_RAG_CONTEXT_MAX_CHARS
+            )
+            span_structured.finish(
+                total_chars=len(structured_context or ""),
+                truncated=trace.rag_context_output.get("truncated", False),
+            )
 
-        # Multi-agent pipeline: Anthropic preferred, OpenAI fallback (handled inside run_agentic_loop).
-        if has_llm_keys:
             trace.main_multi_agent_llm_used = True
             span_llm = tracer.start_span(trace, "multi_agent_pipeline")
             llm_start = time.monotonic()
-            response_text, all_tool_calls, llm_meta = await self._run_multi_agent_pipeline(
-                message=final_message,
-                rag_context=rag_context,
-                conversation_history=conversation_history,
-                agent_config=agent_config,
-                trace=trace,
-                appointment_query=appointment_query_branch,
+            symptom_triage_snapshots: List[Dict[str, Any]] = []
+            response_text, all_tool_calls, llm_meta, orch_span_detail = (
+                await self._run_multi_agent_pipeline(
+                    message=message,
+                    structured_context=structured_context,
+                    conversation_history=conversation_history,
+                    agent_config=agent_config,
+                    patient_id=patient_id,
+                    tenant_id=tenant_id,
+                    trace=trace,
+                    clinical_context=clinical_context,
+                    symptom_triage_snapshots=symptom_triage_snapshots,
+                    agent_state=agent_state,
+                )
             )
             llm_dur = (time.monotonic() - llm_start) * 1000
-            span_llm.finish(tool_calls=len(all_tool_calls))
+            span_llm.finish(
+                tool_calls=len(all_tool_calls),
+                orchestrator_iterations=orch_span_detail.get(
+                    "orchestrator_iterations", 0
+                ),
+                orchestrator_tool_names=orch_span_detail.get(
+                    "orchestrator_tool_names", []
+                ),
+            )
             tracer.record_llm_call(
                 trace,
                 "orchestrator",
@@ -337,8 +439,39 @@ class AgentOrchestrator:
                     f"Multi-agent tool calls ({len(all_tool_calls)}): "
                     f"{[tc.get('name') or (tc.get('function') or {}).get('name') for tc in all_tool_calls]}"
                 )
-        else:
-            response_text = llm_provider._fallback_response()
+
+            merged = _merge_triage_snapshots(symptom_triage_snapshots)
+            if merged:
+                symptom_analysis, clinical_rules_result = merged
+                trace.triage_source = "tool_merge"
+                trace.triage_skipped = False
+            else:
+                # Contrato explícito: sem motor determinístico síncrono neste ramo (ver _skipped_llm_branch_triage_contract).
+                symptom_analysis, clinical_rules_result = _skipped_llm_branch_triage_contract()
+                trace.triage_source = "skipped_no_snapshots"
+                trace.triage_skipped = True
+
+            span_protocol = tracer.start_span(trace, "protocol_evaluation")
+            raw_protocol_actions = protocol_engine.evaluate(
+                cancer_type=cancer_type,
+                journey_stage=journey_stage,
+                symptom_analysis=symptom_analysis,
+                agent_state=agent_state,
+                protocol=protocol,
+            )
+            _time_based_protocol = frozenset({"START_QUESTIONNAIRE", "SCHEDULE_CHECK_IN"})
+            protocol_actions = [
+                a
+                for a in raw_protocol_actions
+                if a.get("type") not in _time_based_protocol
+            ]
+            span_protocol.finish(actions_count=len(protocol_actions))
+
+        detected = symptom_analysis.get("detectedSymptoms", [])
+        trace.symptoms_detected = len(detected)
+        trace.overall_severity = symptom_analysis.get("overallSeverity")
+        trace.clinical_disposition = clinical_rules_result.disposition
+        trace.clinical_rules_fired = [f.rule_id for f in clinical_rules_result.findings]
 
         # 8. Check if a questionnaire should start (from protocol or LLM tool calls)
         questionnaire_to_start = next(
@@ -360,19 +493,19 @@ class AgentOrchestrator:
         if had_active_questionnaire and questionnaire_to_start:
             questionnaire_to_start = None
 
-        # Ramo agenda (APPOINTMENT_QUERY): exclusão mútua com arranque de questionário neste turno —
-        # preserva a resposta do multi-agent e não emite START_QUESTIONNAIRE na mesma mensagem.
-        if appointment_query_branch:
-            questionnaire_to_start = None
-            llm_actions = [a for a in llm_actions if a.get("type") != "START_QUESTIONNAIRE"]
-
         if questionnaire_to_start:
             q_type = questionnaire_to_start.get("questionnaire_type", "ESAS")
             patient_name = clinical_context.get("patient", {}).get("name")
             greeting = questionnaire_engine.format_greeting(q_type, patient_name)
             q_state = questionnaire_engine.build_initial_state(q_type)
             first_question = questionnaire_engine.get_current_question(q_state)
-            response_text = f"{greeting}\n\n{first_question}" if first_question else greeting
+            q_block = f"{greeting}\n\n{first_question}" if first_question else greeting
+            prior = (response_text or "").strip()
+            response_text = (
+                _merge_primary_and_pipeline_patient_text(q_block, prior)
+                if prior
+                else q_block
+            )
 
         # 9. Compile rule-based actions, then merge with LLM-driven actions
         rule_actions, rule_decisions = self._compile_actions(
@@ -385,29 +518,6 @@ class AgentOrchestrator:
         )
         actions = self._merge_actions(llm_actions, rule_actions)
         decisions = llm_decisions + rule_decisions
-
-        # Agenda: se o subagente não chamou `informar_agenda_navegacao`, ainda registramos decisão
-        # mínima para auditoria / decision gate (auto-aprovada como APPOINTMENT_RESPONSE).
-        if appointment_query_branch and not any(
-            d.get("decisionType") == "APPOINTMENT_QUERY_HANDLED" for d in llm_decisions
-        ):
-            pending = _pending_navigation_steps(clinical_context)
-            decisions.append(
-                {
-                    "decisionType": "APPOINTMENT_QUERY_HANDLED",
-                    "reasoning": (
-                        "Consulta de agenda respondida em texto; o subagente não invocou "
-                        "`informar_agenda_navegacao` neste turno (registro mínimo de auditoria)."
-                    )[:500],
-                    "confidence": 0.75,
-                    "inputData": {
-                        "source": "appointment_query_no_navigation_tool",
-                        "pending_navigation_steps_count": len(pending),
-                    },
-                    "outputAction": {"type": "APPOINTMENT_RESPONSE"},
-                    "requiresApproval": False,
-                }
-            )
 
         # 10. Update agent state
         new_state = self._update_state(
@@ -430,20 +540,19 @@ class AgentOrchestrator:
                 agent_state=agent_state,
                 symptom_analysis=symptom_analysis,
                 clinical_rules_result=clinical_rules_result,
-                intent_result=intent_result,
                 interrupt_kind="questionnaire",
+                pipeline_response_text=response_text,
             )
             trace.actions_generated = [a.get("type", "UNKNOWN") for a in merged["actions"]]
-            return {**merged, "intent": intent_result}
+            return merged
 
-        # Continuação literal do ESAS: não consumir o turno como próxima pergunta quando o paciente
-        # mudou de assunto (agenda) ou fez relato explícito de sintoma (prioriza multi-agent / triagem).
-        # Respostas numéricas curtas ao item costumam classificar como GENERAL/outro intent e seguem aqui.
+        # Continuação literal do ESAS: não consumir o turno como próxima pergunta quando a mensagem
+        # não parece resposta ao item (ex.: pergunta longa sobre outro assunto) ou há relato explícito de sintoma.
         if (
             had_active_questionnaire
             and not clinical_rules_result.is_immediate
-            and not appointment_query_branch
-            and intent != INTENT_SYMPTOM_REPORT
+            and _message_plausible_questionnaire_answer(message)
+            and not _looks_like_explicit_symptom_report(message)
         ):
             q_out = await self._process_questionnaire_answer(
                 {
@@ -458,8 +567,12 @@ class AgentOrchestrator:
             )
             merged_actions = self._merge_actions(actions, q_out["actions"])
             trace.actions_generated = [a.get("type", "UNKNOWN") for a in merged_actions]
+            merged_patient_response = _merge_primary_and_pipeline_patient_text(
+                q_out["response"],
+                response_text,
+            )
             return {
-                "response": q_out["response"],
+                "response": merged_patient_response,
                 "actions": merged_actions,
                 "symptom_analysis": symptom_analysis,
                 "clinical_disposition": clinical_rules_result.disposition,
@@ -470,7 +583,6 @@ class AgentOrchestrator:
                 ],
                 "new_state": q_out["new_state"],
                 "decisions": decisions + q_out["decisions"],
-                "intent": intent_result,
             }
 
         return {
@@ -485,7 +597,6 @@ class AgentOrchestrator:
             ],
             "new_state": new_state,
             "decisions": decisions,
-            "intent": intent_result,
         }
 
     async def _process_questionnaire_answer(
@@ -593,7 +704,7 @@ class AgentOrchestrator:
             "decisions": decisions,
         }
 
-    async def _run_safety_triage(
+    async def _apply_deterministic_triage(
         self,
         *,
         trace,
@@ -601,12 +712,23 @@ class AgentOrchestrator:
         clinical_context: Dict[str, Any],
         agent_config: Dict[str, Any],
         has_llm_keys: bool,
+        trace_spans: bool = True,
     ) -> tuple:
-        """Run symptom analysis and Layer 1 rules before any patient-facing LLM step."""
+        """
+        Sintomas (Layer 0) + regras determinísticas (Layer 1).
+
+        Usado: (1) modo sem chaves LLM — triagem síncrona única por turno;
+        (2) execução síncrona dentro do `tool_executor` do SymptomAgent (`trace_spans=False`)
+            quando o modelo invoca `executar_triagem_seguranca`.
+        No ramo com LLM, se a tool não for chamada no turno, **não** há fallback síncrono aqui —
+        o contrato explícito é aplicado em `_process_with_trace` (ver `_skipped_llm_branch_triage_contract`).
+        """
         cancer_type = clinical_context.get("patient", {}).get("cancerType")
         use_llm_analysis = agent_config.get("use_llm_symptom_analysis", True) and has_llm_keys
 
-        span_symptoms = tracer.start_span(trace, "symptom_analysis")
+        span_symptoms = (
+            tracer.start_span(trace, "symptom_analysis") if trace_spans else None
+        )
         symptom_analysis = await symptom_analyzer.analyze(
             message=message,
             clinical_context=clinical_context,
@@ -616,26 +738,30 @@ class AgentOrchestrator:
         )
         if isinstance(symptom_analysis, dict):
             sym_tok = symptom_analysis.pop("_symptomTokenUsageEvents", None)
-            if sym_tok:
+            if sym_tok and trace is not None:
                 trace.token_usage_events.extend(sym_tok)
             detected = symptom_analysis.get("detectedSymptoms", [])
             severity = symptom_analysis.get("overallSeverity")
         else:
             detected = getattr(symptom_analysis, "detectedSymptoms", [])
             severity = getattr(symptom_analysis, "overallSeverity", None)
-        span_symptoms.finish(symptoms_count=len(detected), overall_severity=severity)
-        trace.symptoms_detected = len(detected)
-        trace.overall_severity = severity
+        if span_symptoms:
+            span_symptoms.finish(symptoms_count=len(detected), overall_severity=severity)
+        if trace_spans and trace is not None:
+            trace.symptoms_detected = len(detected)
+            trace.overall_severity = severity
 
-        span_rules = tracer.start_span(trace, "clinical_rules")
+        span_rules = tracer.start_span(trace, "clinical_rules") if trace_spans else None
         clinical_rules_result = clinical_rules_engine.evaluate(
             symptom_analysis=symptom_analysis,
             clinical_context=clinical_context,
         )
         rules_fired = [f.rule_id for f in clinical_rules_result.findings]
-        span_rules.finish(disposition=clinical_rules_result.disposition, rules_fired=rules_fired)
-        trace.clinical_disposition = clinical_rules_result.disposition
-        trace.clinical_rules_fired = rules_fired
+        if span_rules:
+            span_rules.finish(disposition=clinical_rules_result.disposition, rules_fired=rules_fired)
+        if trace_spans and trace is not None:
+            trace.clinical_disposition = clinical_rules_result.disposition
+            trace.clinical_rules_fired = rules_fired
         if clinical_rules_result.is_immediate:
             logger.warning(
                 f"ClinicalRules ER_IMMEDIATE: {clinical_rules_result.reasoning[:120]}"
@@ -647,25 +773,6 @@ class AgentOrchestrator:
 
         return symptom_analysis, clinical_rules_result
 
-    def _attach_layer1_audit_fields(
-        self,
-        result: Dict[str, Any],
-        symptom_analysis: Any,
-        clinical_rules_result,
-        intent_result: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        """Anexa sintomas + Layer 1 a respostas rápidas (saudação) após triagem mínima."""
-        out = {**result}
-        out["symptom_analysis"] = symptom_analysis
-        out["clinical_disposition"] = clinical_rules_result.disposition
-        out["clinical_disposition_reason"] = clinical_rules_result.reasoning
-        out["clinical_rules_findings"] = [
-            {"rule_id": f.rule_id, "disposition": f.disposition, "reason": f.reason}
-            for f in clinical_rules_result.findings
-        ]
-        out["intent"] = intent_result
-        return out
-
     def _build_layer1_override_response(
         self,
         *,
@@ -674,13 +781,13 @@ class AgentOrchestrator:
         agent_state: Dict[str, Any],
         symptom_analysis: Dict[str, Any],
         clinical_rules_result,
-        intent_result: Dict[str, Any],
         interrupt_kind: str,
+        pipeline_response_text: str = "",
     ) -> Dict[str, Any]:
         """
-        Resposta quando Layer 1 exige interromper um fluxo rápido (questionário ou saudação).
+        Resposta quando Layer 1 exige interromper o fluxo de questionário (ER_IMMEDIATE).
 
-        interrupt_kind: 'questionnaire' (só ER_IMMEDIATE no caller) | 'fast_path' (saudação: is_er ER_DAYS/ER_IMMEDIATE).
+        interrupt_kind: 'questionnaire' (ER_IMMEDIATE no pós-main) | 'fast_path' (legado; não usado).
         """
         patient_name = clinical_context.get("patient", {}).get("name", "")
         first_name = patient_name.split()[0] if patient_name else ""
@@ -698,6 +805,8 @@ class AgentOrchestrator:
                 "Vou priorizar sua segurança em relação à resposta automática e encaminhar "
                 "sua mensagem à equipe. Se houver risco imediato, procure o pronto-socorro ou o SAMU (192)."
             )
+
+        response = _merge_primary_and_pipeline_patient_text(response, pipeline_response_text)
 
         actions, decisions = self._compile_actions(
             symptom_analysis=symptom_analysis,
@@ -721,18 +830,21 @@ class AgentOrchestrator:
             ],
             "new_state": new_state,
             "decisions": decisions,
-            "intent": intent_result,
         }
 
     async def _run_multi_agent_pipeline(
         self,
         message: str,
-        rag_context: str,
+        structured_context: str,
         conversation_history: List[Dict[str, str]],
         agent_config: Dict[str, Any],
+        patient_id: str = "",
+        tenant_id: str = "",
         trace=None,
         *,
-        appointment_query: bool = False,
+        clinical_context: Optional[Dict[str, Any]] = None,
+        symptom_triage_snapshots: Optional[List[Dict[str, Any]]] = None,
+        agent_state: Optional[Dict[str, Any]] = None,
     ) -> tuple:
         """
         Run the multi-agent pipeline:
@@ -771,12 +883,31 @@ class AgentOrchestrator:
         }
 
         all_tool_calls: List[Dict[str, Any]] = []
+        failed_sync_availability_inputs: set[str] = set()
+        successful_sync_availability: Dict[str, Dict[str, Any]] = {}
         conv_messages = conversation_history + [{"role": "user", "content": message}]
 
-        orchestrator_system = build_orchestrator_prompt(
-            rag_context,
-            appointment_query=appointment_query,
-        )
+        # Contexto textual por subagente: slices em `context_builder.build_slice` (Opus mantém `structured_context` completo).
+        subagent_context_by_routing_tool: Dict[str, str] = {
+            tool: context_builder.build_slice(
+                role,
+                clinical_context=clinical_context or {},
+                conversation_history=conv_messages,
+                agent_state=agent_state,
+            )
+            for tool, role in (
+                ("consultar_agente_navegacao", "navigation"),
+                ("consultar_agente_sintomas", "symptom"),
+                ("consultar_agente_questionario", "questionnaire"),
+                ("consultar_agente_suporte_emocional", "emotional_support"),
+                ("consultar_agente_secretaria", "scheduling_secretary"),
+            )
+        }
+
+        orchestrator_system = build_orchestrator_prompt(structured_context)
+        clinical_context = clinical_context or {}
+        triage_sink = symptom_triage_snapshots if symptom_triage_snapshots is not None else []
+        exec_symptom_llm = llm_provider.has_any_llm_key(subagent_config)
 
         if trace is not None:
             trace.subagent_outputs = []
@@ -798,21 +929,238 @@ class AgentOrchestrator:
             }
 
         async def routing_tool_executor(tool_name: str, tool_input: Dict[str, Any]) -> str:
+            if tool_name == ORCHESTRATOR_ONCOLOGY_KNOWLEDGE_TOOL:
+                span_rag_tool = None
+                if trace is not None:
+                    span_rag_tool = tracer.start_span(trace, "oncology_knowledge_rag")
+                consulta = (tool_input.get("consulta") or "").strip()
+                if not consulta:
+                    payload = {
+                        "status": "empty",
+                        "message": "Forneça o campo consulta (texto em português).",
+                        "markdown": "",
+                    }
+                    if span_rag_tool:
+                        span_rag_tool.finish(passages_count=0, reason="empty_query")
+                    return json.dumps(payload, ensure_ascii=False)
+
+                cancer_type = context_builder.extract_cancer_type_for_rag(clinical_context)
+                rag_query = context_builder.rag_query_for_message(
+                    consulta, conversation_history or []
+                )
+                passages: List[Dict[str, Any]] = []
+                try:
+                    passages = knowledge_rag.retrieve(
+                        query=rag_query, cancer_type=cancer_type
+                    ) or []
+                except Exception as exc:
+                    logger.warning("oncology_knowledge_rag retrieve failed: %s", exc)
+                    passages = []
+
+                markdown = (
+                    knowledge_rag.format_context(passages) if passages else ""
+                )
+                if span_rag_tool:
+                    span_rag_tool.finish(
+                        passages_count=len(passages),
+                        top_score=round(passages[0]["score"], 4) if passages else None,
+                    )
+                return json.dumps(
+                    {
+                        "status": "ok",
+                        "passagens": len(passages),
+                        "consulta_efetiva": rag_query[:500],
+                        "markdown": markdown,
+                    },
+                    ensure_ascii=False,
+                )
+
             agent = agents.get(tool_name)
             if not agent:
                 logger.warning(f"Unknown routing tool: {tool_name}")
                 return json.dumps({"error": f"Subagente desconhecido: {tool_name}"})
 
+            async def symptom_tool_executor(
+                sub_tool_name: str,
+                sub_tool_input: Dict[str, Any],
+            ) -> str:
+                if sub_tool_name != SYMPTOM_TRIAGE_TOOL_NAME:
+                    return json.dumps(
+                        {"status": "queued", "tool": sub_tool_name},
+                        ensure_ascii=False,
+                    )
+                sa, cr = await self._apply_deterministic_triage(
+                    trace=trace,
+                    message=message,
+                    clinical_context=clinical_context,
+                    agent_config=subagent_config,
+                    has_llm_keys=exec_symptom_llm,
+                    trace_spans=False,
+                )
+                triage_sink.append(
+                    {
+                        "symptom_analysis": copy.deepcopy(sa),
+                        "clinical_rules": _clinical_rules_to_payload(cr),
+                    }
+                )
+                return json.dumps(
+                    {
+                        "status": "ok",
+                        "tool": SYMPTOM_TRIAGE_TOOL_NAME,
+                        "disposition": cr.disposition,
+                        "reasoning": (cr.reasoning or "")[:600],
+                        "symptom_count": len(sa.get("detectedSymptoms") or []),
+                    },
+                    ensure_ascii=False,
+                )
+
+            async def secretary_tool_executor(
+                sub_tool_name: str,
+                sub_tool_input: Dict[str, Any],
+            ) -> str:
+                def _input_signature(value: Dict[str, Any]) -> str:
+                    return json.dumps(value or {}, sort_keys=True, ensure_ascii=False)
+
+                if sub_tool_name == "listar_profissionais_consulta":
+                    try:
+                        result = await backend_client.list_consultation_professionals(
+                            tenant_id=tenant_id,
+                            step_key=sub_tool_input.get("stepKey"),
+                        )
+                        return json.dumps(
+                            {
+                                "status": "ok",
+                                "tool": sub_tool_name,
+                                "professionals": result,
+                            },
+                            ensure_ascii=False,
+                        )
+                    except Exception as exc:
+                        logger.warning(
+                            "listar_profissionais_consulta falhou no backend interno: %s",
+                            exc,
+                        )
+                        return json.dumps(
+                            {
+                                "status": "error",
+                                "tool": sub_tool_name,
+                                "error": "professionals_unavailable",
+                            },
+                            ensure_ascii=False,
+                        )
+
+                if sub_tool_name != "consultar_vagas_consulta":
+                    return json.dumps(
+                        {"status": "queued", "tool": sub_tool_name},
+                        ensure_ascii=False,
+                    )
+
+                missing = missing_internal_availability_fields(sub_tool_input)
+                if missing:
+                    failed_sync_availability_inputs.add(
+                        _input_signature(sub_tool_input)
+                    )
+                    return json.dumps(
+                        {
+                            "status": "error",
+                            "tool": sub_tool_name,
+                            "error": "availability_payload_incomplete",
+                            "missing_fields": missing,
+                        },
+                        ensure_ascii=False,
+                    )
+
+                try:
+                    result = await backend_client.get_consultation_availability(
+                        tenant_id=tenant_id,
+                        payload=sub_tool_input,
+                    )
+                    successful_sync_availability[
+                        _input_signature(sub_tool_input)
+                    ] = result
+                    return json.dumps(
+                        {
+                            "status": "ok",
+                            "tool": sub_tool_name,
+                            "availability": result,
+                        },
+                        ensure_ascii=False,
+                    )
+                except Exception as exc:
+                    failed_sync_availability_inputs.add(
+                        _input_signature(sub_tool_input)
+                    )
+                    logger.warning(
+                        "consultar_vagas_consulta falhou no backend interno: %s",
+                        exc,
+                    )
+                    return json.dumps(
+                        {
+                            "status": "error",
+                            "tool": sub_tool_name,
+                            "error": "availability_unavailable",
+                        },
+                        ensure_ascii=False,
+                    )
+
             sub_ev: List[Dict[str, Any]] = []
+            sub_ctx = subagent_context_by_routing_tool.get(
+                tool_name,
+                structured_context,
+            )
             result = await agent.run(
-                context=rag_context,
+                context=sub_ctx,
                 conversation_history=conv_messages,
                 config=subagent_config,
                 usage_events=sub_ev if trace is not None else None,
                 usage_step=f"subagent:{tool_name}",
+                tool_executor=(
+                    secretary_tool_executor
+                    if tool_name == "consultar_agente_secretaria"
+                    else symptom_tool_executor
+                    if tool_name == "consultar_agente_sintomas"
+                    else None
+                ),
             )
 
-            all_tool_calls.extend(result.tool_calls)
+            tool_calls_to_queue = [
+                tc
+                for tc in result.tool_calls
+                if tc.get("name") != SYMPTOM_TRIAGE_TOOL_NAME
+                and not (
+                    tc.get("name") == "consultar_vagas_consulta"
+                    and json.dumps(
+                        tc.get("input") or {},
+                        sort_keys=True,
+                        ensure_ascii=False,
+                    )
+                    in failed_sync_availability_inputs
+                )
+                and not (tc.get("name") == "listar_profissionais_consulta")
+            ]
+            availability_calls_to_queue = [
+                tc
+                for tc in tool_calls_to_queue
+                if tc.get("name") == "consultar_vagas_consulta"
+            ]
+            if len(availability_calls_to_queue) > 1:
+                best_signature = self._best_sync_availability_signature(
+                    availability_calls_to_queue,
+                    successful_sync_availability,
+                )
+                if best_signature:
+                    tool_calls_to_queue = [
+                        tc
+                        for tc in tool_calls_to_queue
+                        if tc.get("name") != "consultar_vagas_consulta"
+                        or json.dumps(
+                            tc.get("input") or {},
+                            sort_keys=True,
+                            ensure_ascii=False,
+                        )
+                        == best_signature
+                    ]
+            all_tool_calls.extend(tool_calls_to_queue)
 
             if result.error:
                 logger.error(f"Subagent {tool_name} error: {result.error}")
@@ -820,7 +1168,7 @@ class AgentOrchestrator:
             if trace is not None:
                 trace.token_usage_events.extend(sub_ev)
                 tool_names: List[str] = []
-                for tc in result.tool_calls[:12]:
+                for tc in tool_calls_to_queue[:12]:
                     n = tc.get("name")
                     if not n and isinstance(tc.get("function"), dict):
                         n = tc["function"].get("name")
@@ -833,7 +1181,7 @@ class AgentOrchestrator:
                             result.response or "", TRACE_SUBAGENT_RESPONSE_MAX_CHARS
                         ),
                         "iterations": result.iterations,
-                        "tool_calls_count": len(result.tool_calls),
+                        "tool_calls_count": len(tool_calls_to_queue),
                         "tool_names": tool_names,
                         "error": result.error,
                         "routing_tool_input": pack_trace_text(
@@ -853,7 +1201,7 @@ class AgentOrchestrator:
             return json.dumps({
                 "agente": result.agent_name,
                 "analise": result.response,
-                "acoes_identificadas": len(result.tool_calls),
+                "acoes_identificadas": len(tool_calls_to_queue),
             }, ensure_ascii=False)
 
         try:
@@ -893,131 +1241,57 @@ class AgentOrchestrator:
             "model": orch_result.get("model", orch_config.get("llm_model", "")) if isinstance(orch_result, dict) else orch_config.get("llm_model", ""),
             "orchestrator_model": merged.get("orchestrator_model", ""),
         }
-        return response_text, all_tool_calls, llm_meta
 
-    def _build_emergency_response(
-        self,
-        message: str,
-        clinical_context: Dict[str, Any],
-        agent_state: Dict[str, Any],
-        symptom_analysis: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
-        """Fast-path response for detected emergency messages.
-        Includes RECORD_SYMPTOM decisions when symptom_analysis has detected symptoms.
-        """
-        patient_name = clinical_context.get("patient", {}).get("name", "")
-        first_name = patient_name.split()[0] if patient_name else ""
-        greeting = f"{first_name}, " if first_name else ""
-
-        response = (
-            f"{greeting}entendo que você está passando por uma situação urgente. "
-            "Sua mensagem já foi encaminhada com prioridade máxima para a equipe de enfermagem. "
-            "Se você estiver com risco de vida imediato, por favor ligue para o SAMU (192) "
-            "ou vá ao pronto-socorro mais próximo. "
-            "A equipe entrará em contato com você o mais rápido possível."
+        orch_iterations = (
+            int(orch_result.get("iterations", 0))
+            if isinstance(orch_result, dict)
+            else 0
         )
+        orch_tool_names: List[str] = []
+        for tc in all_tool_calls[:40]:
+            n = tc.get("name")
+            if not n and isinstance(tc.get("function"), dict):
+                n = tc["function"].get("name")
+            orch_tool_names.append(str(n or "?"))
 
-        payload = {
-            "type": "EMERGENCY_DETECTED",
-            "severity": "CRITICAL",
-            "message": f"Paciente relatou emergência: {message[:200]}",
+        span_detail = {
+            "orchestrator_iterations": orch_iterations,
+            "orchestrator_tool_names": orch_tool_names,
         }
-        actions = [{
-            "type": "CREATE_HIGH_CRITICAL_ALERT",
-            "payload": payload,
-            "requiresApproval": False,
-            "source": "intent_classifier",
-        }]
+        return response_text, all_tool_calls, llm_meta, span_detail
 
-        decisions = [{
-            "decisionType": "CRITICAL_ESCALATION",
-            "reasoning": f"Intent classifier detected EMERGENCY in message: {message[:200]}",
-            "confidence": 0.95,
-            "inputData": {"message": message},
-            "outputAction": {"type": "CREATE_HIGH_CRITICAL_ALERT", "payload": payload},
-            "requiresApproval": False,
-        }]
+    @staticmethod
+    def _best_sync_availability_signature(
+        tool_calls: List[Dict[str, Any]],
+        availability_by_signature: Dict[str, Dict[str, Any]],
+    ) -> Optional[str]:
+        """Seleciona a consulta síncrona que encontrou o slot mais cedo no turno."""
+        best_signature: Optional[str] = None
+        best_ts: Optional[float] = None
 
-        # Add RECORD_SYMPTOM for detected symptoms so they are registered in the backend
-        detected = (symptom_analysis or {}).get("detectedSymptoms", [])
-        for symptom in detected:
-            actions.append({
-                "type": "RECORD_SYMPTOM",
-                "payload": {
-                    "code": f"symptom_{symptom.get('name', 'unknown')}",
-                    "display": symptom.get("name", ""),
-                    "value": symptom.get("severity"),
-                },
-                "requiresApproval": False,
-            })
-            decisions.append({
-                "decisionType": "SYMPTOM_DETECTED",
-                "reasoning": (
-                    f"Detected symptom '{symptom.get('name')}' (severity {symptom.get('severity')}) "
-                    "during emergency escalation"
-                ),
-                "confidence": symptom.get("confidence", 0.9),
-                "inputData": {"symptom": symptom},
-                "outputAction": {
-                    "type": "RECORD_SYMPTOM",
-                    "payload": {
-                        "code": f"symptom_{symptom.get('name', 'unknown')}",
-                        "display": symptom.get("name", ""),
-                        "value": symptom.get("severity"),
-                    },
-                },
-                "requiresApproval": False,
-            })
+        for tool_call in tool_calls:
+            signature = json.dumps(
+                tool_call.get("input") or {},
+                sort_keys=True,
+                ensure_ascii=False,
+            )
+            availability = availability_by_signature.get(signature) or {}
+            slots = availability.get("slots")
+            if not isinstance(slots, list) or not slots:
+                continue
+            first_slot = next((s for s in slots if isinstance(s, str)), None)
+            if not first_slot:
+                continue
+            try:
+                slot_dt = datetime.fromisoformat(first_slot.replace("Z", "+00:00"))
+            except ValueError:
+                continue
+            ts = slot_dt.timestamp()
+            if best_ts is None or ts < best_ts:
+                best_ts = ts
+                best_signature = signature
 
-        if detected:
-            logger.info(f"Emergency path: registering {len(detected)} symptom(s): {[s.get('name') for s in detected]}")
-
-        return {
-            "response": response,
-            "actions": actions,
-            "symptom_analysis": symptom_analysis,
-            "new_state": agent_state,
-            "decisions": decisions,
-        }
-
-    def _build_greeting_response(
-        self,
-        clinical_context: Dict[str, Any],
-        agent_state: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        """Fast-path response for greetings, skipping the full pipeline."""
-        patient_name = clinical_context.get("patient", {}).get("name", "")
-        first_name = patient_name.split()[0] if patient_name else ""
-
-        hour = datetime.now().hour
-        if hour < 12:
-            period = "Bom dia"
-        elif hour < 18:
-            period = "Boa tarde"
-        else:
-            period = "Boa noite"
-
-        greeting = f"{period}, {first_name}!" if first_name else f"{period}!"
-        response = (
-            f"{greeting} Sou seu navegador oncológico. "
-            "Como posso te ajudar hoje? Pode me contar como está se sentindo, "
-            "tirar dúvidas sobre seu tratamento ou perguntar sobre suas próximas etapas (consultas, exames, avaliações)."
-        )
-
-        return {
-            "response": response,
-            "actions": [],
-            "symptom_analysis": None,
-            "new_state": agent_state,
-            "decisions": [{
-                "decisionType": "GREETING_HANDLED",
-                "reasoning": "Simple greeting detected, fast response without full pipeline",
-                "confidence": 0.9,
-                "inputData": {},
-                "outputAction": {"type": "GREETING_RESPONSE"},
-                "requiresApproval": False,
-            }],
-        }
+        return best_signature
 
     def _parse_tool_calls_to_actions(
         self,
@@ -1036,6 +1310,9 @@ class AgentOrchestrator:
         for tc in tool_calls:
             name = tc.get("name", "")
             inp = tc.get("input", {})
+
+            if name == SYMPTOM_TRIAGE_TOOL_NAME:
+                continue
 
             if name == "registrar_sintoma":
                 actions.append({
@@ -1508,10 +1785,11 @@ class AgentOrchestrator:
         action_type = "CHECK_CONSULTATION_AVAILABILITY"
         decision_type = "APPOINTMENT_AVAILABILITY_QUERIED"
 
-        scheduled_professional_id = tool_input.get("scheduledProfessionalId")
-        step_key = tool_input.get("stepKey")
-        range_from = tool_input.get("from")
-        range_to = tool_input.get("to")
+        safe_tool_input = internal_consultation_availability_payload(tool_input)
+        scheduled_professional_id = safe_tool_input.get("professionalId")
+        step_key = safe_tool_input.get("stepKey")
+        range_from = safe_tool_input.get("from")
+        range_to = safe_tool_input.get("to")
         preferred_date = tool_input.get("preferredDate")
         motivo = tool_input.get("motivo")
 
@@ -1520,8 +1798,10 @@ class AgentOrchestrator:
             missing.append("from")
         if not range_to:
             missing.append("to")
-        if not scheduled_professional_id and not step_key:
-            missing.append("scheduledProfessionalId|stepKey")
+        if not scheduled_professional_id:
+            missing.append("scheduledProfessionalId")
+        if not step_key:
+            missing.append("stepKey")
 
         if missing:
             sanitized_input = self._sanitize_scheduling_input(tool_input)

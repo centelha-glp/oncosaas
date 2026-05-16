@@ -4,18 +4,10 @@ import { getAiServiceConfig } from '../common/utils/ai-service.util';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { ChannelGatewayService } from '../channel-gateway/channel-gateway.service';
-import { ClinicalProtocolsService } from '../clinical-protocols/clinical-protocols.service';
 import { PatientStatus, ScheduledActionStatus } from '@generated/prisma/client';
 import { ChannelType, JourneyStage } from '@generated/prisma/client';
 import { OncologyNavigationService } from '../oncology-navigation/oncology-navigation.service';
-
-const FREQUENCY_DAYS: Record<string, number> = {
-  daily: 1,
-  twice_weekly: 3,
-  weekly: 7,
-  biweekly: 14,
-  monthly: 30,
-};
+import { ProtocolEvaluationService } from './protocol-evaluation.service';
 
 const STAGES_WITH_QUESTIONNAIRES: JourneyStage[] = ['TREATMENT', 'FOLLOW_UP'];
 
@@ -27,19 +19,18 @@ export class AgentSchedulerService {
     private readonly prisma: PrismaService,
     private readonly channelGateway: ChannelGatewayService,
     private readonly configService: ConfigService,
-    private readonly clinicalProtocols: ClinicalProtocolsService,
+    private readonly protocolEvaluation: ProtocolEvaluationService,
     @Inject(forwardRef(() => OncologyNavigationService))
     private readonly oncologyNavigation: OncologyNavigationService,
   ) {}
 
   /**
-   * Every 6 hours: create QUESTIONNAIRE scheduled actions for patients who are due
-   * (proactive questionnaire based on protocol checkInRules and last response date).
+   * A cada 6 horas: sincroniza agendamentos CHECK_IN / QUESTIONNAIRE com o motor de protocolo
+   * no ai-service (`evaluate-protocol`), em vez de duplicar regras de frequência em TypeScript.
    */
   @Cron(CronExpression.EVERY_6_HOURS)
   async scheduleProactiveQuestionnaires() {
     try {
-      const now = new Date();
       const tenants = await this.prisma.tenant.findMany({
         select: { id: true },
       });
@@ -84,81 +75,19 @@ export class AgentSchedulerService {
           }
 
           for (const patient of patients) {
-            const cancerType = patient.cancerType as string;
-            const stage = patient.currentStage as string;
             const conversation = patient.conversations[0];
-            if (!conversation || !cancerType) {
+            if (!conversation || !patient.cancerType) {
               continue;
             }
 
-            const checkInRules = await this.clinicalProtocols.getCheckInRules(
-              patient.tenantId,
-              cancerType,
-            );
-            if (!checkInRules) {
-              continue;
-            }
-
-            const rule = checkInRules[stage] as
-              | { frequency: string; questionnaire: string | null }
-              | undefined;
-            if (!rule?.questionnaire) {
-              continue;
-            }
-
-            const questionnaireType = rule.questionnaire;
-            const frequencyDays = FREQUENCY_DAYS[rule.frequency] ?? 7;
-
-            const lastResponse =
-              await this.prisma.questionnaireResponse.findFirst({
-                where: {
-                  patientId: patient.id,
-                  questionnaire: {
-                    type: questionnaireType as 'ESAS' | 'PRO_CTCAE',
-                  },
-                },
-                orderBy: { completedAt: 'desc' },
-                select: { completedAt: true },
-              });
-
-            const lastAt = lastResponse?.completedAt;
-            if (lastAt) {
-              const daysSince = Math.floor(
-                (now.getTime() - lastAt.getTime()) / (24 * 60 * 60 * 1000),
+            const sync =
+              await this.protocolEvaluation.syncScheduledProtocolActions(
+                patient.id,
+                patient.tenantId,
+                { trigger: 'cron_proactive_job' },
               );
-              if (daysSince < frequencyDays) {
-                continue;
-              }
-            }
-
-            const existing = await this.prisma.scheduledAction.findFirst({
-              where: {
-                patientId: patient.id,
-                actionType: 'QUESTIONNAIRE',
-                status: ScheduledActionStatus.PENDING,
-              },
-            });
-            if (existing) {
-              continue;
-            }
-
-            await this.prisma.scheduledAction.create({
-              data: {
-                tenantId: patient.tenantId,
-                patientId: patient.id,
-                conversationId: conversation.id,
-                actionType: 'QUESTIONNAIRE',
-                channel:
-                  (conversation.channel as ChannelType) ?? ChannelType.WHATSAPP,
-                scheduledAt: now,
-                payload: {
-                  questionnaireType,
-                  frequency: rule.frequency,
-                  source: 'proactive_job',
-                },
-              },
-            });
-            created++;
+            created +=
+              sync.questionnairesCreated + sync.checkInsCreated;
           }
 
           if (patients.length < PAGE_SIZE) {
@@ -170,7 +99,7 @@ export class AgentSchedulerService {
 
       if (created > 0) {
         this.logger.log(
-          `Proactive questionnaires: created ${created} QUESTIONNAIRE actions`,
+          `Proactive protocol sync: created ${created} scheduled action(s) (questionnaire/check-in)`,
         );
       }
     } catch (error) {

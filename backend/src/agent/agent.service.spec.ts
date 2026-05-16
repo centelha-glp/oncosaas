@@ -1,8 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   AppointmentConfirmationStatus,
+  ClinicalSubrole,
   NavigationStepStatus,
+  UserRole,
 } from '@generated/prisma/client';
 import { AgentService } from './agent.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -53,6 +56,7 @@ const mockOncologyNavigationService = {
   createConsultationAppointment: jest.fn(),
   updateStep: jest.fn(),
   getConsultationAvailableSlots: jest.fn(),
+  listConsultationAgendaSchedulableProfessionals: jest.fn(),
 };
 
 describe('AgentService — intake WhatsApp e secretária', () => {
@@ -64,6 +68,7 @@ describe('AgentService — intake WhatsApp e secretária', () => {
     mockOncologyNavigationService.getConsultationAvailableSlots.mockResolvedValue({
       slots: [],
     });
+    mockOncologyNavigationService.listConsultationAgendaSchedulableProfessionals.mockResolvedValue([]);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -433,6 +438,127 @@ describe('AgentService — intake WhatsApp e secretária', () => {
   describe('executeApprovedDecision — CHECK_CONSULTATION_AVAILABILITY', () => {
     const convId = 'conv-uuid-check';
 
+    it('getInternalConsultationProfessionals filtra por tenant e stepKey sem expor email', async () => {
+      mockOncologyNavigationService.listConsultationAgendaSchedulableProfessionals.mockResolvedValue([
+        {
+          id: 'u-onc',
+          name: 'Dra Onco',
+          role: UserRole.ONCOLOGIST,
+          clinicalSubrole: null,
+        },
+        {
+          id: 'u-enf',
+          name: 'Enf Navegação',
+          role: UserRole.NURSE,
+          clinicalSubrole: null,
+        },
+        {
+          id: 'u-admin-med',
+          name: 'Coord Médico',
+          role: UserRole.COORDINATOR,
+          clinicalSubrole: ClinicalSubrole.MEDICAL,
+        },
+      ]);
+
+      const result = await service.getInternalConsultationProfessionals(TENANT, {
+        stepKey: 'specialist_consultation',
+      });
+
+      expect(
+        mockOncologyNavigationService.listConsultationAgendaSchedulableProfessionals
+      ).toHaveBeenCalledWith(TENANT);
+      expect(result.professionals).toEqual([
+        {
+          id: 'u-onc',
+          name: 'Dra Onco',
+          role: UserRole.ONCOLOGIST,
+          clinicalSubrole: null,
+          consultationStepKeys: ['specialist_consultation'],
+        },
+        {
+          id: 'u-admin-med',
+          name: 'Coord Médico',
+          role: UserRole.COORDINATOR,
+          clinicalSubrole: ClinicalSubrole.MEDICAL,
+          consultationStepKeys: ['specialist_consultation'],
+        },
+      ]);
+    });
+
+    it('getInternalConsultationAvailability usa tenant interno e retorna slots ordenados/capados', async () => {
+      const many = [
+        '2026-06-12T12:00:00.000Z',
+        '2026-06-10T08:00:00.000Z',
+        '2026-06-11T10:00:00.000Z',
+        '2026-06-13T14:00:00.000Z',
+        '2026-06-14T16:00:00.000Z',
+        '2026-06-15T18:00:00.000Z',
+      ];
+      mockOncologyNavigationService.getConsultationAvailableSlots.mockResolvedValue({
+        slots: many,
+      });
+
+      const result = await service.getInternalConsultationAvailability(TENANT, {
+        scheduledProfessionalId: PRO_ID,
+        stepKey: 'navigation_consultation',
+        from: '2026-06-01T00:00:00.000Z',
+        to: '2026-06-05T23:59:59.000Z',
+        tenantId: OTHER_TENANT,
+      });
+
+      expect(mockOncologyNavigationService.getConsultationAvailableSlots).toHaveBeenCalledWith(
+        TENANT,
+        expect.objectContaining({
+          professionalId: PRO_ID,
+          stepKey: 'navigation_consultation',
+          from: '2026-06-01T00:00:00.000Z',
+          to: '2026-06-05T23:59:59.000Z',
+        })
+      );
+      expect(result.slots).toEqual([
+        '2026-06-10T08:00:00.000Z',
+        '2026-06-11T10:00:00.000Z',
+        '2026-06-12T12:00:00.000Z',
+        '2026-06-13T14:00:00.000Z',
+        '2026-06-14T16:00:00.000Z',
+      ]);
+      expect(result.slots).toHaveLength(
+        SCHEDULING_SECRETARY_AVAILABILITY_OFFERED_SLOTS_MAX
+      );
+    });
+
+    it('getInternalConsultationAvailability descarta slots passados antes de oferecer', async () => {
+      const futureSlot = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+      mockOncologyNavigationService.getConsultationAvailableSlots.mockResolvedValue({
+        slots: [
+          '2000-01-01T12:00:00.000Z',
+          futureSlot,
+        ],
+      });
+
+      const result = await service.getInternalConsultationAvailability(TENANT, {
+        scheduledProfessionalId: PRO_ID,
+        stepKey: 'navigation_consultation',
+        from: '2000-01-01T00:00:00.000Z',
+        to: '2026-06-10T23:59:59.000Z',
+      });
+
+      expect(result.slots).toEqual([futureSlot]);
+    });
+
+    it('getInternalConsultationAvailability lança BadRequest quando payload não normaliza (sem profissional)', async () => {
+      await expect(
+        service.getInternalConsultationAvailability(TENANT, {
+          stepKey: 'navigation_consultation',
+          from: '2026-06-01T00:00:00.000Z',
+          to: '2026-06-05T23:59:59.000Z',
+        })
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(
+        mockOncologyNavigationService.getConsultationAvailableSlots
+      ).not.toHaveBeenCalled();
+    });
+
     it('consulta slots com tenantId do servidor (ignora tenant no payload)', async () => {
       mockOncologyNavigationService.getConsultationAvailableSlots.mockResolvedValue({
         slots: ['2026-06-01T15:00:00.000Z'],
@@ -543,6 +669,38 @@ describe('AgentService — intake WhatsApp e secretária', () => {
 
       expect(mockOncologyNavigationService.getConsultationAvailableSlots).not.toHaveBeenCalled();
       expect(side.overridePatientResponse).toMatch(/faltam profissional/i);
+    });
+
+    it('CHECK: falha do OncologyNavigation retorna mensagem controlada (sem propagar)', async () => {
+      mockOncologyNavigationService.getConsultationAvailableSlots.mockRejectedValue(
+        new Error('timeout simulado')
+      );
+
+      const exec = service as unknown as {
+        executeCheckConsultationAvailability: (
+          decision: { outputAction?: { type?: string; payload?: unknown } },
+          tenantId: string,
+          conversationId: string
+        ) => Promise<{ overridePatientResponse?: string }>;
+      };
+
+      const side = await exec.executeCheckConsultationAvailability(
+        {
+          outputAction: {
+            type: CHECK_CONSULTATION_AVAILABILITY,
+            payload: {
+              scheduledProfessionalId: PRO_ID,
+              stepKey: 'navigation_consultation',
+              from: '2026-06-01T00:00:00.000Z',
+              to: '2026-06-05T23:59:59.000Z',
+            },
+          },
+        },
+        TENANT,
+        convId
+      );
+
+      expect(side.overridePatientResponse).toMatch(/não consegui consultar as vagas agora/i);
     });
 
     it('ordena e limita vagas ofertadas ao máximo configurado', async () => {

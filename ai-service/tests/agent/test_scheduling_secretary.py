@@ -30,6 +30,7 @@ def test_scheduling_secretary_exposes_appointment_and_availability_tools():
     agent = SchedulingSecretaryAgent()
     tool_names = _names(agent.tools)
     assert tool_names == {
+        "listar_profissionais_consulta",
         "consultar_vagas_consulta",
         "criar_consulta",
         "reagendar_consulta",
@@ -41,6 +42,7 @@ def test_scheduling_secretary_exposes_appointment_and_availability_tools():
 def test_scheduling_tools_present_in_global_action_tools():
     names = _names(AGENT_ACTION_TOOLS)
     for tool in (
+        "listar_profissionais_consulta",
         "consultar_vagas_consulta",
         "criar_consulta",
         "reagendar_consulta",
@@ -60,9 +62,24 @@ def test_consultar_vagas_consulta_does_not_require_confirmacao_paciente():
     assert "confirmacao_paciente" not in schema["properties"], (
         "consultar_vagas_consulta não deve sequer expor confirmacao_paciente"
     )
-    assert {"from", "to"}.issubset(required)
+    assert {"scheduledProfessionalId", "stepKey", "from", "to"}.issubset(required)
     for opt in ("scheduledProfessionalId", "stepKey", "preferredDate", "motivo"):
         assert opt in schema["properties"], f"campo {opt} ausente em consultar_vagas_consulta"
+    assert schema["properties"]["stepKey"]["enum"] == [
+        "specialist_consultation",
+        "navigation_consultation",
+    ]
+
+
+def test_listar_profissionais_consulta_is_readonly_and_requires_step_key():
+    tools_by_name = {t["name"]: t for t in AGENT_ACTION_TOOLS}
+    schema = tools_by_name["listar_profissionais_consulta"]["input_schema"]
+    assert schema.get("required") == ["stepKey"]
+    assert "confirmacao_paciente" not in schema.get("properties", {})
+    assert schema["properties"]["stepKey"]["enum"] == [
+        "specialist_consultation",
+        "navigation_consultation",
+    ]
 
 
 def test_scheduling_tools_require_confirmacao_paciente_in_schema():
@@ -90,6 +107,7 @@ def test_orchestrator_routing_includes_secretary_and_keeps_navigation():
 def test_navigation_agent_does_not_expose_scheduling_tools():
     nav_tool_names = _names(NavigationAgent().tools)
     scheduling = {
+        "listar_profissionais_consulta",
         "consultar_vagas_consulta",
         "criar_consulta",
         "reagendar_consulta",
@@ -129,7 +147,7 @@ def test_parse_consultar_vagas_with_full_range_emits_readonly_action():
     )
     payload = a["payload"]
     assert payload["scheduledProfessionalId"] == "prof-1"
-    assert payload["stepKey"] == "retorno_oncologia"
+    assert payload["stepKey"] == "specialist_consultation"
     assert payload["from"] == "2026-06-15T00:00:00-03:00"
     assert payload["to"] == "2026-06-20T23:59:59-03:00"
     assert payload["preferredDate"] == "2026-06-17T10:00:00-03:00"
@@ -144,7 +162,7 @@ def test_parse_consultar_vagas_with_full_range_emits_readonly_action():
     assert d["outputAction"]["payload"]["motivo"] == "[redacted]"
 
 
-def test_parse_consultar_vagas_with_step_key_only_emits_action():
+def test_parse_consultar_vagas_with_step_key_only_requires_professional():
     tool_calls = [
         {
             "name": "consultar_vagas_consulta",
@@ -156,11 +174,9 @@ def test_parse_consultar_vagas_with_step_key_only_emits_action():
         }
     ]
     actions, decisions = orchestrator._parse_tool_calls_to_actions(tool_calls)
-    assert len(actions) == 1
-    assert actions[0]["type"] == "CHECK_CONSULTATION_AVAILABILITY"
-    assert "scheduledProfessionalId" not in actions[0]["payload"]
-    assert actions[0]["payload"]["stepKey"] == "retorno_oncologia"
-    assert decisions[0]["decisionType"] == "APPOINTMENT_AVAILABILITY_QUERIED"
+    assert actions == []
+    assert decisions[0]["decisionType"] == "SCHEDULING_INTAKE_PENDING"
+    assert "scheduledProfessionalId" in decisions[0]["inputData"]["missing_fields"]
 
 
 def test_parse_consultar_vagas_does_not_require_confirmacao_paciente_in_input():
@@ -170,6 +186,7 @@ def test_parse_consultar_vagas_does_not_require_confirmacao_paciente_in_input():
             "name": "consultar_vagas_consulta",
             "input": {
                 "scheduledProfessionalId": "prof-1",
+                "stepKey": "navigation_consultation",
                 "from": "2026-06-15T00:00:00-03:00",
                 "to": "2026-06-20T23:59:59-03:00",
             },
@@ -215,7 +232,8 @@ def test_parse_consultar_vagas_missing_scope_does_not_emit_action():
     assert actions == []
     d = decisions[0]
     assert d["decisionType"] == "SCHEDULING_INTAKE_PENDING"
-    assert "scheduledProfessionalId|stepKey" in d["inputData"]["missing_fields"]
+    assert "scheduledProfessionalId" in d["inputData"]["missing_fields"]
+    assert "stepKey" in d["inputData"]["missing_fields"]
 
 
 # ----------------------------- parser: criar_consulta -----------------------------

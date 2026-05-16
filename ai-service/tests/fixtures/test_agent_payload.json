@@ -22,7 +22,7 @@
   "agent_state": {},
   "agent_config": {
     "llm_provider": "anthropic",
-    "llm_model": "claude-sonnet-4-6",
+    "llm_model": "claude-haiku-4-5",
     "agent_language": "pt-BR"
   }
 }

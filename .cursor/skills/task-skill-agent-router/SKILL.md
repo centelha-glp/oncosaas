@@ -25,7 +25,7 @@ disable-model-invocation: false
 - **Uma Task = um `subagent_type`** — nunca fundir domínios na mesma Task.
 - **Skill de squad** (`squad-*`) **utilizada** → [squad-onconav](../squad-onconav/SKILL.md): **acionar todos** os membros desse squad (uma Task por agente), salvo instrução explícita em contrário.
 - **Skill só `agente-*`** → normalmente **uma** Task para esse agente; não convocar o squad inteiro.
-- **Mapa canónico** `subagent_type` ↔ skill ↔ squad: [agente-onconav](../agente-onconav/SKILL.md) (tabela «Mapa agente → skill canónica → squad»).
+- **Mapa canónico** `subagent_type` ↔ skill ↔ squad: [agente-onconav](../agente-onconav/SKILL.md) (tabela «Mapa agente → skill canónica → squad»). Pedidos que **nomeiem explicitamente** LangGraph, LangChain, CrewAI, OpenAI ou Anthropic → `subagent_type` `langgraph`, `langchain`, `crewai`, `openai` ou `anthropic` (opcionais, fora da ronda integral do `squad-ia-dados`); arquitectura genérica do agente ONCONAV sem essas stacks → `llm-agent-architect` / `ai-service` como já definido.
 - **Ordem entre squads** (entrega grande): Produto → Clínico (se houver) → IA/Dados (se houver) → Plataforma → Infra (se houver) → Qualidade (antes de merge) — detalhe em [squad-onconav](../squad-onconav/SKILL.md).
 
 ## Acionamento obrigatório (após o plano mínimo)
@@ -55,6 +55,11 @@ Quando esta skill aplica-se e **não** estás numa **exceção**, o agente princ
 | Treino, EDA, LightGBM, métricas modelo | `agente-data-scientist` |
 | priorityScore, contrato `/prioritize`, joblib em produto | `agente-engenheiro-ia-predicao` |
 | Conversa **e** score na mesma entrega | `agente-ai-ml-engineer` |
+| LangGraph, StateGraph, checkpointer, interrupt/HITL | `langgraph` (ler `agente-langgraph` + skills `tarefa-langgraph-*`) |
+| LangChain, LCEL, Runnable, bind_tools (stack LangChain) | `langchain` |
+| CrewAI, Crew, Task, expected_output | `crewai` |
+| OpenAI API, streaming, structured outputs, Agents SDK | `openai` |
+| Anthropic, Claude, Messages API, tool_use, prompt cache | `anthropic` |
 | RAG, FAISS, corpus, embeddings | `agente-rag-engineer` |
 | Orchestrator multi-step, tool use | `agente-llm-agent-architect` |
 | Prompts, context_builder, custo tokens | `agente-llm-context-engineer` |

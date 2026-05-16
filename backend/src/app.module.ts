@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { BullModule } from '@nestjs/bullmq';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ScheduleModule } from '@nestjs/schedule';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { RedisModule } from './redis/redis.module';
@@ -34,6 +36,7 @@ import { PerformanceStatusModule } from './performance-status/performance-status
 import { EmergencyReferencesModule } from './emergency-references/emergency-references.module';
 import { DispositionFeedbackModule } from './disposition-feedback/disposition-feedback.module';
 import { ClinicalNotesModule } from './clinical-notes/clinical-notes.module';
+import { ClinicalNoteExtractionModule } from './clinical-note-extraction/clinical-note-extraction.module';
 import { ConsentModule } from './consent/consent.module';
 import { ProductFeedbackModule } from './product-feedback/product-feedback.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
@@ -48,7 +51,18 @@ import { TissGuidesModule } from './tiss-guides/tiss-guides.module';
       expandVariables: true,
     }),
     ScheduleModule.forRoot(), // Habilita agendamento de tarefas
+    EventEmitterModule.forRoot(),
     RedisModule,
+    BullModule.forRootAsync({
+      imports: [ConfigModule],
+      useFactory: (config: ConfigService) => ({
+        connection: {
+          url: config.get<string>('REDIS_URL') || 'redis://localhost:6379',
+        },
+      }),
+      inject: [ConfigService],
+    }),
+    ClinicalNoteExtractionModule,
     PrismaModule,
     AuthModule,
     PatientsModule,

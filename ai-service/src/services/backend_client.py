@@ -5,26 +5,124 @@ BACKEND_SERVICE_TOKEN is read lazily on each call (not at construction time) so
 that this module can be imported before dotenv has loaded env vars.
 """
 import asyncio
+import hashlib
+import hmac
 import httpx
 import os
 from datetime import datetime, timezone
-from typing import Dict, Optional, List
+from typing import Any, Dict, Optional, List
 import logging
 
 logger = logging.getLogger(__name__)
+
+SPECIALIST_CONSULTATION_STEP_KEY = "specialist_consultation"
+NAVIGATION_CONSULTATION_STEP_KEY = "navigation_consultation"
+_SPECIALIST_STEP_ALIASES = {
+    SPECIALIST_CONSULTATION_STEP_KEY,
+    "oncologista",
+    "oncologia",
+    "retorno_oncologia",
+    "consulta_oncologia",
+    "consulta_oncologista",
+    "urologista",
+    "consulta_urologista",
+    "retorno_urologia",
+    "especialista",
+    "consulta_especialista",
+    "specialist",
+}
+_NAVIGATION_STEP_ALIASES = {
+    NAVIGATION_CONSULTATION_STEP_KEY,
+    "navegacao",
+    "navegação",
+    "consulta_navegacao",
+    "consulta_navegação",
+    "enfermagem",
+    "enfermeira",
+    "enfermeiro",
+    "nurse",
+    "navigation",
+}
+
+
+def normalize_consultation_step_key(step_key: Any) -> Optional[str]:
+    if not isinstance(step_key, str):
+        return None
+    normalized = step_key.strip().lower().replace("-", "_").replace(" ", "_")
+    if normalized in _SPECIALIST_STEP_ALIASES:
+        return SPECIALIST_CONSULTATION_STEP_KEY
+    if normalized in _NAVIGATION_STEP_ALIASES:
+        return NAVIGATION_CONSULTATION_STEP_KEY
+    return step_key.strip() or None
+
+
+def internal_consultation_availability_payload(
+    payload: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Keep only fields accepted by the internal backend DTO and normalize step aliases."""
+    out: Dict[str, Any] = {}
+    professional_id = payload.get("professionalId") or payload.get(
+        "scheduledProfessionalId"
+    )
+    if professional_id:
+        out["professionalId"] = professional_id
+    step_key = normalize_consultation_step_key(payload.get("stepKey"))
+    if step_key:
+        out["stepKey"] = step_key
+    for field in ("from", "to"):
+        if payload.get(field):
+            out[field] = payload[field]
+    return out
+
+
+def missing_internal_availability_fields(payload: Dict[str, Any]) -> List[str]:
+    safe = internal_consultation_availability_payload(payload)
+    return [
+        field
+        for field in ("professionalId", "stepKey", "from", "to")
+        if not safe.get(field)
+    ]
 
 
 class BackendClient:
     """Async HTTP client for NestJS backend side-effects (alerts, disposition, ECOG)."""
 
     def __init__(self):
-        # base_url is stable at startup; token is read lazily so dotenv timing is irrelevant.
+        # Token and URL are read lazily so dotenv changes can be picked up by reloads/tests.
         self.base_url = os.getenv("BACKEND_URL", "http://localhost:3002")
+
+    @property
+    def _base_url(self) -> str:
+        """Read BACKEND_URL lazily; local dev may switch between HTTP/HTTPS."""
+        return os.getenv("BACKEND_URL", self.base_url).rstrip("/")
+
+    @property
+    def _tls_verify(self) -> bool:
+        raw = os.getenv("BACKEND_TLS_VERIFY", "true").strip().lower()
+        return raw not in {"0", "false", "no", "off"}
 
     @property
     def _service_token(self) -> Optional[str]:
         """Read BACKEND_SERVICE_TOKEN from env on every call (lazy, dotenv-safe)."""
         return os.getenv("BACKEND_SERVICE_TOKEN") or None
+
+    def _service_headers(self, tenant_id: Optional[str] = None) -> Dict[str, str]:
+        token = self._service_token
+        if not token:
+            raise RuntimeError("BACKEND_SERVICE_TOKEN não configurado")
+
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        }
+        if tenant_id:
+            headers["X-Tenant-Id"] = tenant_id
+            headers["X-Tenant-Auth"] = hmac.new(
+                token.encode("utf-8"),
+                tenant_id.encode("utf-8"),
+                hashlib.sha256,
+            ).hexdigest()
+        return headers
 
     # ── Internal raw implementation ──────────────────────────────────────────
 
@@ -49,7 +147,7 @@ class BackendClient:
         if not token:
             raise RuntimeError("BACKEND_SERVICE_TOKEN não configurado")
 
-        url = f"{self.base_url}/api/v1/alerts"
+        url = f"{self._base_url}/api/v1/alerts"
         headers = {
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
@@ -66,12 +164,62 @@ class BackendClient:
         if context:
             payload["context"] = context
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=30.0, verify=self._tls_verify) as client:
             response = await client.post(url, json=payload, headers=headers)
             response.raise_for_status()
             alert = response.json()
             logger.info("Alerta criado: %s", alert.get("id"))
             return alert
+
+    async def get_consultation_availability(
+        self,
+        *,
+        tenant_id: str,
+        payload: Dict[str, Any],
+        timeout_seconds: float = 5.0,
+    ) -> Dict[str, Any]:
+        """
+        Consulta read-only de vagas reais no backend interno.
+
+        Retorna apenas slots e metadados operacionais; não envia PII e não muta dados.
+        """
+        url = f"{self._base_url}/api/v1/agent/internal/consultation-availability"
+        headers = self._service_headers(tenant_id)
+        safe_payload = internal_consultation_availability_payload(payload)
+        missing = missing_internal_availability_fields(payload)
+        if missing:
+            raise ValueError(
+                "Payload incompleto para consultar vagas: " + ", ".join(missing)
+            )
+        async with httpx.AsyncClient(
+            timeout=timeout_seconds,
+            verify=self._tls_verify,
+        ) as client:
+            response = await client.post(url, json=safe_payload, headers=headers)
+            response.raise_for_status()
+            return response.json()
+
+    async def list_consultation_professionals(
+        self,
+        *,
+        tenant_id: str,
+        step_key: Optional[str] = None,
+        timeout_seconds: float = 5.0,
+    ) -> Dict[str, Any]:
+        """Lista profissionais agendáveis no backend interno, sem PII sensível."""
+        url = f"{self._base_url}/api/v1/agent/internal/consultation-professionals"
+        headers = self._service_headers(tenant_id)
+        payload: Dict[str, Any] = {}
+        normalized_step_key = normalize_consultation_step_key(step_key)
+        if normalized_step_key:
+            payload["stepKey"] = normalized_step_key
+        async with httpx.AsyncClient(
+            timeout=timeout_seconds,
+            verify=self._tls_verify,
+        ) as client:
+            response = await client.post(url, json=payload, headers=headers)
+            response.raise_for_status()
+            return response.json()
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -221,7 +369,7 @@ class BackendClient:
             logger.error("BACKEND_SERVICE_TOKEN não configurado")
             return None
 
-        url = f"{self.base_url}/api/v1/patients/{patient_id}"
+        url = f"{self._base_url}/api/v1/patients/{patient_id}"
         headers = {
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
@@ -236,7 +384,7 @@ class BackendClient:
         }
 
         try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
+            async with httpx.AsyncClient(timeout=15.0, verify=self._tls_verify) as client:
                 response = await client.patch(url, json=payload, headers=headers)
                 response.raise_for_status()
                 return response.json()
@@ -256,7 +404,7 @@ class BackendClient:
         if not token:
             return None
 
-        url = f"{self.base_url}/api/v1/patients/{patient_id}/performance-status"
+        url = f"{self._base_url}/api/v1/patients/{patient_id}/performance-status"
         headers = {
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
@@ -269,7 +417,7 @@ class BackendClient:
             payload["notes"] = notes
 
         try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
+            async with httpx.AsyncClient(timeout=15.0, verify=self._tls_verify) as client:
                 response = await client.post(url, json=payload, headers=headers)
                 response.raise_for_status()
                 return response.json()

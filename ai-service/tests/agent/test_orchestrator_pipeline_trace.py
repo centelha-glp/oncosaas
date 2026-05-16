@@ -15,8 +15,10 @@ async def test_orchestrator_process_includes_pipeline_trace(monkeypatch):
         agent_state,
         agent_config,
         *,
-        has_llm_keys,
-        has_anthropic,
+        patient_id: str,
+        tenant_id: str,
+        has_llm_keys: bool,
+        has_anthropic: bool,
     ):
         return {
             "response": "Resposta sintética",

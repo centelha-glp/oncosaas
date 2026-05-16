@@ -83,6 +83,11 @@ Incluir sempre: pedido do utilizador, **passo k/N**, **modo strict**, paths `@` 
 | `rag-engineer` | [agente-rag-engineer](../agente-rag-engineer/SKILL.md) | ia-dados |
 | `engenheiro-ia-predicao` | [agente-engenheiro-ia-predicao](../agente-engenheiro-ia-predicao/SKILL.md) | ia-dados |
 | `ai-ml-engineer` | [agente-ai-ml-engineer](../agente-ai-ml-engineer/SKILL.md) | ia-dados |
+| `langgraph` | [agente-langgraph](../agente-langgraph/SKILL.md) | ia-dados (opcional) |
+| `langchain` | [agente-langchain](../agente-langchain/SKILL.md) | ia-dados (opcional) |
+| `crewai` | [agente-crewai](../agente-crewai/SKILL.md) | ia-dados (opcional) |
+| `openai` | [agente-openai](../agente-openai/SKILL.md) | ia-dados (opcional) |
+| `anthropic` | [agente-anthropic](../agente-anthropic/SKILL.md) | ia-dados (opcional) |
 | `devops` | [agente-devops](../agente-devops/SKILL.md) | infra |
 | `aws` | [agente-aws](../agente-aws/SKILL.md) | infra |
 | `terraform` | [agente-terraform](../agente-terraform/SKILL.md) | infra |
@@ -109,3 +114,13 @@ Operações concretas usadas no dia-a-dia, complementares aos `agente-*`:
 - [`testar-modulo`](../testar-modulo/SKILL.md) — rodar testes de um módulo específico.
 - [`edital-centelha-es-fase2`](../edital-centelha-es-fase2/SKILL.md) — blocos, `reference.md`, `examples.md` (vinculada ao `agente-centelha-es-fase2`).
 - [`projeto-pesquisa`](../projeto-pesquisa/SKILL.md) — gestão de documentos CEP/EBSERH.
+
+### Frameworks LLM (`tarefa-*`)
+
+Playbooks por tipo de trabalho (carregar com o subagente homónimo ou `@`):
+
+- [tarefa-langgraph-orchestration](../tarefa-langgraph-orchestration/SKILL.md) · [tarefa-langgraph-persistence-hitl](../tarefa-langgraph-persistence-hitl/SKILL.md) · [tarefa-langgraph-integration-debug](../tarefa-langgraph-integration-debug/SKILL.md)
+- [tarefa-langchain-compose](../tarefa-langchain-compose/SKILL.md) · [tarefa-langchain-agents-tools](../tarefa-langchain-agents-tools/SKILL.md) · [tarefa-langchain-rag-trace](../tarefa-langchain-rag-trace/SKILL.md)
+- [tarefa-crewai-design](../tarefa-crewai-design/SKILL.md) · [tarefa-crewai-tasks-tools](../tarefa-crewai-tasks-tools/SKILL.md)
+- [tarefa-openai-api](../tarefa-openai-api/SKILL.md) · [tarefa-openai-tools-agents](../tarefa-openai-tools-agents/SKILL.md)
+- [tarefa-anthropic-messages](../tarefa-anthropic-messages/SKILL.md) · [tarefa-anthropic-tools-structured](../tarefa-anthropic-tools-structured/SKILL.md)

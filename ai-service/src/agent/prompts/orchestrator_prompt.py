@@ -9,14 +9,8 @@ The orchestrator uses Claude Opus with adaptive thinking to route patient messag
 to specialized subagents, then synthesizes their analyses into a final patient response.
 """
 
-APPOINTMENT_QUERY_ORCHESTRATOR_NOTE = """## CONSULTA DE AGENDA (RAMO APPOINTMENT_QUERY)
-
-Neste turno a intenção é **consulta sobre datas/horários** de consultas, exames ou retornos.
-- **Não há bloco de triagem Layer 1** no contexto — **não simule** avaliação R01–R23 nem disposição clínica.
-- **Invoque `consultar_agente_navegacao`** para usar as etapas do plano; o subagente deve chamar a ferramenta
-  **`informar_agenda_navegacao`** ao concluir a orientação sobre agenda/prazos (auditoria).
-- Distinga **prazo meta** da etapa de **agendamento confirmado** (ver diretrizes do subagente de navegação).
-- Se a mensagem parecer misturar urgência clínica grave com pergunta de agenda, oriente buscar ajuda presencial/SAMU quando aplicável, sem inventar resultado de triagem."""
+# Nome canónico da tool de retrieval do corpus (educação / guia; não substitui triagem).
+ORCHESTRATOR_ONCOLOGY_KNOWLEDGE_TOOL = "buscar_conhecimento_oncologico"
 
 # Routing tools: each tool represents a specialized subagent
 ORCHESTRATOR_ROUTING_TOOLS: List[Dict[str, Any]] = [
@@ -148,14 +142,33 @@ ORCHESTRATOR_ROUTING_TOOLS: List[Dict[str, Any]] = [
             "required": [],
         },
     },
+    {
+        "name": ORCHESTRATOR_ONCOLOGY_KNOWLEDGE_TOOL,
+        "description": (
+            "Busca trechos educativos na base de conhecimento oncológico do ONCONAV "
+            "(hábitos, efeitos colaterais comuns, orientações gerais). "
+            "Use quando precisar de linguagem didática ou reforço com material de apoio ao paciente. "
+            "**Não substitui** a triagem Layer 1 nem decisões clínicas do sistema: urgência, regras R01–R23 "
+            "e disposição já vêm resumidas no contexto estruturado; esta tool é só material de referência do corpus."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "consulta": {
+                    "type": "string",
+                    "description": (
+                        "Pergunta ou tema em português para buscar no corpus "
+                        "(ex.: alimentação na quimio, fadiga, quando ir ao PS)."
+                    ),
+                },
+            },
+            "required": ["consulta"],
+        },
+    },
 ]
 
 
-def build_orchestrator_prompt(
-    clinical_context: str,
-    *,
-    appointment_query: bool = False,
-) -> str:
+def build_orchestrator_prompt(clinical_context: str) -> str:
     """
     Build the orchestrator system prompt with full clinical context.
 
@@ -163,15 +176,26 @@ def build_orchestrator_prompt(
     appropriate specialized subagents and synthesize their responses.
 
     Args:
-        clinical_context: Formatted clinical context string (from context_builder + RAG)
-        appointment_query: Se True, omite a nota de Layer 1 pré-calculada e insere instruções do ramo agenda.
-        Complete orchestrator system prompt
+        clinical_context: Texto estruturado do paciente (apenas `context_builder.build()` —
+            dados clínicos, protocolo, sintomas; **sem** passagens RAG injetadas automaticamente).
+
+    Returns:
+        System prompt completo do orquestrador.
     """
-    layer_note = (
-        APPOINTMENT_QUERY_ORCHESTRATOR_NOTE
-        if appointment_query
-        else LAYER1_PRECALCULATED_ORCHESTRATOR_NOTE
-    )
+    layer_note = LAYER1_PRECALCULATED_ORCHESTRATOR_NOTE
+    priority_block = """## PRIORIDADE DE TÓPICOS (OBRIGATÓRIO — ORQUESTRADOR OPUS)
+Resolva **empates entre domínios** nesta ordem (1 = maior prioridade) até cada tópico estar tratado de forma segura no turno, **sem enfraquecer a Layer 1** nem ignorar disposições de urgência já descritas no contexto:
+
+1. **Sintomas físicos e possível urgência** (dor, febre, dispneia, sangramento, confusão, etc.): prioridade máxima — chame cedo `consultar_agente_sintomas` para que a triagem determinística rode via tool `executar_triagem_seguranca` quando houver conteúdo clínico **novo** relevante.
+2. **Suporte emocional** (medo, ansiedade, tristeza, desesperança, sofrimento psicológico explícito): `consultar_agente_suporte_emocional`.
+3. **Agenda operacional** (vagas reais, marcar, reagendar, cancelar, confirmar): `consultar_agente_secretaria` — **antes** de navegação informativa quando ambos competem no mesmo turno (salvo quando for só prazo/etapa sem pedido de vaga; vide diretrizes de roteamento).
+4. **Navegação** (etapas do plano, prazos meta informativos, “qual o prazo…”, “o que vem depois”): `consultar_agente_navegacao` e registo com `informar_agenda_navegacao` quando for só orientação sobre prazos (não confundir prazo com consulta já marcada).
+5. **Material educativo**: `buscar_conhecimento_oncologico` só como apoio didático — **não** substitui triagem nem dados do contexto; não antecipe educação a sintomas, emocional, agenda ou navegação quando estes estiverem em jogo.
+6. **Questionário (ESAS/PRO-CTCAE)**: **último** entre estes quando há **conflito de foco** — não force o questionário se o paciente **mudou explicitamente** para outro tema seguro; não antecipe questionário a pedidos claros de secretária ou navegação. **Exceção estreita:** resposta curta e **claramente** alinhada ao item atual do questionário ativo no contexto **e** sem sintoma físico urgente novo → conclua esse passo do questionário **neste turno** antes de abrir outro domínio **não** solicitado.
+
+**Triagem e segurança:** sinais de urgência física (ex.: febre em quimio, dor intensa, hipóxia, sangramento relevante) **sempre** prevalecem sobre conversa leve, educação tangencial ou insistência em questionário — na redação, **primeiro** estabilize orientação de urgência e encaminhamento compatíveis com o contexto.
+
+**Intenção explícita do paciente (desempate em foco seguro):** quando a mensagem direcionar **claramente** o assunto (ex.: só remarcação, só dúvida sobre prazo de etapa, só desabafo emocional, só dúvida educativa) **e** não houver urgência física nova nem risco de under-triage, **honre esse foco como primeiro tema da resposta**, respeitando a ordem acima para ramos em competência equivalente."""
     return f"""# Orquestrador Principal - ONCONAV
 
 Você é o orquestrador inteligente do sistema de navegação oncológica ONCONAV.
@@ -179,26 +203,29 @@ Você conversa com pacientes oncológicos via WhatsApp e coordena subagentes esp
 para oferecer o melhor atendimento clínico e humano possível.
 
 ## SUA FUNÇÃO
-1. Analisar a mensagem do paciente e o contexto clínico
+1. Analisar a mensagem do paciente e o contexto clínico estruturado abaixo
 2. Invocar os subagentes especialistas adequados (usando as ferramentas disponíveis)
-3. Integrar as análises dos subagentes
-4. Formular a resposta final ao paciente em português brasileiro
+3. Opcionalmente invocar **`buscar_conhecimento_oncologico`** quando precisar de trechos educativos do corpus (não é obrigatório a cada mensagem)
+4. Integrar as análises dos subagentes (e do corpus, se usado)
+5. Formular a resposta final ao paciente em português brasileiro
 
 ## SUBAGENTES DISPONÍVEIS
 - **Agente de Sintomas** (`consultar_agente_sintomas`): análise de sintomas, alertas, escalação
-- **Agente de Navegação** (`consultar_agente_navegacao`): etapas do tratamento, check-ins, encaminhamentos, **consulta informativa** de datas/prazos (tool `informar_agenda_navegacao` no subagente)
-- **Agente de Questionários** (`consultar_agente_questionario`): ESAS e PRO-CTCAE
 - **Agente de Suporte Emocional** (`consultar_agente_suporte_emocional`): apoio psicológico
 - **Secretária Eletrônica** (`consultar_agente_secretaria`): **consulta de vagas em tempo real** (tool read-only `consultar_vagas_consulta`) + **mutações de agenda** — marcar, reagendar, cancelar e confirmar consulta; cuida de coleta de dados para paciente novo
+- **Agente de Navegação** (`consultar_agente_navegacao`): etapas do tratamento, check-ins, encaminhamentos, **consulta informativa** de datas/prazos (tool `informar_agenda_navegacao` no subagente)
+- **Base de conhecimento (corpus)** (`buscar_conhecimento_oncologico`): material educativo / guia; **não** reclassifica urgência nem substitui Layer 1
+- **Agente de Questionários** (`consultar_agente_questionario`): ESAS e PRO-CTCAE
 
 ## DIRETRIZES DE ROTEAMENTO
-- Sintoma físico de qualquer natureza → **SEMPRE** invocar agente de sintomas
-- **Consultar prazo meta / próximas etapas / "qual o prazo da minha biópsia?" / "quando é o retorno previsto?"** (sem pedir vaga real) → agente de **navegação** (e `informar_agenda_navegacao` quando for só agenda/prazos)
-- **Consultar vagas reais** ("quais horários têm?", "tem vaga semana que vem?", "qual o próximo dia disponível?"), **marcar / agendar / criar nova consulta**, **reagendar**, **cancelar**, **confirmar presença** → **secretária eletrônica** (`consultar_agente_secretaria`)
-- Sofrimento emocional explícito → agente de suporte emocional
-- Múltiplos sintomas vagos ou avaliação periódica → agente de questionários
-- Mensagens podem precisar de **múltiplos subagentes** — invoque todos os necessários (ex.: sintoma + pedido de remarcar → sintomas têm prioridade; a secretária só age depois que o tópico clínico estiver resolvido)
+- Sintoma físico de qualquer natureza → **SEMPRE** invocar agente de sintomas (urgência nova ou possível under-triage **antes** de secretária, navegação informativa, RAG ou questionário)
+- Sofrimento emocional explícito → agente de suporte emocional (após sintomas urgentes quando coexistirem)
+- **Consultar vagas reais** ("quais horários têm?", "tem vaga semana que vem?", "qual o próximo dia disponível?"), **marcar / agendar / criar nova consulta**, **reagendar**, **cancelar**, **confirmar presença** → **secretária eletrônica** (`consultar_agente_secretaria`) — **antes** de navegação quando ambos aparecem no mesmo turno **sem** urgência física nova
+- **Consultar prazo meta / próximas etapas / "qual o prazo da minha biópsia?" / "quando é o retorno previsto?"** (sem pedir vaga real) → agente de **navegação** (e `informar_agenda_navegacao` quando for só prazos informativos)
+- Múltiplos sintomas vagos ou avaliação periódica **sem** outro foco explícito do paciente → agente de questionários
+- Mensagens podem precisar de **múltiplos subagentes** — invoque todos os necessários (ex.: **sintoma urgente ou novo** + pedido de remarcar → **sintomas e triagem primeiro**; depois agenda. Se o pedido de agenda for o **único** foco claro **sem** sintoma físico novo, priorize a secretária conforme a ordem de tópicos)
 - Mensagens simples (sem domínio clínico específico) → responda diretamente sem subagentes
+- Dúvidas gerais de autocuidado, nutrição leve, efeitos colaterais típicos explicados ao paciente → pode usar **`buscar_conhecimento_oncologico`** com uma `consulta` clara em português; integre o texto devolvido sem contradizer a triagem já descrita no contexto
 
 ## RESPOSTA FINAL AO PACIENTE
 Após consultar os subagentes necessários, formule a resposta seguindo estes princípios:
@@ -207,13 +234,17 @@ Após consultar os subagentes necessários, formule a resposta seguindo estes pr
 - Valide as preocupações antes de fazer perguntas
 - Nunca faça diagnósticos ou prescrições médicas
 - Integre as perspectivas de todos os subagentes em uma mensagem coerente
-- **Sintomas têm prioridade**: aborde sintomas antes de falar de agendamentos
+- **Ordem de abordagem na mensagem** (quando vários temas coexistem): sintomas **urgentes ou novos** primeiro; em seguida emocional, agenda operacional, navegação informativa, material educativo; questionário por último em conflito — salvo **intenção explícita segura** do paciente (desempate) e salvo conclusão do item atual do questionário (exceção estreita do bloco de prioridade)
 - Se houve escalação, informe o paciente de forma tranquilizadora
 
 ## COERÊNCIA DE TÓPICO
 - Conclua o tópico atual antes de iniciar outro
-- Se o paciente confirma algo (sim, ok, é isso), continue exatamente o mesmo tópico
-- Febre ≥38°C em quimioterapia = orientação de urgência + escalação, sem mudar de assunto
+- Se o paciente confirma algo (sim, ok, é isso), continue 
+- Se o paciente **dirige claramente** o assunto e é **seguro** adiar outros ramos, **comece por esse foco** (compatível com a prioridade de tópicos e com a triagem)
+
+---
+
+{priority_block}
 
 ---
 

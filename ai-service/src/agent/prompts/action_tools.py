@@ -6,6 +6,26 @@ replacing hard-coded keyword rules with contextual understanding.
 
 AGENT_ACTION_TOOLS = [
     {
+        "name": "executar_triagem_seguranca",
+        "description": (
+            "Executa a triagem determinística do turno: análise de sintomas (keywords + LLM opcional) "
+            "e avaliação Layer 1 (regras R01–R23 / MASCC-CISNE). Deve ser invocada **no início** da "
+            "avaliação quando a mensagem puder conter sinais ou sintomas clínicos; o resultado "
+            "alimenta o orquestrador e o contrato HTTP — não substitui o registo estruturado de "
+            "sintomas com `registrar_sintoma`."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "nota": {
+                    "type": "string",
+                    "description": "Opcional — breve justificativa interna (ex.: checagem do turno).",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
         "name": "registrar_sintoma",
         "description": (
             "Registra um sintoma reportado pelo paciente. Use sempre que o paciente "
@@ -235,6 +255,33 @@ AGENT_ACTION_TOOLS = [
         },
     },
     {
+        "name": "listar_profissionais_consulta",
+        "description": (
+            "Lista em TEMPO REAL os profissionais agendáveis disponíveis no tenant para consultas. "
+            "Ação READ-ONLY: NÃO cria, reagenda nem cancela nada. Use quando o paciente disser "
+            "'qualquer oncologista', 'qualquer médico', não souber o nome do profissional, ou antes "
+            "de consultar vagas quando faltar `scheduledProfessionalId`."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "stepKey": {
+                    "type": "string",
+                    "enum": ["specialist_consultation", "navigation_consultation"],
+                    "description": (
+                        "`specialist_consultation` para médico/oncologista/urologista/"
+                        "especialista; `navigation_consultation` para navegação/enfermagem."
+                    ),
+                },
+                "motivo": {
+                    "type": "string",
+                    "description": "Motivo curto da listagem (opcional, não é persistido como PII).",
+                },
+            },
+            "required": ["stepKey"],
+        },
+    },
+    {
         "name": "consultar_vagas_consulta",
         "description": (
             "Consulta em TEMPO REAL a agenda do backend para listar horários disponíveis em uma "
@@ -252,17 +299,18 @@ AGENT_ACTION_TOOLS = [
                     "type": "string",
                     "description": (
                         "ID do profissional/médico cuja agenda deve ser consultada. "
-                        "Opcional se `stepKey` for fornecido, mas pelo menos um dos dois é "
-                        "obrigatório."
+                        "Obrigatório para consultar vagas reais; se não houver ID no contexto, "
+                        "não chame a tool e peça ao paciente/equipe qual médico/profissional."
                     ),
                 },
                 "stepKey": {
                     "type": "string",
+                    "enum": ["specialist_consultation", "navigation_consultation"],
                     "description": (
                         "Chave da etapa de navegação associada à consulta (ex.: "
-                        "'retorno_oncologia', 'consulta_cistoscopia'). Opcional se "
-                        "`scheduledProfessionalId` for fornecido, mas pelo menos um dos dois é "
-                        "obrigatório."
+                        "`specialist_consultation` para consulta com médico/oncologista/"
+                        "urologista, ou `navigation_consultation` para consulta de navegação/"
+                        "enfermagem). Obrigatório junto com `scheduledProfessionalId`."
                     ),
                 },
                 "from": {
@@ -294,7 +342,7 @@ AGENT_ACTION_TOOLS = [
                     ),
                 },
             },
-            "required": ["from", "to"],
+            "required": ["scheduledProfessionalId", "stepKey", "from", "to"],
         },
     },
     {

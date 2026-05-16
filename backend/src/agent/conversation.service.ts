@@ -121,13 +121,13 @@ export class ConversationService {
   }
 
   /**
-   * Get recent message history for a conversation
+   * Get recent message history for a conversation (last N by time, oldest-first for prompts).
    */
   async getRecentHistory(conversationId: string, limit: number = 20) {
     const take = Math.min(Math.max(limit, 1), 200);
-    return this.prisma.message.findMany({
+    const rows = await this.prisma.message.findMany({
       where: { conversationId },
-      orderBy: { createdAt: 'asc' },
+      orderBy: { createdAt: 'desc' },
       take,
       select: {
         id: true,
@@ -140,6 +140,7 @@ export class ConversationService {
         criticalSymptomsDetected: true,
       },
     });
+    return rows.reverse();
   }
 
   /**

@@ -492,6 +492,8 @@ export interface ComplementaryExamResult {
   criticalLow: boolean | null;
   report: string | null;
   components?: ComplementaryExamResultComponent[] | null;
+  /** Soft-delete no backend — omitir da UI quando preenchido */
+  deletedAt?: string | null;
 }
 
 export interface ComplementaryExam {

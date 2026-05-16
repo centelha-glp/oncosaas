@@ -3,6 +3,8 @@ from fastapi import APIRouter, Depends
 from ..auth import require_service_token
 from .agent import generate_checkin_message, router as agent_router
 from .nurse import nurse_assist, router as nurse_router
+from .exam_extract import router as exam_extract_router
+from .clinical_evolution_structure import router as clinical_evolution_structure_router
 from .observability import router as observability_router
 from .priority import router as priority_router
 from .risk import router as risk_router
@@ -19,6 +21,8 @@ router.include_router(agent_router, dependencies=_auth)
 router.include_router(risk_router, dependencies=_auth)
 router.include_router(nurse_router, dependencies=_auth)
 router.include_router(summary_router, dependencies=_auth)
+router.include_router(exam_extract_router, dependencies=_auth)
+router.include_router(clinical_evolution_structure_router, dependencies=_auth)
 router.include_router(observability_router, dependencies=_auth)
 
 __all__ = ["router", "generate_checkin_message", "nurse_assist"]

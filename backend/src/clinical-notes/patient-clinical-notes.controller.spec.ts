@@ -5,6 +5,7 @@ describe('PatientClinicalNotesController', () => {
   const clinicalNotesService = {
     findAllForPatient: jest.fn(),
     create: jest.fn(),
+    bootstrapEvolutionNavigationStep: jest.fn(),
   };
   const sectionSuggestionService = {
     getSectionSuggestions: jest.fn(),
@@ -71,6 +72,36 @@ describe('PatientClinicalNotesController', () => {
         1,
         20,
         stepId
+      );
+    });
+  });
+
+  describe('bootstrapEvolutionNavigationStep', () => {
+    it('deve repassar tenantId, actor e noteType ao service', async () => {
+      const controller = new PatientClinicalNotesController(
+        clinicalNotesService as any,
+        sectionSuggestionService as any
+      );
+      clinicalNotesService.bootstrapEvolutionNavigationStep.mockResolvedValueOnce({
+        id: 'step-new',
+      });
+
+      const out = await controller.bootstrapEvolutionNavigationStep(
+        PATIENT_ID,
+        { noteType: 'NURSING' as any },
+        user
+      );
+
+      expect(out).toEqual({ id: 'step-new' });
+      expect(clinicalNotesService.bootstrapEvolutionNavigationStep).toHaveBeenCalledWith(
+        PATIENT_ID,
+        user.tenantId,
+        expect.objectContaining({
+          id: user.id,
+          role: user.role,
+          clinicalSubrole: user.clinicalSubrole,
+        }),
+        'NURSING'
       );
     });
   });

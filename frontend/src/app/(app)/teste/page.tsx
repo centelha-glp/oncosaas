@@ -25,6 +25,7 @@ export default function TestePage() {
     null
   );
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const pendingAgentTraceRef = useRef(false);
 
   const { data: patients } = usePatients();
   const { data: messages } = useMessages(selectedPatient || undefined);
@@ -55,7 +56,17 @@ export default function TestePage() {
 
   useEffect(() => {
     setSelectedMessageId(null);
+    pendingAgentTraceRef.current = false;
   }, [selectedPatient]);
+
+  useEffect(() => {
+    if (!pendingAgentTraceRef.current || !messages?.length) return;
+    const last = messages[messages.length - 1];
+    if (last.direction === 'OUTBOUND' && last.processedBy === 'AGENT') {
+      setSelectedMessageId(last.id);
+      pendingAgentTraceRef.current = false;
+    }
+  }, [messages]);
 
   const handleSendAsPatient = async () => {
     if (!selectedPatient || !messageInput.trim() || isSending) return;
@@ -93,6 +104,7 @@ export default function TestePage() {
         processedBy: 'AGENT',
       });
 
+      pendingAgentTraceRef.current = true;
       setMessageInput('');
       // Invalidar para buscar dados atualizados
       queryClient.invalidateQueries({

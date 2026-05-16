@@ -3,13 +3,41 @@ Tests for LLMProvider — key resolution, fallback response, degraded mode.
 """
 from types import SimpleNamespace
 
+import httpx
 import pytest
-from src.agent.llm_provider import LLMProvider
+from anthropic import BadRequestError, PermissionDeniedError, RateLimitError
+
+from src.agent.llm_provider import (
+    LLMProvider,
+    is_anthropic_openai_fallback_eligible,
+    _openai_fallback_chat_model,
+)
 
 
 @pytest.fixture()
 def provider():
     return LLMProvider()
+
+
+class TestExamExtractStructuredNoKeys:
+
+    @pytest.mark.asyncio
+    async def test_generate_exam_extract_structured_sem_chaves_retorna_json_mock(
+        self, provider, monkeypatch
+    ):
+        monkeypatch.setattr(provider, "has_any_llm_key", lambda cfg: False)
+        out = await provider.generate_exam_extract_structured(
+            system_prompt="sys",
+            user_text_instruction="Hemograma: Hb 12 g/dL",
+            anthropic_user_blocks=[],
+            openai_user_content=[],
+            config={},
+        )
+        assert out["markdownFromStructuredParse"] is True
+        assert out["detectedCategories"] == ["OTHER"]
+        assert "Hb 12" in out["markdownSummary"]
+        assert "desenvolvimento" in out["markdownSummary"].lower()
+        assert "simulada" in out["disclaimer"].lower() or "desenvolvimento" in out["disclaimer"].lower()
 
 
 class TestFallbackResponse:
@@ -130,3 +158,125 @@ class TestAnthropicAssistantBlockReplay:
             "type": "redacted_thinking",
             "data": "abc",
         }
+
+
+def _anthropic_http_exc(status: int, *, body: dict, cls=PermissionDeniedError):
+    req = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+    resp = httpx.Response(status, request=req, json=body)
+    return cls("err", response=resp, body=body)
+
+
+class TestAnthropicOpenaiFallbackEligible:
+
+    def test_rate_limit_true(self):
+        e = _anthropic_http_exc(
+            429,
+            body={"error": {"type": "rate_limit_error", "message": "slow down"}},
+            cls=RateLimitError,
+        )
+        assert is_anthropic_openai_fallback_eligible(e) is True
+
+    def test_403_with_credit_message_true(self):
+        body = {
+            "error": {
+                "type": "permission_error",
+                "message": "Credit balance is too low",
+            }
+        }
+        e = _anthropic_http_exc(403, body=body)
+        assert is_anthropic_openai_fallback_eligible(e) is True
+
+    def test_403_without_billing_false(self):
+        body = {
+            "error": {
+                "type": "permission_error",
+                "message": "Request not allowed",
+            }
+        }
+        e = _anthropic_http_exc(403, body=body)
+        assert is_anthropic_openai_fallback_eligible(e) is False
+
+    def test_bad_request_false(self):
+        body = {"error": {"type": "invalid_request_error", "message": "bad"}}
+        e = _anthropic_http_exc(400, body=body, cls=BadRequestError)
+        assert is_anthropic_openai_fallback_eligible(e) is False
+
+
+class TestOpenaiFallbackChatModel:
+
+    def test_prefers_openai_fallback_from_config(self):
+        m = _openai_fallback_chat_model(
+            {
+                "llm_fallback_provider": "openai",
+                "llm_fallback_model": "gpt-4o-mini",
+            }
+        )
+        assert m == "gpt-4o-mini"
+
+    def test_default_mini_when_claude_model(self):
+        m = _openai_fallback_chat_model({"llm_model": "claude-haiku-4-5"})
+        assert m == "gpt-4o-mini"
+
+
+class TestGenerateAnthropicToOpenaiFallback:
+
+    @pytest.mark.asyncio
+    async def test_generate_retries_openai_on_rate_limit(self, provider, monkeypatch):
+        async def boom_anthropic(*a, **k):
+            raise _anthropic_http_exc(
+                429,
+                body={"error": {"type": "rate_limit_error"}},
+                cls=RateLimitError,
+            )
+
+        called = {"n": 0}
+
+        async def ok_openai(*a, **k):
+            called["n"] += 1
+            return "from-openai", {"input_tokens": 3, "output_tokens": 4}
+
+        monkeypatch.setattr(provider, "_call_anthropic", boom_anthropic)
+        monkeypatch.setattr(provider, "_call_openai", ok_openai)
+
+        cfg = {
+            "llm_provider": "anthropic",
+            "llm_model": "claude-haiku-4-5",
+            "anthropic_api_key": "sk-ant-test",
+            "openai_api_key": "sk-oai-test",
+        }
+        out = await provider.generate("sys", [{"role": "user", "content": "hi"}], cfg)
+        assert out == "from-openai"
+        assert called["n"] == 1
+
+    @pytest.mark.asyncio
+    async def test_generate_with_tools_openai_on_billing_error(self, provider, monkeypatch):
+        async def boom(*a, **k):
+            raise _anthropic_http_exc(
+                403,
+                body={
+                    "error": {
+                        "type": "permission_error",
+                        "message": "Your credit balance is too low",
+                    }
+                },
+            )
+
+        async def ok_openai_tools(*a, **k):
+            return {"response": "ok-tools", "tool_calls": [], "usage": {"input_tokens": 1, "output_tokens": 2}}
+
+        monkeypatch.setattr(provider, "_call_anthropic_with_tools", boom)
+        monkeypatch.setattr(provider, "_call_openai_with_tools", ok_openai_tools)
+
+        cfg = {
+            "llm_provider": "anthropic",
+            "llm_model": "claude-haiku-4-5",
+            "anthropic_api_key": "sk-ant-test",
+            "openai_api_key": "sk-oai-test",
+        }
+        out = await provider.generate_with_tools(
+            "sys",
+            [{"role": "user", "content": "x"}],
+            [{"type": "function", "function": {"name": "f", "parameters": {}}}],
+            cfg,
+        )
+        assert out["response"] == "ok-tools"

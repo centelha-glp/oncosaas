@@ -7,6 +7,7 @@ import {
   Logger,
   Optional,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePatientDto, Gender, CancerType } from './dto/create-patient.dto';
 import { UpdatePatientDto } from './dto/update-patient.dto';
@@ -35,6 +36,7 @@ import { Readable } from 'stream';
 import { ComorbiditiesService } from '../comorbidities/comorbidities.service';
 import { MedicationsService } from '../medications/medications.service';
 import { normalizeAllergyEntriesForStorage } from './patient-clinical-json.util';
+import { PROTOCOL_SCHEDULE_REEVALUATION_EVENT } from '../agent/protocol-evaluation.events';
 
 type PatientWithDiagnoses = Prisma.PatientGetPayload<{
   include: {
@@ -70,7 +72,8 @@ export class PatientsService {
     private readonly navigationService?: OncologyNavigationService,
     private readonly priorityRecalculationService?: PriorityRecalculationService,
     @Optional() private readonly comorbiditiesService?: ComorbiditiesService,
-    @Optional() private readonly medicationsService?: MedicationsService
+    @Optional() private readonly medicationsService?: MedicationsService,
+    @Optional() private readonly eventEmitter?: EventEmitter2
   ) {}
 
   /**
@@ -787,6 +790,18 @@ export class PatientsService {
       }
     }
 
+    if (
+      updatePatientDto.currentStage !== undefined &&
+      existingPatient.currentStage !== updatedPatient.currentStage &&
+      this.eventEmitter
+    ) {
+      this.eventEmitter.emit(PROTOCOL_SCHEDULE_REEVALUATION_EVENT, {
+        patientId: id,
+        tenantId,
+        reason: 'patient_current_stage_changed',
+      });
+    }
+
     return updatedPatient;
   }
 
@@ -1424,7 +1439,10 @@ export class PatientsService {
         },
         complementaryExams: {
           include: {
-            results: { orderBy: { performedAt: 'desc' } },
+            results: {
+              where: { deletedAt: null },
+              orderBy: { performedAt: 'desc' },
+            },
           },
         },
         medications: {

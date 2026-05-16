@@ -90,7 +90,7 @@ class AgentProcessResponse(BaseModel):
     )
     pipeline_trace: Optional[Dict[str, Any]] = Field(
         None,
-        description="Observability trace: spans, pipeline_path, intent, clinical disposition",
+        description="Observability trace: spans, pipeline_path, triage_source, clinical disposition",
     )
 
 

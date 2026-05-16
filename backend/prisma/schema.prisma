@@ -41,6 +41,8 @@ model User {
   clinicalNotesSigned          ClinicalNote[]        @relation("ClinicalNoteSignedBy")
   clinicalNotesVoided          ClinicalNote[]        @relation("ClinicalNoteVoidedBy")
   clinicalNoteVersionsAuthored ClinicalNoteVersion[] @relation("ClinicalNoteVersionAuthor")
+  /// Execuções de extração estruturada pós-assinatura (quem assinou = contexto do job)
+  clinicalNoteExtractionRunsSigned ClinicalNoteExtractionRun[] @relation("ClinicalNoteExtractionRunSignedBy")
   /// Pedidos de exame registrados na evolução
   clinicalExamRequestsRequested ClinicalExamRequest[] @relation("ClinicalExamRequestRequestedBy")
   /// Linhas de prescrição registradas na evolução médica
@@ -193,6 +195,7 @@ model Patient {
   clinicalPrescriptionLines ClinicalPrescriptionLine[]
   tissSpsadtGuides         TissSpsadtGuide[]
   consents                 PatientConsent[] // Termos de Consentimento Livre e Esclarecido (TCLE)
+  clinicalNoteExtractionRuns ClinicalNoteExtractionRun[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -242,6 +245,7 @@ model ClinicalNote {
   clinicalExamRequests      ClinicalExamRequest[]
   clinicalPrescriptionLines ClinicalPrescriptionLine[]
   tissSpsadtGuides          TissSpsadtGuide[]
+  extractionRuns            ClinicalNoteExtractionRun[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -251,6 +255,72 @@ model ClinicalNote {
   @@index([tenantId, patientId, createdAt])
   @@index([navigationStepId])
   @@map("clinical_notes")
+}
+
+/// Estado do pipeline de extração estruturada após assinatura da evolução (BullMQ + ai-service).
+enum ClinicalNoteExtractionRunStatus {
+  PENDING // Job enfileirado ou em processamento
+  APPLIED // Escritas aplicadas (parcial ou total); pode desfazer na janela configurada
+  FAILED // Falha antes de aplicar mutações
+  ROLLED_BACK // Desfeito via API de undo
+}
+
+/// Idempotência por hash do conteúdo da versão assinada (`ClinicalNoteVersion.sectionsContentHash`).
+model ClinicalNoteExtractionRun {
+  id                    String                           @id @default(uuid())
+  tenantId              String
+  patientId             String
+  clinicalNoteId        String
+  /// Alinhado a `ClinicalNoteVersion.sectionsContentHash` da versão no momento da assinatura
+  sectionsContentHash   String
+  latestVersionNumber   Int
+  signedByUserId        String
+  status                ClinicalNoteExtractionRunStatus @default(PENDING)
+  /// Relatório de rejeições por domínio/campo (aplicação parcial)
+  rejectionReport       Json?
+  /// SHA-256 hex do payload canónico aplicado (sem PHI completo)
+  appliedPayloadHash    String?
+  errorMessage            String?
+  appliedAt             DateTime?
+  rolledBackAt          DateTime?
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  patient      Patient      @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  clinicalNote ClinicalNote @relation(fields: [clinicalNoteId], references: [id], onDelete: Cascade)
+  signedBy     User         @relation("ClinicalNoteExtractionRunSignedBy", fields: [signedByUserId], references: [id])
+  ledgerLines  ClinicalNoteExtractionLedgerLine[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([clinicalNoteId, sectionsContentHash])
+  @@index([tenantId])
+  @@index([clinicalNoteId])
+  @@index([tenantId, patientId])
+  @@map("clinical_note_extraction_runs")
+}
+
+/// Linhas de ledger para desfazer mutações na ordem inversa.
+model ClinicalNoteExtractionLedgerLine {
+  id         String @id @default(uuid())
+  tenantId   String
+  runId      String
+  /// Ordem de aplicação (1 = primeiro); undo percorre do maior para o menor
+  sequence   Int
+  /// Ex.: CREATE_CLINICAL_EXAM_REQUEST
+  operation  String
+  /// ID da entidade criada/alterada
+  entityId   String
+  metadata   Json?
+
+  tenant Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  run    ClinicalNoteExtractionRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([runId, sequence])
+  @@map("clinical_note_extraction_ledger_lines")
 }
 
 /// Pedido de exame na evolução — rastreável por `clinicalNoteId` + `clinicalNoteVersionNumber`
@@ -985,7 +1055,7 @@ model AgentConfig {
 
   // Provedor LLM
   llmProvider         String  @default("anthropic") // "anthropic" | "openai"
-  llmModel            String  @default("claude-sonnet-4-6")
+  llmModel            String  @default("claude-haiku-4-5")
   llmFallbackProvider String? // Fallback se o principal falhar
   llmFallbackModel    String?
 
@@ -1781,6 +1851,8 @@ model Tenant {
   productFeedbacks         ProductFeedback[]
   consultationAgendaConfigs ConsultationAgendaConfig[]
   consultationAgendaBlocks ConsultationAgendaBlock[]
+  clinicalNoteExtractionRuns     ClinicalNoteExtractionRun[]
+  clinicalNoteExtractionLedgerLines ClinicalNoteExtractionLedgerLine[]
 
   @@map("tenants")
 }

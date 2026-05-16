@@ -39,9 +39,11 @@
     "export-protocol-snapshot": "ts-node -r tsconfig-paths/register scripts/export-protocol-snapshot.ts"
   },
   "dependencies": {
+    "@nestjs/bullmq": "^11.0.4",
     "@nestjs/common": "^11.1.18",
     "@nestjs/config": "^4.0.3",
     "@nestjs/core": "^11.1.18",
+    "@nestjs/event-emitter": "^3.1.0",
     "@nestjs/jwt": "^11.0.2",
     "@nestjs/mapped-types": "^2.1.0",
     "@nestjs/passport": "^11.0.5",
@@ -55,6 +57,7 @@
     "@types/nodemailer": "^8.0.0",
     "axios": "^1.15.0",
     "bcrypt": "^6.0.0",
+    "bullmq": "^5.76.8",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
     "cookie-parser": "^1.4.7",

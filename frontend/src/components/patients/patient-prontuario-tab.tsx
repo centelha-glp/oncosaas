@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
+import { useQueryClient } from '@tanstack/react-query';
 import { PatientDetail } from '@/lib/api/patients';
 import {
   CLINICAL_EVOLUTION_NAVIGATION_STEP_KEY,
@@ -23,6 +24,8 @@ import {
   useClinicalNoteDetail,
   useClinicalNotesList,
   useClinicalNoteMutations,
+  useClinicalNoteExtractionStatus,
+  useUndoClinicalNoteExtraction,
 } from '@/hooks/use-clinical-notes';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -60,9 +63,11 @@ import {
 } from '@/components/ui/select';
 import { QueryErrorRetry } from '@/components/shared/query-error-retry';
 import { ClinicalNoteMarkdownBody } from '@/components/patients/clinical-note-markdown-body';
+import { PatientExamIngestAssist } from '@/components/patients/patient-exam-ingest-assist';
+import { PatientProntuarioLabHistory } from '@/components/patients/patient-prontuario-lab-history';
 
 /** Tempo sem digitar antes de enviar PATCH (salvamento automático do rascunho) */
-const CLINICAL_NOTE_AUTOSAVE_MS = 1000;
+const CLINICAL_NOTE_AUTOSAVE_MS = 2000;
 
 interface PatientProntuarioTabProps {
   patient: PatientDetail;
@@ -73,9 +78,29 @@ function journeyStageLabel(stage: string): string {
   return JOURNEY_STAGE_LABELS[s] ?? stage;
 }
 
+function extractionStatusLabel(
+  status: string | undefined
+): string {
+  switch (status) {
+    case 'PENDING':
+      return 'Em processamento';
+    case 'APPLIED':
+      return 'Aplicada';
+    case 'FAILED':
+      return 'Falhou';
+    case 'ROLLED_BACK':
+      return 'Desfeita';
+    case 'NONE':
+      return '—';
+    default:
+      return status ?? '—';
+  }
+}
+
 export function PatientProntuarioTab({
   patient,
 }: PatientProntuarioTabProps): React.ReactElement {
+  const queryClient = useQueryClient();
   const {
     data: list,
     isLoading,
@@ -85,11 +110,18 @@ export function PatientProntuarioTab({
   } = useClinicalNotesList(patient.id);
   const { data: navigationSteps = [] } = usePatientNavigationSteps(patient.id);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const { data: detail, isLoading: loadingDetail } = useClinicalNoteDetail(
-    selectedId ?? undefined
-  );
+  const {
+    data: detail,
+    isLoading: loadingDetail,
+    error: detailQueryError,
+  } = useClinicalNoteDetail(selectedId ?? undefined);
   const { create, update, sign, addendum, voidNote } = useClinicalNoteMutations(
     patient.id
+  );
+  const undoExtraction = useUndoClinicalNoteExtraction(patient.id);
+  const { data: extractionStatus } = useClinicalNoteExtractionStatus(
+    selectedId ?? undefined,
+    Boolean(detail?.status === 'SIGNED')
   );
   const [draftMarkdown, setDraftMarkdown] = useState('');
   const [voidOpen, setVoidOpen] = useState(false);
@@ -148,12 +180,19 @@ export function PatientProntuarioTab({
     };
   }, [detail, role, clinicalSubrole, userId]);
 
+  const draftForAutosave = React.useMemo(
+    () => ({ id: selectedId ?? '', contentMarkdown: draftMarkdown }),
+    [selectedId, draftMarkdown]
+  );
   const debouncedDraftPayload = useDebounce(
-    { id: selectedId ?? '', contentMarkdown: draftMarkdown },
+    draftForAutosave,
     CLINICAL_NOTE_AUTOSAVE_MS
   );
 
   const draftBaselineSerialized = React.useRef<string>('');
+  /** Após 429 no PATCH, não dispara autosave até passar este instante (backoff exponencial por tentativa). */
+  const autosaveRateLimitUntilRef = React.useRef(0);
+  const autosaveRateLimitAttemptRef = React.useRef(0);
 
   React.useEffect(() => {
     setDraftMarkdown('');
@@ -169,6 +208,21 @@ export function PatientProntuarioTab({
   }, [detail?.id, detail?.latestVersionNumber, detail?.status, detail?.contentMarkdown]);
 
   React.useEffect(() => {
+    if (!selectedId || !detailQueryError) return;
+    if (!(detailQueryError instanceof ApiClientError)) return;
+    if (detailQueryError.statusCode !== 404) return;
+    toast.error(
+      'Esta evolução não existe mais (dados podem ter sido recriados). A lista será atualizada.',
+      { id: 'clinical-note-detail-404' }
+    );
+    setSelectedId(null);
+    void queryClient.invalidateQueries({
+      queryKey: ['clinical-notes', patient.id],
+    });
+    void queryClient.invalidateQueries({ queryKey: ['patient', patient.id] });
+  }, [detailQueryError, patient.id, queryClient, selectedId]);
+
+  React.useEffect(() => {
     const noteId = detail?.id;
     const noteStatus = detail?.status;
     if (
@@ -180,6 +234,7 @@ export function PatientProntuarioTab({
     }
     if (loadingDetail) return;
     if (debouncedDraftPayload.id !== noteId) return;
+    if (Date.now() < autosaveRateLimitUntilRef.current) return;
 
     const serialized = debouncedDraftPayload.contentMarkdown;
     if (serialized === draftBaselineSerialized.current) return;
@@ -194,8 +249,30 @@ export function PatientProntuarioTab({
       {
         onSuccess: () => {
           draftBaselineSerialized.current = serialized;
+          autosaveRateLimitAttemptRef.current = 0;
         },
         onError: (err) => {
+          if (err instanceof ApiClientError && err.statusCode === 404) {
+            toast.error(
+              'Esta evolução não existe mais. Selecione outra na lista ou crie uma nova.',
+              { id: 'clinical-note-autosave-404' }
+            );
+            setSelectedId(null);
+            return;
+          }
+          if (err instanceof ApiClientError && err.statusCode === 429) {
+            autosaveRateLimitAttemptRef.current += 1;
+            const ms = Math.min(
+              15_000 * 2 ** (autosaveRateLimitAttemptRef.current - 1),
+              120_000
+            );
+            autosaveRateLimitUntilRef.current = Date.now() + ms;
+            toast.error(
+              'Muitas requisições: salvamento automático pausado por um momento.',
+              { id: 'clinical-note-autosave-429' }
+            );
+            return;
+          }
           const msg =
             err instanceof ApiClientError
               ? err.message
@@ -212,7 +289,8 @@ export function PatientProntuarioTab({
     detail?.status,
     detailPerms?.canEditDraft,
     loadingDetail,
-    update,
+    update.isPending,
+    update.mutate,
   ]);
 
   const handleSignDraft = async () => {
@@ -235,6 +313,14 @@ export function PatientProntuarioTab({
       }
       await sign.mutateAsync(detail.id);
     } catch (err) {
+      if (err instanceof ApiClientError && err.statusCode === 404) {
+        toast.error(
+          'Esta evolução não existe mais. Selecione outra na lista ou crie uma nova.',
+          { id: 'clinical-note-sign-404' }
+        );
+        setSelectedId(null);
+        return;
+      }
       const msg =
         err instanceof ApiClientError
           ? err.message
@@ -249,16 +335,41 @@ export function PatientProntuarioTab({
     setIsResolvingCreateTemplate(true);
     try {
       const stepKey = CLINICAL_EVOLUTION_NAVIGATION_STEP_KEY[noteType];
-      const candidates = sortNavigationStepsForEvolutionPick(
+      let candidates = sortNavigationStepsForEvolutionPick(
         filterNavigationStepsByEvolutionBaseKey(navigationSteps, stepKey),
         patient.currentStage
       );
 
       if (candidates.length === 0) {
-        toast.error(
-          'Não há etapa de navegação correspondente no paciente. Abra Navegação oncológica no menu e garanta as etapas "Consulta especializada" (evolução médica) ou "Consulta de navegação oncológica" (evolução de enfermagem).'
+        const { id: bootstrappedStepId } =
+          await clinicalNotesApi.bootstrapEvolutionNavigationStep(patient.id, {
+            noteType,
+          });
+        await queryClient.invalidateQueries({
+          queryKey: ['navigation-steps', patient.id],
+        });
+        const nowIso = new Date().toISOString();
+        candidates = sortNavigationStepsForEvolutionPick(
+          [
+            {
+              id: bootstrappedStepId,
+              patientId: patient.id,
+              cancerType: patient.cancerType ?? 'other',
+              journeyStage: patient.currentStage,
+              stepKey,
+              stepName:
+                noteType === 'MEDICAL'
+                  ? 'Consulta especializada'
+                  : 'Consulta de navegação oncológica',
+              status: 'PENDING',
+              isRequired: false,
+              isCompleted: false,
+              createdAt: nowIso,
+              updatedAt: nowIso,
+            },
+          ],
+          patient.currentStage
         );
-        return;
       }
 
       const base = await loadContentMarkdownFromPreviousEvolution(
@@ -474,7 +585,7 @@ export function PatientProntuarioTab({
         )}
       </div>
 
-      {error && (
+      {error != null && (
         <QueryErrorRetry
           title="Não foi possível carregar as evoluções"
           onRetry={refetch}
@@ -579,6 +690,41 @@ export function PatientProntuarioTab({
                       )}
                     </p>
                   )}
+                  {detail.status === 'SIGNED' && extractionStatus && (
+                    <div className="flex flex-wrap items-center gap-2 mt-1">
+                      <Badge variant="secondary" className="text-xs font-normal">
+                        Extração assistida:{' '}
+                        {extractionStatusLabel(extractionStatus.status)}
+                      </Badge>
+                      {extractionStatus.status === 'APPLIED' &&
+                        extractionStatus.canUndoUntil &&
+                        new Date(extractionStatus.canUndoUntil) > new Date() &&
+                        detailPerms?.canSign && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            disabled={undoExtraction.isPending}
+                            onClick={() => {
+                              undoExtraction.mutate(detail.id, {
+                                onSuccess: () => {
+                                  toast.success('Extração desfeita.');
+                                },
+                                onError: (err) => {
+                                  const msg =
+                                    err instanceof ApiClientError
+                                      ? err.message
+                                      : 'Não foi possível desfazer.';
+                                  toast.error(msg);
+                                },
+                              });
+                            }}
+                          >
+                            Desfazer extração
+                          </Button>
+                        )}
+                    </div>
+                  )}
                 </div>
                 <div className="flex flex-col gap-2 items-stretch sm:items-end">
                   <div className="flex flex-wrap gap-2 justify-end">
@@ -599,6 +745,47 @@ export function PatientProntuarioTab({
                                   onSuccess: () => {
                                     draftBaselineSerialized.current =
                                       draftMarkdown;
+                                    autosaveRateLimitAttemptRef.current = 0;
+                                  },
+                                  onError: (err) => {
+                                    if (
+                                      err instanceof ApiClientError &&
+                                      err.statusCode === 404
+                                    ) {
+                                      toast.error(
+                                        'Esta evolução não existe mais. Selecione outra na lista ou crie uma nova.',
+                                        { id: 'clinical-note-save-404' }
+                                      );
+                                      setSelectedId(null);
+                                      return;
+                                    }
+                                    if (
+                                      err instanceof ApiClientError &&
+                                      err.statusCode === 429
+                                    ) {
+                                      autosaveRateLimitAttemptRef.current += 1;
+                                      const ms = Math.min(
+                                        15_000 *
+                                          2 **
+                                            (autosaveRateLimitAttemptRef.current -
+                                              1),
+                                        120_000
+                                      );
+                                      autosaveRateLimitUntilRef.current =
+                                        Date.now() + ms;
+                                      toast.error(
+                                        'Muitas requisições. Aguarde antes de salvar de novo.',
+                                        { id: 'clinical-note-save-429' }
+                                      );
+                                      return;
+                                    }
+                                    const msg =
+                                      err instanceof ApiClientError
+                                        ? err.message
+                                        : err instanceof Error
+                                          ? err.message
+                                          : 'Erro ao salvar';
+                                    toast.error(msg);
                                   },
                                 }
                               )
@@ -657,6 +844,20 @@ export function PatientProntuarioTab({
 
                 <TabsContent value="evolution">
                   <div className="space-y-2">
+                    {isDraftEditable && detailPerms?.canEditDraft && (
+                      <PatientExamIngestAssist
+                        patientId={patient.id}
+                        clinicalNoteId={detail.id}
+                        disabled={update.isPending || sign.isPending}
+                        onAppendMarkdown={(fragment) =>
+                          setDraftMarkdown((prev) =>
+                            prev.trim()
+                              ? `${prev.trim()}\n\n---\n\n${fragment}`
+                              : fragment
+                          )
+                        }
+                      />
+                    )}
                     <Label htmlFor="clinical-note-markdown">
                       {isDraftEditable
                         ? 'Evolução clínica (Markdown)'
@@ -684,25 +885,38 @@ export function PatientProntuarioTab({
                 </TabsContent>
 
                 <TabsContent value="exams">
-                  <ClinicalNoteOrdersPanel
-                    variant="exams"
-                    patientId={patient.id}
-                    patientName={patient.name}
-                    clinicalNoteId={detail.id}
-                    noteType={detail.noteType}
-                    noteStatus={detail.status}
-                    professionalName={
-                      detail.signedBy?.name?.trim() ||
-                      detail.createdBy?.name?.trim() ||
-                      undefined
-                    }
-                    canManageExamRequests={canCreateClinicalNoteType(
-                      role,
-                      clinicalSubrole,
-                      detail.noteType
-                    )}
-                    canManagePrescriptions={false}
-                  />
+                  <Tabs defaultValue="orders" className="w-full">
+                    <TabsList className="w-full justify-start flex-wrap h-auto gap-1 py-1">
+                      <TabsTrigger value="orders">Pedidos desta evolução</TabsTrigger>
+                      <TabsTrigger value="lab-history">
+                        Histórico laboratorial
+                      </TabsTrigger>
+                    </TabsList>
+                    <TabsContent value="orders" className="mt-3">
+                      <ClinicalNoteOrdersPanel
+                        variant="exams"
+                        patientId={patient.id}
+                        patientName={patient.name}
+                        clinicalNoteId={detail.id}
+                        noteType={detail.noteType}
+                        noteStatus={detail.status}
+                        professionalName={
+                          detail.signedBy?.name?.trim() ||
+                          detail.createdBy?.name?.trim() ||
+                          undefined
+                        }
+                        canManageExamRequests={canCreateClinicalNoteType(
+                          role,
+                          clinicalSubrole,
+                          detail.noteType
+                        )}
+                        canManagePrescriptions={false}
+                      />
+                    </TabsContent>
+                    <TabsContent value="lab-history" className="mt-3">
+                      <PatientProntuarioLabHistory patient={patient} />
+                    </TabsContent>
+                  </Tabs>
                 </TabsContent>
 
                 <TabsContent value="prescription">

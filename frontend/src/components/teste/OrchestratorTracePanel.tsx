@@ -1,5 +1,6 @@
 'use client';
 
+import { useMemo, useState, useEffect } from 'react';
 import type {
   Message,
   OrchestratorPipelineSpan,
@@ -11,14 +12,19 @@ import type {
   TraceSymptomLlmSummary,
   TraceTokenUsageTotals,
 } from '@/lib/api/messages';
-import { parsePipelineTrace } from '@/lib/api/messages';
+import {
+  resolveTraceForMessage,
+  sanitizeTraceForAuditPanel,
+} from '@/lib/utils/orchestrator-trace-for-message';
 
 const SPAN_LABELS: Record<string, string> = {
   intent_classification: 'Classificação de intenção',
   symptom_analysis: 'Análise de sintomas',
   clinical_rules: 'Regras clínicas (Layer 1)',
   protocol_evaluation: 'Avaliação de protocolo',
-  rag_context_build: 'Contexto RAG',
+  rag_context_build: 'Contexto RAG (legado)',
+  structured_context_build: 'Contexto clínico estruturado',
+  oncology_knowledge_rag: 'Base de conhecimento (corpus)',
   multi_agent_pipeline: 'Pipeline multi-agente (LLM)',
 };
 
@@ -194,15 +200,35 @@ function isPackedText(v: unknown): v is TracePackedText {
   );
 }
 
+const PACKED_UI_PREVIEW_CHARS = 900;
+
 function PackedTextPreview({ packed }: { packed: unknown }) {
-  if (!isPackedText(packed)) {
+  const [expandedUi, setExpandedUi] = useState(false);
+  const packedOk = isPackedText(packed) ? packed : null;
+  const text = packedOk?.text ?? '';
+  const truncated = packedOk?.truncated ?? false;
+  const totalChars = packedOk?.total_chars;
+
+  useEffect(() => {
+    setExpandedUi(false);
+  }, [text, truncated, totalChars]);
+
+  if (!packedOk) {
     return <span className="text-gray-500">—</span>;
   }
-  const { text, truncated, total_chars: totalChars } = packed;
+
   const total = typeof totalChars === 'number' ? totalChars : text.length;
+
   if (!text && total === 0) {
     return <span className="text-gray-500">(vazio)</span>;
   }
+
+  const needsUiCollapse = text.length > PACKED_UI_PREVIEW_CHARS;
+  const shownText =
+    expandedUi || !needsUiCollapse
+      ? text
+      : `${text.slice(0, PACKED_UI_PREVIEW_CHARS)}…`;
+
   return (
     <div className="space-y-1">
       <p className="text-[10px] text-gray-500">
@@ -219,8 +245,18 @@ function PackedTextPreview({ packed }: { packed: unknown }) {
         className="max-h-52 overflow-y-auto rounded border border-gray-700/60 bg-black/35 p-2 text-[10px] text-gray-200 whitespace-pre-wrap break-words font-mono leading-snug"
         tabIndex={0}
       >
-        {text || '(sem texto)'}
+        {shownText || '(sem texto)'}
       </pre>
+      {needsUiCollapse && (
+        <button
+          type="button"
+          className="text-[10px] text-cyan-400/90 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 rounded"
+          onClick={() => setExpandedUi((v) => !v)}
+          aria-expanded={expandedUi}
+        >
+          {expandedUi ? 'Recolher texto' : 'Expandir texto completo'}
+        </button>
+      )}
     </div>
   );
 }
@@ -346,57 +382,40 @@ function wasMainMultiAgentLlmUsed(trace: OrchestratorPipelineTrace): boolean {
   return (trace.llm_calls?.length ?? 0) > 0;
 }
 
-function resolveTraceForMessage(
-  messages: Message[],
-  selectedId: string | null
-): {
-  trace: OrchestratorPipelineTrace | null;
-  waitingForAgent: boolean;
-  hint: string | null;
-} {
-  if (!messages.length || !selectedId) {
-    return { trace: null, waitingForAgent: false, hint: null };
-  }
-  const idx = messages.findIndex((m) => m.id === selectedId);
-  if (idx === -1) {
-    return { trace: null, waitingForAgent: false, hint: null };
-  }
-  const msg = messages[idx];
-
-  if (msg.direction === 'OUTBOUND' && msg.processedBy === 'AGENT') {
-    return {
-      trace: parsePipelineTrace(msg.structuredData),
-      waitingForAgent: false,
-      hint: null,
-    };
-  }
-
-  if (msg.direction === 'INBOUND') {
-    for (let j = idx + 1; j < messages.length; j++) {
-      const m = messages[j];
-      if (m.direction === 'OUTBOUND' && m.processedBy === 'AGENT') {
-        return {
-          trace: parsePipelineTrace(m.structuredData),
-          waitingForAgent: false,
-          hint: 'Trace da resposta do agente a esta mensagem.',
-        };
-      }
-    }
-    return {
-      trace: null,
-      waitingForAgent: true,
-      hint: null,
-    };
-  }
-
-  return {
-    trace: null,
-    waitingForAgent: false,
-    hint:
-      msg.processedBy === 'NURSING'
-        ? 'Mensagens da enfermagem não incluem trace do orquestrador.'
-        : null,
-  };
+function MultiAgentSpanSummary({ data }: { data: Record<string, unknown> }) {
+  const it = data.orchestrator_iterations;
+  const names = data.orchestrator_tool_names;
+  const nTools = data.tool_calls;
+  const hasIter = typeof it === 'number';
+  const hasNames = Array.isArray(names) && names.length > 0;
+  const hasToolCount = typeof nTools === 'number';
+  if (!hasIter && !hasNames && !hasToolCount) return null;
+  return (
+    <div className="mb-2 rounded border border-violet-900/40 bg-violet-950/25 px-2 py-1.5 text-[10px] text-violet-100/95 space-y-1">
+      <p className="font-semibold text-violet-300/95 uppercase tracking-wide">
+        Orquestrador (multi-agente)
+      </p>
+      {hasIter && (
+        <p>
+          Iterações LLM: <span className="font-mono">{String(it)}</span>
+        </p>
+      )}
+      {hasToolCount && (
+        <p>
+          Total de tool calls (orquestrador + routing):{' '}
+          <span className="font-mono">{String(nTools)}</span>
+        </p>
+      )}
+      {hasNames && (
+        <div>
+          <p className="text-gray-400 mb-0.5">Tools observadas (amostra):</p>
+          <p className="font-mono text-gray-300 break-all">
+            {(names as string[]).join(', ')}
+          </p>
+        </div>
+      )}
+    </div>
+  );
 }
 
 interface OrchestratorTracePanelProps {
@@ -412,18 +431,23 @@ export function OrchestratorTracePanel({
     messages,
     selectedMessageId
   );
+  const displayTrace = useMemo(
+    () => (trace ? sanitizeTraceForAuditPanel(trace) : null),
+    [trace]
+  );
 
   return (
     <aside
       className="w-[min(28rem,48vw)] shrink-0 bg-gray-900 border-l border-gray-700 flex flex-col text-gray-200"
-      aria-label="Etapas do orquestrador"
+      aria-label="Auditoria: raciocínio e decisões do agente"
     >
       <div className="p-3 border-b border-gray-700">
         <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
-          Orquestrador
+          Auditoria do agente
         </h2>
         <p className="text-[11px] text-gray-500 mt-1 leading-snug">
-          Toque numa mensagem no chat para ver o pipeline desta interação.
+          Raciocínio do orquestrador, subagentes e triagem. Toque numa mensagem no
+          chat para associar o trace a essa interação.
         </p>
       </div>
       <div className="flex-1 overflow-y-auto p-3 text-xs space-y-3">
@@ -450,23 +474,42 @@ export function OrchestratorTracePanel({
         {selectedMessageId && !waitingForAgent && !trace && hint === null && (
           <p className="text-gray-500">Sem dados de pipeline nesta mensagem.</p>
         )}
-        {trace && (
+        {displayTrace && (
           <>
+            <section
+              className="rounded-md border border-green-900/45 bg-green-950/20 px-2 py-2 space-y-1.5"
+              aria-label="Decisões clínicas e triagem"
+            >
+              <h3 className="text-[10px] font-semibold text-green-400/95 uppercase tracking-wide">
+                Decisões (triagem)
+              </h3>
+              <dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 text-[11px]">
+                <dt className="text-gray-500 shrink-0">Disposição</dt>
+                <dd className="font-mono text-green-200/95 break-all">
+                  {displayTrace.clinical_disposition ?? '—'}
+                </dd>
+                <dt className="text-gray-500 shrink-0">Severidade</dt>
+                <dd>{displayTrace.overall_severity ?? '—'}</dd>
+                <dt className="text-gray-500 shrink-0">Intent (contrato)</dt>
+                <dd>{displayTrace.intent ?? '—'}</dd>
+              </dl>
+            </section>
+
             <div
               className={`rounded-md px-2 py-1.5 text-[11px] font-medium ${
-                wasMainMultiAgentLlmUsed(trace)
+                wasMainMultiAgentLlmUsed(displayTrace)
                   ? 'bg-emerald-950/80 text-emerald-200 border border-emerald-700/60'
                   : 'bg-gray-800 text-amber-200/90 border border-amber-800/50'
               }`}
               role="status"
             >
-              {wasMainMultiAgentLlmUsed(trace) ? (
+              {wasMainMultiAgentLlmUsed(displayTrace) ? (
                 <>
                   LLM multi-agente (orquestrador):{' '}
                   <span className="text-emerald-100">disparada</span>
-                  {(trace.llm_calls?.length ?? 0) > 0 && (
+                  {(displayTrace.llm_calls?.length ?? 0) > 0 && (
                     <span className="block mt-0.5 font-normal text-emerald-300/80">
-                      {trace.llm_calls?.length} chamada(s) registada(s) no trace
+                      {displayTrace.llm_calls?.length} chamada(s) registada(s) no trace
                       (provedor/modelo na secção abaixo).
                     </span>
                   )}
@@ -495,18 +538,18 @@ export function OrchestratorTracePanel({
               <dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 text-[11px]">
                 <dt className="text-gray-500 shrink-0">Intent</dt>
                 <dd className="text-slate-200 break-words">
-                  {intentLlmLine(trace.intent_llm)}
+                  {intentLlmLine(displayTrace.intent_llm)}
                 </dd>
                 <dt className="text-gray-500 shrink-0">Sintomas</dt>
                 <dd className="text-slate-200 break-words">
-                  {symptomLlmLine(trace.symptom_llm)}
+                  {symptomLlmLine(displayTrace.symptom_llm)}
                 </dd>
-                {(trace.llm_calls?.length ?? 0) > 0 && (
+                {(displayTrace.llm_calls?.length ?? 0) > 0 && (
                   <>
                     <dt className="text-gray-500 shrink-0">Multi-agente</dt>
                     <dd>
                       <ul className="space-y-0.5 text-slate-200">
-                        {(trace.llm_calls ?? []).map(
+                        {(displayTrace.llm_calls ?? []).map(
                           (call: Record<string, unknown>, i: number) => (
                             <li key={i} className="font-mono text-[10px] break-all">
                               {String(call.step ?? '—')} —{' '}
@@ -534,11 +577,11 @@ export function OrchestratorTracePanel({
               </dl>
             </section>
 
-            <TokenUsageSection trace={trace} />
+            <TokenUsageSection trace={displayTrace} />
 
-            {(trace.rag_context_output != null ||
-              trace.orchestrator_input != null ||
-              (trace.subagent_outputs?.length ?? 0) > 0) && (
+            {(displayTrace.rag_context_output != null ||
+              displayTrace.orchestrator_input != null ||
+              (displayTrace.subagent_outputs?.length ?? 0) > 0) && (
               <section
                 className="rounded-md border border-cyan-900/40 bg-gray-950/80 px-2 py-2 space-y-2"
                 aria-label="Detalhe RAG e multi-agente"
@@ -552,7 +595,7 @@ export function OrchestratorTracePanel({
                     Output do contexto RAG
                   </summary>
                   <div className="px-2 pb-2 border-t border-gray-700/50 pt-2">
-                    <PackedTextPreview packed={trace.rag_context_output} />
+                    <PackedTextPreview packed={displayTrace.rag_context_output} />
                   </div>
                 </details>
 
@@ -561,8 +604,8 @@ export function OrchestratorTracePanel({
                     Input do orquestrador (multi-agente)
                   </summary>
                   <div className="px-2 pb-2 border-t border-gray-700/50 pt-2">
-                    {trace.orchestrator_input ? (
-                      <OrchestratorInputSection input={trace.orchestrator_input} />
+                    {displayTrace.orchestrator_input ? (
+                      <OrchestratorInputSection input={displayTrace.orchestrator_input} />
                     ) : (
                       <p className="text-[11px] text-gray-500">
                         Sem dados (ramo sem multi-agente ou trace gravado antes
@@ -577,11 +620,11 @@ export function OrchestratorTracePanel({
                 >
                   <summary className="cursor-pointer px-2 py-1.5 text-[11px] text-gray-200 font-medium list-none [&::-webkit-details-marker]:hidden">
                     Output dos subagentes (
-                    {trace.subagent_outputs?.length ?? 0})
+                    {displayTrace.subagent_outputs?.length ?? 0})
                   </summary>
                   <div className="px-2 pb-2 border-t border-gray-700/50 pt-2">
                     <SubagentOutputsSection
-                      items={trace.subagent_outputs ?? []}
+                      items={displayTrace.subagent_outputs ?? []}
                     />
                   </div>
                 </details>
@@ -591,45 +634,45 @@ export function OrchestratorTracePanel({
             <dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1.5 text-[11px]">
               <dt className="text-gray-500">Caminho</dt>
               <dd className="font-mono text-green-300/90">
-                {trace.pipeline_path ?? '—'}
+                {displayTrace.pipeline_path ?? '—'}
               </dd>
               <dt className="text-gray-500">Intent</dt>
-              <dd>{trace.intent ?? '—'}</dd>
-              {trace.intent_confidence != null && (
+              <dd>{displayTrace.intent ?? '—'}</dd>
+              {displayTrace.intent_confidence != null && (
                 <>
                   <dt className="text-gray-500">Conf. intent</dt>
-                  <dd>{Number(trace.intent_confidence).toFixed(2)}</dd>
+                  <dd>{Number(displayTrace.intent_confidence).toFixed(2)}</dd>
                 </>
               )}
               <dt className="text-gray-500">Duração total</dt>
               <dd>
-                {trace.total_duration_ms != null
-                  ? `${trace.total_duration_ms} ms`
+                {displayTrace.total_duration_ms != null
+                  ? `${displayTrace.total_duration_ms} ms`
                   : '—'}
               </dd>
               <dt className="text-gray-500">Disposição</dt>
               <dd className="break-all">
-                {trace.clinical_disposition ?? '—'}
+                {displayTrace.clinical_disposition ?? '—'}
               </dd>
               <dt className="text-gray-500">Severidade</dt>
-              <dd>{trace.overall_severity ?? '—'}</dd>
+              <dd>{displayTrace.overall_severity ?? '—'}</dd>
               <dt className="text-gray-500">Sintomas (n)</dt>
-              <dd>{trace.symptoms_detected ?? '—'}</dd>
+              <dd>{displayTrace.symptoms_detected ?? '—'}</dd>
             </dl>
 
-            {trace.error && (
+            {displayTrace.error && (
               <p className="text-red-400 text-[11px]" role="alert">
-                Erro no trace: {trace.error}
+                Erro no trace: {displayTrace.error}
               </p>
             )}
 
-            {trace.spans && trace.spans.length > 0 && (
-              <section>
+            {displayTrace.spans && displayTrace.spans.length > 0 && (
+              <section aria-label="Etapas detalhadas do pipeline">
                 <h3 className="text-[10px] font-semibold text-gray-500 uppercase mb-2">
                   Etapas (spans)
                 </h3>
                 <ul className="space-y-1.5">
-                  {trace.spans.map((span: OrchestratorPipelineSpan, i: number) => (
+                  {displayTrace.spans.map((span: OrchestratorPipelineSpan, i: number) => (
                     <li key={`${span.name}-${i}`}>
                       <details className="group rounded bg-gray-800/80 border border-gray-700/80">
                         <summary className="cursor-pointer list-none px-2 py-1.5 flex justify-between gap-2 [&::-webkit-details-marker]:hidden">
@@ -643,9 +686,16 @@ export function OrchestratorTracePanel({
                           </span>
                         </summary>
                         {span.data && Object.keys(span.data).length > 0 && (
-                          <pre className="px-2 pb-2 text-[10px] text-gray-400 overflow-x-auto whitespace-pre-wrap break-all border-t border-gray-700/50 pt-1">
-                            {JSON.stringify(span.data, null, 0)}
-                          </pre>
+                          <div className="px-2 pb-2 border-t border-gray-700/50 pt-1">
+                            {span.name === 'multi_agent_pipeline' ? (
+                              <MultiAgentSpanSummary
+                                data={span.data as Record<string, unknown>}
+                              />
+                            ) : null}
+                            <pre className="text-[10px] text-gray-400 overflow-x-auto whitespace-pre-wrap break-all max-h-40 overflow-y-auto">
+                              {JSON.stringify(span.data, null, 0)}
+                            </pre>
+                          </div>
                         )}
                       </details>
                     </li>
@@ -654,27 +704,27 @@ export function OrchestratorTracePanel({
               </section>
             )}
 
-            {trace.clinical_rules_fired &&
-              trace.clinical_rules_fired.length > 0 && (
+            {displayTrace.clinical_rules_fired &&
+              displayTrace.clinical_rules_fired.length > 0 && (
                 <details className="rounded bg-gray-800/50 border border-gray-700/60">
                   <summary className="cursor-pointer px-2 py-1.5 text-[10px] text-gray-400 uppercase">
-                    Regras disparadas ({trace.clinical_rules_fired.length})
+                    Regras disparadas ({displayTrace.clinical_rules_fired.length})
                   </summary>
                   <ul className="px-2 pb-2 space-y-0.5 font-mono text-[10px] text-amber-200/80">
-                    {trace.clinical_rules_fired.map((id: string) => (
+                    {displayTrace.clinical_rules_fired.map((id: string) => (
                       <li key={id}>{id}</li>
                     ))}
                   </ul>
                 </details>
               )}
 
-            {trace.llm_calls && trace.llm_calls.length > 0 && (
+            {displayTrace.llm_calls && displayTrace.llm_calls.length > 0 && (
               <details className="rounded bg-gray-800/50 border border-gray-700/60">
                 <summary className="cursor-pointer px-2 py-1.5 text-[10px] text-gray-400 uppercase">
-                  Chamadas LLM ({trace.llm_calls.length})
+                  Chamadas LLM ({displayTrace.llm_calls.length})
                 </summary>
                 <ul className="px-2 pb-2 space-y-1">
-                  {trace.llm_calls.map((call: Record<string, unknown>, i: number) => (
+                  {displayTrace.llm_calls.map((call: Record<string, unknown>, i: number) => (
                     <li
                       key={i}
                       className="font-mono text-[10px] text-gray-400 break-all"
@@ -686,11 +736,11 @@ export function OrchestratorTracePanel({
               </details>
             )}
 
-            {trace.subagents_called && trace.subagents_called.length > 0 && (
+            {displayTrace.subagents_called && displayTrace.subagents_called.length > 0 && (
               <p className="text-[10px] text-gray-500">
                 Subagentes:{' '}
                 <span className="text-gray-300">
-                  {trace.subagents_called.join(', ')}
+                  {displayTrace.subagents_called.join(', ')}
                 </span>
               </p>
             )}

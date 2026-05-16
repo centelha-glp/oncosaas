@@ -1,13 +1,13 @@
+import json
 import pytest
+import httpx
 
 from src.agent.context_builder import context_builder
 from src.agent.intent_classifier import (
     intent_classifier,
     INTENT_EMERGENCY,
-    INTENT_GREETING,
     INTENT_APPOINTMENT_QUERY,
     INTENT_GENERAL,
-    INTENT_SYMPTOM_REPORT,
 )
 from src.agent.protocol_engine import protocol_engine
 from src.agent.questionnaire_engine import questionnaire_engine
@@ -17,8 +17,12 @@ from src.agent.clinical_rules import (
     ClinicalRulesResult,
     ER_IMMEDIATE,
     REMOTE_NURSING,
+    RuleFinding,
 )
-from src.agent.prompts.orchestrator_prompt import build_orchestrator_prompt
+from src.agent.prompts.orchestrator_prompt import (
+    build_orchestrator_prompt,
+    ORCHESTRATOR_ONCOLOGY_KNOWLEDGE_TOOL,
+)
 from src.agent.prompts.system_prompt import (
     LAYER1_PRECALCULATED_ORCHESTRATOR_NOTE,
     build_system_prompt,
@@ -31,8 +35,10 @@ from src.agent.subagents import (
     EmotionalSupportAgent,
 )
 from src.agent.orchestrator import orchestrator
+from src.agent import orchestrator as orchestrator_module
 from src.agent.llm_provider import llm_provider
 from src.config.llm_defaults import merge_agent_llm_config
+from src.services.backend_client import backend_client
 # Importar sub-rotas diretamente — evita carregar `routes/__init__.py` (priority/LightGBM).
 from src.routes.agent import generate_checkin_message
 from src.routes.nurse import nurse_assist
@@ -69,19 +75,25 @@ def test_build_orchestrator_prompt_includes_layer1_note():
     assert "CTX_STUB" in orch
 
 
-def test_build_orchestrator_prompt_appointment_query_note():
-    orch = build_orchestrator_prompt("CTX_STUB", appointment_query=True)
-    assert "CONSULTA DE AGENDA" in orch
-    assert "informar_agenda_navegacao" in orch
+def test_build_orchestrator_prompt_includes_priority_order():
+    orch = build_orchestrator_prompt("CTX_STUB")
+    assert "PRIORIDADE DE TÓPICOS" in orch
+    assert "1. **Sintomas físicos" in orch
+    assert "2. **Suporte emocional" in orch
+    assert "3. **Agenda operacional" in orch
+    assert "4. **Navegação" in orch
+    assert "5. **Material educativo" in orch
+    assert "6. **Questionário" in orch
+    assert "Intenção explícita do paciente" in orch
+    assert LAYER1_PRECALCULATED_ORCHESTRATOR_NOTE.splitlines()[0] in orch
     assert "CTX_STUB" in orch
-    assert LAYER1_PRECALCULATED_ORCHESTRATOR_NOTE.splitlines()[0] not in orch
 
 
 def test_build_system_prompt_optional_layer1_note():
     base = build_system_prompt("apenas contexto", include_layer1_precalc_note=False)
-    assert "TRIAGEM LAYER 1 (JÁ APLICADA" not in base
+    assert "TRIAGEM LAYER 1" not in base
     with_note = build_system_prompt("apenas contexto", include_layer1_precalc_note=True)
-    assert "TRIAGEM LAYER 1 (JÁ APLICADA" in with_note
+    assert "TRIAGEM LAYER 1 (MOTOR DETERMINÍSTICO" in with_note
 
 
 @pytest.mark.asyncio
@@ -275,22 +287,22 @@ async def test_intent_classifier_truncates_intent_messages_to_config(monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_orchestrator_passes_conversation_history_to_intent_classifier(monkeypatch):
+async def test_orchestrator_passes_conversation_history_to_multi_agent_loop(monkeypatch):
     captured: dict = {}
 
-    async def _spy_classify(message, agent_state=None, agent_config=None, conversation_history=None):
-        captured["conversation_history"] = conversation_history
+    async def _spy_run_agentic_loop(*args, **kwargs):
+        captured["initial_messages"] = kwargs.get("initial_messages")
         return {
-            "intent": INTENT_GREETING,
-            "confidence": 0.85,
-            "skip_full_pipeline": True,
-            "metadata": {"source": "llm"},
+            "response": "ok",
+            "tool_calls": [],
+            "iterations": 1,
+            "provider": "anthropic",
+            "model": "claude-test",
         }
 
-    monkeypatch.setattr(
-        "src.agent.orchestrator.intent_classifier.classify_async",
-        _spy_classify,
-    )
+    monkeypatch.setattr(llm_provider, "run_agentic_loop", _spy_run_agentic_loop)
+    monkeypatch.setattr(llm_provider, "has_any_llm_key", lambda cfg=None: True)
+    monkeypatch.setattr(llm_provider, "has_anthropic_key", lambda cfg=None: True)
 
     hist = [{"role": "user", "content": "oi"}]
     await orchestrator.process(
@@ -306,7 +318,9 @@ async def test_orchestrator_passes_conversation_history_to_intent_classifier(mon
         }
     )
 
-    assert captured.get("conversation_history") == hist
+    msgs = captured.get("initial_messages") or []
+    assert msgs and msgs[-1].get("role") == "user"
+    assert msgs[-1].get("content") == "tudo bem"
 
 
 def test_protocol_engine_evaluate_returns_actions_list():
@@ -416,18 +430,7 @@ def test_subagents_have_tools():
 
 @pytest.mark.asyncio
 async def test_orchestrator_greeting_fast_path(monkeypatch):
-    async def _fake_intent(*args, **kwargs):
-        return {
-            "intent": INTENT_GREETING,
-            "confidence": 0.85,
-            "skip_full_pipeline": True,
-            "metadata": {"source": "llm"},
-        }
-
-    monkeypatch.setattr(
-        "src.agent.orchestrator.intent_classifier.classify_async",
-        _fake_intent,
-    )
+    monkeypatch.setattr(llm_provider, "has_any_llm_key", lambda cfg=None: False)
 
     result = await orchestrator.process(
         {
@@ -449,18 +452,7 @@ async def test_orchestrator_greeting_fast_path(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_orchestrator_greeting_fast_path_respects_layer1_er(monkeypatch):
-    async def _fake_intent(*args, **kwargs):
-        return {
-            "intent": INTENT_GREETING,
-            "confidence": 0.99,
-            "skip_full_pipeline": True,
-            "metadata": {},
-        }
-
-    monkeypatch.setattr(
-        "src.agent.orchestrator.intent_classifier.classify_async",
-        _fake_intent,
-    )
+    monkeypatch.setattr(llm_provider, "has_any_llm_key", lambda cfg=None: False)
 
     result = await orchestrator.process(
         {
@@ -476,28 +468,16 @@ async def test_orchestrator_greeting_fast_path_respects_layer1_er(monkeypatch):
     )
 
     assert result["clinical_disposition"] == ER_IMMEDIATE
-    assert "priorizar sua segurança" in result["response"].lower()
+    assert "registrada" in result["response"].lower() or "enfermagem" in result["response"].lower()
 
 
 @pytest.mark.asyncio
-async def test_orchestrator_appointment_query_skips_safety_triage(monkeypatch):
-    """Ramo appointment_query não executa symptom_analyzer nem Layer1; disposição é placeholder."""
-    async def _fake_intent(*args, **kwargs):
-        return {
-            "intent": INTENT_APPOINTMENT_QUERY,
-            "confidence": 0.99,
-            "skip_full_pipeline": False,
-            "metadata": {},
-        }
-
-    monkeypatch.setattr(
-        "src.agent.orchestrator.intent_classifier.classify_async",
-        _fake_intent,
-    )
+async def test_orchestrator_llm_no_snapshots_skips_deterministic_fallback(monkeypatch):
+    """Sem snapshots da tool de triagem: contrato explícito, sem span triage_fallback_last_resort."""
 
     async def _fake_run_agentic_loop(*args, **kwargs):
         return {
-            "response": "Segue o que encontrei nas suas etapas de navegação.",
+            "response": "Resposta do multi-agent sem tool de triagem.",
             "tool_calls": [],
             "iterations": 1,
             "provider": "anthropic",
@@ -526,104 +506,20 @@ async def test_orchestrator_appointment_query_skips_safety_triage(monkeypatch):
     )
 
     assert result["clinical_disposition"] == REMOTE_NURSING
+    assert "não foi executada" in (result.get("clinical_disposition_reason") or "").lower()
     assert result.get("clinical_rules_findings") == []
-    assert "etapas de navegação" in result["response"].lower()
-    assert not any(f.get("rule_id") == "R08_SEVERE_PAIN" for f in (result.get("clinical_rules_findings") or []))
-    appt_decisions = [
-        d for d in result.get("decisions", []) if d.get("decisionType") == "APPOINTMENT_QUERY_HANDLED"
-    ]
-    assert appt_decisions, "deve haver decisão de auditoria mesmo sem tool do navigation"
-    assert appt_decisions[0].get("inputData", {}).get("source") == "appointment_query_no_navigation_tool"
+    trace = result.get("pipeline_trace") or {}
+    assert trace.get("triage_skipped") is True
+    assert trace.get("triage_source") == "skipped_no_snapshots"
+    span_names = [s.get("name") for s in trace.get("spans", [])]
+    assert "triage_fallback_last_resort" not in span_names
 
 
 @pytest.mark.asyncio
-async def test_orchestrator_appointment_query_suppresses_questionnaire_start_same_turn(monkeypatch):
-    """Com intent de agenda, protocolo/LLM não devem iniciar ESAS nem substituir a resposta do multi-agent."""
-    async def _fake_intent(*args, **kwargs):
-        return {
-            "intent": INTENT_APPOINTMENT_QUERY,
-            "confidence": 0.99,
-            "skip_full_pipeline": False,
-            "metadata": {},
-        }
-
-    monkeypatch.setattr(
-        "src.agent.orchestrator.intent_classifier.classify_async",
-        _fake_intent,
-    )
-
-    llm_reply = "Resposta fixa do multi-agent sobre prazos de navegação, sem questionário."
-
-    async def _fake_run_agentic_loop(*args, **kwargs):
-        return {
-            "response": llm_reply,
-            "tool_calls": [
-                {
-                    "name": "iniciar_questionario",
-                    "input": {"tipo": "ESAS", "motivo": "teste"},
-                }
-            ],
-            "iterations": 1,
-            "provider": "anthropic",
-            "model": "claude-test",
-        }
-
-    monkeypatch.setattr(llm_provider, "run_agentic_loop", _fake_run_agentic_loop)
-    monkeypatch.setattr(llm_provider, "has_any_llm_key", lambda cfg=None: True)
-    monkeypatch.setattr(llm_provider, "has_anthropic_key", lambda cfg=None: True)
-
-    def _fake_protocol_evaluate(**kwargs):
-        return [
-            {
-                "type": "START_QUESTIONNAIRE",
-                "questionnaire_type": "ESAS",
-                "priority": "MEDIUM",
-                "reason": "Questionário ESAS programado para etapa atual",
-            }
-        ]
-
-    monkeypatch.setattr(
-        "src.agent.orchestrator.protocol_engine.evaluate",
-        _fake_protocol_evaluate,
-    )
-
-    result = await orchestrator.process(
-        {
-            "message": "quando é minha próxima consulta?",
-            "patient_id": "p1",
-            "tenant_id": "t1",
-            "clinical_context": _minimal_clinical_context(),
-            "protocol": None,
-            "conversation_history": [],
-            "agent_state": {},
-            "agent_config": {"use_llm_symptom_analysis": False},
-        }
-    )
-
-    assert result["response"] == llm_reply
-    assert "cansaço" not in result["response"].lower()
-    assert result["new_state"].get("active_questionnaire") is None
-    assert not any(a.get("type") == "START_QUESTIONNAIRE" for a in result.get("actions", []))
-
-
-@pytest.mark.asyncio
-async def test_orchestrator_appointment_query_with_active_questionnaire_preserves_multi_agent_response(
+async def test_orchestrator_agenda_question_during_esas_keeps_llm_response(
     monkeypatch,
 ):
-    """Com ESAS ativo, intent de agenda não deve substituir a resposta pela próxima pergunta ESAS."""
-    async def _fake_intent(*args, **kwargs):
-        return {
-            "intent": INTENT_APPOINTMENT_QUERY,
-            "confidence": 0.99,
-            "skip_full_pipeline": False,
-            "metadata": {},
-        }
-
-    monkeypatch.setattr(
-        "src.agent.orchestrator.intent_classifier.classify_async",
-        _fake_intent,
-    )
-
+    """Com ESAS ativo, pergunta longa sobre agenda não consome o turno como próxima pergunta ESAS."""
     llm_reply = "Segue o que encontrei nas suas etapas de navegação."
 
     async def _fake_run_agentic_loop(*args, **kwargs):
@@ -668,20 +564,7 @@ async def test_orchestrator_symptom_report_with_active_questionnaire_preserves_m
     monkeypatch,
 ):
     """Com ESAS ativo, relato explícito de sintoma não consome o turno como próxima pergunta ESAS."""
-    async def _fake_intent(*args, **kwargs):
-        return {
-            "intent": INTENT_SYMPTOM_REPORT,
-            "confidence": 0.95,
-            "skip_full_pipeline": False,
-            "metadata": {"source": "test"},
-        }
-
-    monkeypatch.setattr(
-        "src.agent.orchestrator.intent_classifier.classify_async",
-        _fake_intent,
-    )
-
-    async def _fake_safety_triage(*args, **kwargs):
+    async def _fake_apply_triage(*args, **kwargs):
         sa = {
             "detectedSymptoms": [{"name": "náusea", "severity": 2}],
             "overallSeverity": "LOW",
@@ -696,7 +579,7 @@ async def test_orchestrator_symptom_report_with_active_questionnaire_preserves_m
         )
         return sa, cr
 
-    monkeypatch.setattr(orchestrator, "_run_safety_triage", _fake_safety_triage)
+    monkeypatch.setattr(orchestrator, "_apply_deterministic_triage", _fake_apply_triage)
 
     llm_reply = "Orientação sobre náusea sem interromper o questionário por próximo item ESAS."
 
@@ -804,18 +687,49 @@ async def test_orchestrator_active_questionnaire_allows_normal_answer():
 async def test_orchestrator_active_questionnaire_triage_overrides_er_immediate(monkeypatch):
     """Garante merge pós-main: Layer 1 imediato prevalece e não continua ESAS na mesma resposta."""
 
-    async def _fake_intent(*args, **kwargs):
-        # Evitar ramo INTENT_EMERGENCY antes do main — o teste cobre o merge após pipeline completo.
+    llm_reply = "Resposta do multi-agente que não pode ser descartada."
+
+    async def _fake_run_agentic_loop(*args, **kwargs):
         return {
-            "intent": INTENT_GENERAL,
-            "confidence": 0.9,
-            "skip_full_pipeline": False,
-            "metadata": {"source": "test"},
+            "response": llm_reply,
+            "tool_calls": [],
+            "iterations": 1,
+            "provider": "anthropic",
+            "model": "claude-test",
         }
 
+    monkeypatch.setattr(llm_provider, "run_agentic_loop", _fake_run_agentic_loop)
+    monkeypatch.setattr(llm_provider, "has_any_llm_key", lambda cfg=None: True)
+    monkeypatch.setattr(llm_provider, "has_anthropic_key", lambda cfg=None: True)
+
+    def _merge_snapshots_stub(_snaps):
+        sa = {
+            "detectedSymptoms": [{"name": "dor", "severity": 9}],
+            "overallSeverity": "CRITICAL",
+            "requiresEscalation": True,
+            "structuredData": {"scales": {"pain": 9}},
+        }
+        cr = ClinicalRulesResult(
+            disposition=ER_IMMEDIATE,
+            reasoning="dor severa",
+            findings=[
+                RuleFinding(
+                    rule_id="R08_SEVERE_PAIN",
+                    disposition=ER_IMMEDIATE,
+                    reason="Dor >= 9",
+                    confidence=1.0,
+                    evidence={},
+                )
+            ],
+            requires_immediate_action=True,
+        )
+        return sa, cr
+
+    monkeypatch.setattr("src.agent.orchestrator._merge_triage_snapshots", _merge_snapshots_stub)
+
     monkeypatch.setattr(
-        "src.agent.orchestrator.intent_classifier.classify_async",
-        _fake_intent,
+        "src.agent.orchestrator.protocol_engine.evaluate",
+        lambda **kwargs: [],
     )
 
     q_state = questionnaire_engine.build_initial_state("ESAS")
@@ -846,10 +760,58 @@ async def test_orchestrator_active_questionnaire_triage_overrides_er_immediate(m
         for action in result["actions"]
     )
     assert "interromper o questionário" in result["response"]
+    assert llm_reply in result["response"]
+    assert "\n\n---\n\n" in result["response"]
     assert not any(
         decision.get("outputAction", {}).get("type") == "CONTINUE_QUESTIONNAIRE"
         for decision in result["decisions"]
     )
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_start_questionnaire_from_llm_merges_pipeline_response(monkeypatch):
+    """START via tool do LLM: bloco ESAS primeiro, depois separador, depois texto do multi-agente."""
+    pipeline = "Resposta conversacional do multi-agente."
+
+    async def _fake_pipeline(_self, **kwargs):
+        return (
+            pipeline,
+            [{"name": "iniciar_questionario", "input": {"tipo": "ESAS", "motivo": "check-in"}}],
+            {"provider": "anthropic", "model": "claude-test"},
+            {"orchestrator_iterations": 1, "orchestrator_tool_names": ["iniciar_questionario"]},
+        )
+
+    monkeypatch.setattr(
+        orchestrator_module.AgentOrchestrator,
+        "_run_multi_agent_pipeline",
+        _fake_pipeline,
+    )
+    monkeypatch.setattr(llm_provider, "has_any_llm_key", lambda cfg=None: True)
+    monkeypatch.setattr(llm_provider, "has_anthropic_key", lambda cfg=None: True)
+    monkeypatch.setattr(
+        "src.agent.orchestrator.protocol_engine.evaluate",
+        lambda **kwargs: [],
+    )
+    monkeypatch.setattr("src.agent.orchestrator._merge_triage_snapshots", lambda snaps: None)
+
+    result = await orchestrator.process(
+        {
+            "message": "Quero preencher o questionário de hoje",
+            "patient_id": "p1",
+            "tenant_id": "t1",
+            "clinical_context": _minimal_clinical_context(),
+            "protocol": None,
+            "conversation_history": [],
+            "agent_state": {},
+            "agent_config": {"use_llm_symptom_analysis": False},
+        }
+    )
+
+    assert pipeline in result["response"]
+    assert "\n\n---\n\n" in result["response"]
+    parts = result["response"].split("\n\n---\n\n")
+    assert len(parts) == 2
+    assert parts[1].strip() == pipeline
 
 
 def test_orchestrator_merge_actions_keeps_distinct_questionnaires():
@@ -874,18 +836,359 @@ async def test_orchestrator_multi_agent_pipeline_returns_provider_meta(monkeypat
 
     monkeypatch.setattr(llm_provider, "run_agentic_loop", _fake_run_agentic_loop)
 
-    response, tool_calls, llm_meta = await orchestrator._run_multi_agent_pipeline(
+    response, tool_calls, llm_meta, span_detail = await orchestrator._run_multi_agent_pipeline(
         message="oi",
-        rag_context="ctx",
+        structured_context="ctx",
         conversation_history=[],
         agent_config={},
         trace=None,
+        clinical_context={},
     )
 
     assert response == "ok"
     assert tool_calls == []
     assert llm_meta["provider"] == "openai"
     assert llm_meta["model"] == "gpt-4o-mini"
+    assert span_detail["orchestrator_iterations"] == 1
+    assert span_detail["orchestrator_tool_names"] == []
+
+
+@pytest.mark.asyncio
+async def test_oncology_knowledge_tool_calls_retrieve_with_mock(monkeypatch):
+    """Tool buscar_conhecimento_oncologico usa knowledge_rag.retrieve (mock, sem FAISS)."""
+    retrieve_calls: list[dict] = []
+
+    def fake_retrieve(query, cancer_type=None, top_k=None):
+        retrieve_calls.append({"query": query, "cancer_type": cancer_type})
+        return [
+            {
+                "id": "doc-test",
+                "title": "Neutropenia",
+                "content": "Conteúdo educativo de teste.",
+                "category": "emergencia",
+                "score": 0.91,
+            }
+        ]
+
+    monkeypatch.setattr(
+        orchestrator_module.knowledge_rag,
+        "retrieve",
+        fake_retrieve,
+    )
+    monkeypatch.setattr(
+        orchestrator_module.knowledge_rag,
+        "format_context",
+        lambda passages: f"## MOCK\n{passages[0]['title']}" if passages else "",
+    )
+
+    async def _fake_run_agentic_loop(*args, **kwargs):
+        tool_executor = kwargs.get("tool_executor")
+        raw = await tool_executor(
+            ORCHESTRATOR_ONCOLOGY_KNOWLEDGE_TOOL,
+            {"consulta": "febre depois da quimioterapia"},
+        )
+        data = json.loads(raw)
+        assert data["status"] == "ok"
+        assert data["passagens"] == 1
+        assert "Neutropenia" in data["markdown"]
+        return {
+            "response": "ok com base no corpus",
+            "tool_calls": [],
+            "iterations": 1,
+            "provider": "anthropic",
+            "model": "claude-test",
+        }
+
+    monkeypatch.setattr(llm_provider, "run_agentic_loop", _fake_run_agentic_loop)
+
+    ctx = _minimal_clinical_context()
+    _, _, _, _ = await orchestrator._run_multi_agent_pipeline(
+        message="oi",
+        structured_context="estruturado",
+        conversation_history=[],
+        agent_config={},
+        trace=None,
+        clinical_context=ctx,
+    )
+
+    assert len(retrieve_calls) == 1
+    assert "febre" in retrieve_calls[0]["query"].lower()
+
+
+def test_context_builder_rag_query_and_cancer_type_helpers():
+    hist = [{"role": "assistant", "content": "Como está sua náusea hoje?"}]
+    q = context_builder.rag_query_for_message("sim", hist)
+    assert "náusea" in q.lower()
+
+    cc = _minimal_clinical_context()
+    assert context_builder.extract_cancer_type_for_rag(cc) == "BREAST"
+
+
+@pytest.mark.asyncio
+async def test_secretary_availability_tool_executes_same_turn_and_mutation_stays_queued(
+    monkeypatch,
+):
+    availability_calls = []
+    professional_calls = []
+
+    async def _fake_availability(**kwargs):
+        availability_calls.append(kwargs)
+        return {
+            "slots": ["2026-06-01T12:00:00.000Z"],
+            "query": kwargs["payload"],
+        }
+
+    async def _fake_professionals(**kwargs):
+        professional_calls.append(kwargs)
+        return {
+            "professionals": [
+                {
+                    "id": "550e8400-e29b-41d4-a716-446655440000",
+                    "name": "Dra Onco",
+                    "consultationStepKeys": ["specialist_consultation"],
+                }
+            ]
+        }
+
+    async def _fake_run_agentic_loop(*args, **kwargs):
+        step = kwargs.get("usage_step")
+        tool_executor = kwargs.get("tool_executor")
+        if step == "orchestrator_multi_agent":
+            routing_result = await tool_executor("consultar_agente_secretaria", {})
+            assert "Horário real recebido" in routing_result
+            return {
+                "response": "A secretária trouxe vagas reais.",
+                "tool_calls": [],
+                "iterations": 1,
+                "provider": "anthropic",
+                "model": "claude-test",
+            }
+
+        assert step == "subagent:consultar_agente_secretaria"
+        assert tool_executor is not None
+        professionals_result = await tool_executor(
+            "listar_profissionais_consulta",
+            {"stepKey": "specialist_consultation"},
+        )
+        availability_result = await tool_executor(
+            "consultar_vagas_consulta",
+            {
+                "scheduledProfessionalId": "550e8400-e29b-41d4-a716-446655440000",
+                "stepKey": "navigation_consultation",
+                "from": "2026-06-01T00:00:00.000Z",
+                "to": "2026-06-02T00:00:00.000Z",
+            },
+        )
+        queued_result = await tool_executor(
+            "criar_consulta",
+            {"confirmacao_paciente": True},
+        )
+
+        assert "Dra Onco" in professionals_result
+        assert "2026-06-01T12:00:00.000Z" in availability_result
+        assert '"status": "queued"' in queued_result
+        return {
+            "response": "Horário real recebido: 01/06 às 09h.",
+            "tool_calls": [
+                {
+                    "name": "listar_profissionais_consulta",
+                    "input": {"stepKey": "specialist_consultation"},
+                },
+                {
+                    "name": "consultar_vagas_consulta",
+                    "input": {
+                        "scheduledProfessionalId": "550e8400-e29b-41d4-a716-446655440000",
+                        "stepKey": "navigation_consultation",
+                        "from": "2026-06-01T00:00:00.000Z",
+                        "to": "2026-06-02T00:00:00.000Z",
+                    },
+                },
+                {
+                    "name": "criar_consulta",
+                    "input": {"confirmacao_paciente": True},
+                },
+            ],
+            "iterations": 2,
+            "provider": "anthropic",
+            "model": "claude-test",
+        }
+
+    monkeypatch.setattr(
+        backend_client,
+        "get_consultation_availability",
+        _fake_availability,
+    )
+    monkeypatch.setattr(
+        backend_client,
+        "list_consultation_professionals",
+        _fake_professionals,
+    )
+    monkeypatch.setattr(llm_provider, "run_agentic_loop", _fake_run_agentic_loop)
+
+    response, tool_calls, _, _ = await orchestrator._run_multi_agent_pipeline(
+        message="Quais horários tem para consulta?",
+        structured_context="ctx",
+        conversation_history=[],
+        agent_config={},
+        tenant_id="tenant-1",
+        trace=None,
+        clinical_context={},
+    )
+
+    assert response == "A secretária trouxe vagas reais."
+    assert len(professional_calls) == 1
+    assert professional_calls[0]["tenant_id"] == "tenant-1"
+    assert len(availability_calls) == 1
+    assert availability_calls[0]["tenant_id"] == "tenant-1"
+    assert [tc["name"] for tc in tool_calls] == [
+        "consultar_vagas_consulta",
+        "criar_consulta",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_secretary_availability_tool_backend_error_returns_controlled_json(
+    monkeypatch,
+):
+    """Mesmo turno: falha do backend interno vira JSON com availability_unavailable (sem raise)."""
+
+    async def _fail(**kwargs):
+        raise httpx.ConnectError("simulado")
+
+    monkeypatch.setattr(
+        backend_client,
+        "get_consultation_availability",
+        _fail,
+    )
+
+    async def _fake_run_agentic_loop(*args, **kwargs):
+        step = kwargs.get("usage_step")
+        tool_executor = kwargs.get("tool_executor")
+        if step == "orchestrator_multi_agent":
+            await tool_executor("consultar_agente_secretaria", {})
+            return {
+                "response": "Não consegui obter vagas agora.",
+                "tool_calls": [],
+                "iterations": 1,
+                "provider": "anthropic",
+                "model": "claude-test",
+            }
+
+        assert step == "subagent:consultar_agente_secretaria"
+        assert tool_executor is not None
+        availability_result = await tool_executor(
+            "consultar_vagas_consulta",
+            {
+                "scheduledProfessionalId": "550e8400-e29b-41d4-a716-446655440000",
+                "stepKey": "navigation_consultation",
+                "from": "2026-06-01T00:00:00.000Z",
+                "to": "2026-06-02T00:00:00.000Z",
+            },
+        )
+        data = json.loads(availability_result)
+        assert data["status"] == "error"
+        assert data["error"] == "availability_unavailable"
+        return {
+            "response": "Não consegui obter vagas agora.",
+            "tool_calls": [
+                {
+                    "name": "consultar_vagas_consulta",
+                    "input": {
+                        "scheduledProfessionalId": "550e8400-e29b-41d4-a716-446655440000",
+                        "stepKey": "navigation_consultation",
+                        "from": "2026-06-01T00:00:00.000Z",
+                        "to": "2026-06-02T00:00:00.000Z",
+                    },
+                }
+            ],
+            "iterations": 1,
+            "provider": "anthropic",
+            "model": "claude-test",
+        }
+
+    monkeypatch.setattr(llm_provider, "run_agentic_loop", _fake_run_agentic_loop)
+
+    response, tool_calls, _, _ = await orchestrator._run_multi_agent_pipeline(
+        message="Tem vaga amanhã?",
+        structured_context="ctx",
+        conversation_history=[],
+        agent_config={},
+        tenant_id="tenant-1",
+        trace=None,
+        clinical_context={},
+    )
+
+    assert "vagas" in response.lower()
+    # Falha da tool síncrona não deve virar CHECK_CONSULTATION_AVAILABILITY tardio.
+    assert tool_calls == []
+
+
+@pytest.mark.asyncio
+async def test_secretary_multiple_availability_calls_keep_closest_slot(monkeypatch):
+    async def _fake_availability(**kwargs):
+        professional_id = kwargs["payload"]["scheduledProfessionalId"]
+        if professional_id.endswith("0001"):
+            return {"slots": ["2026-07-14T11:00:00.000Z"], "query": kwargs["payload"]}
+        return {"slots": ["2026-06-02T11:00:00.000Z"], "query": kwargs["payload"]}
+
+    async def _fake_run_agentic_loop(*args, **kwargs):
+        step = kwargs.get("usage_step")
+        tool_executor = kwargs.get("tool_executor")
+        if step == "orchestrator_multi_agent":
+            await tool_executor("consultar_agente_secretaria", {})
+            return {
+                "response": "A secretária encontrou a vaga mais próxima.",
+                "tool_calls": [],
+                "iterations": 1,
+                "provider": "anthropic",
+                "model": "claude-test",
+            }
+
+        assert tool_executor is not None
+        later = {
+            "scheduledProfessionalId": "550e8400-e29b-41d4-a716-446655440001",
+            "stepKey": "specialist_consultation",
+            "from": "2026-05-14T00:00:00.000Z",
+            "to": "2026-07-20T23:59:59.000Z",
+        }
+        earlier = {
+            "scheduledProfessionalId": "550e8400-e29b-41d4-a716-446655440002",
+            "stepKey": "specialist_consultation",
+            "from": "2026-05-14T00:00:00.000Z",
+            "to": "2026-07-20T23:59:59.000Z",
+        }
+        await tool_executor("consultar_vagas_consulta", later)
+        await tool_executor("consultar_vagas_consulta", earlier)
+        return {
+            "response": "Comparei os profissionais.",
+            "tool_calls": [
+                {"name": "consultar_vagas_consulta", "input": later},
+                {"name": "consultar_vagas_consulta", "input": earlier},
+            ],
+            "iterations": 2,
+            "provider": "anthropic",
+            "model": "claude-test",
+        }
+
+    monkeypatch.setattr(
+        backend_client,
+        "get_consultation_availability",
+        _fake_availability,
+    )
+    monkeypatch.setattr(llm_provider, "run_agentic_loop", _fake_run_agentic_loop)
+
+    _, tool_calls, _, _ = await orchestrator._run_multi_agent_pipeline(
+        message="Qual profissional tem a vaga mais próxima?",
+        structured_context="ctx",
+        conversation_history=[],
+        agent_config={},
+        tenant_id="tenant-1",
+        trace=None,
+        clinical_context={},
+    )
+
+    assert len(tool_calls) == 1
+    assert tool_calls[0]["input"]["scheduledProfessionalId"].endswith("0002")
 
 
 @pytest.mark.asyncio

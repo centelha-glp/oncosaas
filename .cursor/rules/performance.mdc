@@ -243,7 +243,7 @@ knowledge_base = OncologyKnowledgeBase()
 knowledge_base.initialize()  # carrega FAISS index
 ```
 
-Nunca recarregar modelos por requisição — custo proibitivo.
+Nunca recarregar modelos por requisição — custo proibitivo. O retrieval FAISS do corpus (`knowledge_rag.retrieve`) **não** deve correr em todo request do orquestrador: só quando a tool `buscar_conhecimento_oncologico` for invocada no loop agentic.
 
 ### Fallback rápido sem LLM
 

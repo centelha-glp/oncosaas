@@ -22,12 +22,11 @@ Você é um engenheiro de IA especializado em **desenvolvimento de agentes conve
 Mensagem (WhatsApp) → ChannelGateway → AgentService (NestJS)
   → buildClinicalContext, getActiveProtocol, getRecentHistory
   → POST /api/v1/agent/process (AI Service)
-    → Orchestrator: questionário ativo? → questionnaire_engine
-    → symptom_analyzer (keywords ou LLM)
-    → protocol_engine (regras por câncer/estágio)
-    → context_builder (RAG-style para prompt)
-    → system_prompt dinâmico → llm_provider.generate
-    → _compile_actions, _update_state → response, actions, decisions, new_state
+    → Orchestrator: `trace.pipeline_path` = `main`; sem classificador de intent no fluxo principal
+    → Sem LLM: triagem determinística síncrona (`symptom_analyzer` + Layer 1) → `context_builder` → texto fallback
+    → Com LLM: primeiro `context_builder` sem forçar sintomas/Layer1 → `run_agentic_loop` → merge snapshots
+         da tool `executar_triagem_seguranca` **ou** contrato explícito sem motor determinístico (sem fallback síncrono)
+    → protocol_engine → `_compile_actions`, `_update_state` → response, actions, decisions, new_state
   → DecisionGateService (auto-approved vs needsApproval)
   → executeDecision (só auto-aprovadas) → updateState → sendMessage
 ```
@@ -40,7 +39,7 @@ Mensagem (WhatsApp) → ChannelGateway → AgentService (NestJS)
 | Componente | Arquivo | Responsabilidade |
 |------------|---------|------------------|
 | Entrada HTTP | `ai-service/src/api/routes.py` | `POST /api/v1/agent/process` → `orchestrator.process` |
-| Orquestrador | `ai-service/src/agent/orchestrator.py` | Fluxo principal: questionário → sintomas → protocolo → contexto → LLM → ações/estado |
+| Orquestrador | `ai-service/src/agent/orchestrator.py` | `process()`: heurística de ramo, agregação de triagem (tool/fallback), protocolo, contexto, multi-agent, ações/estado |
 | Sintomas | `ai-service/src/agent/symptom_analyzer.py` | Keywords + opcional LLM; severidade LOW/HIGH/CRITICAL |
 | Protocolo | `ai-service/src/agent/protocol_engine.py` | Regras por tipo de câncer e JourneyStage; check-ins, questionários, sintomas críticos |
 | Contexto | `ai-service/src/agent/context_builder.py` | Monta texto de contexto clínico para o system prompt |
@@ -78,7 +77,7 @@ Mensagem (WhatsApp) → ChannelGateway → AgentService (NestJS)
 
 ### 5. Prompts para Agentes
 
-- **System prompt**: dinâmico (idioma, contexto RAG do paciente, trecho de protocolo); definir papel (navegador oncológico), limites (não diagnosticar, não prescrever), tom (empático).
+- **System prompt**: dinâmico (idioma, contexto clínico estruturado, trecho de protocolo); material do corpus opcional via tool `buscar_conhecimento_oncologico`; definir papel (navegador oncológico), limites (não diagnosticar, não prescrever), tom (empático).
 - **Guardrails**: não gerar diagnóstico, prescrição ou garantias; preferir “converse com seu médico” ou “em caso de emergência, procure o PS”.
 - Manter prompts em `ai-service/src/agent/prompts/`; evitar lógica de negócio pesada dentro de strings de prompt.
 
@@ -90,7 +89,7 @@ Mensagem (WhatsApp) → ChannelGateway → AgentService (NestJS)
 
 ## Boas Práticas no Código do Agente
 
-- **Orchestrator**: um ponto de entrada `process()`; ramos claros (questionário ativo vs fluxo normal); funções auxiliares `_process_questionnaire_answer`, `_compile_actions`, `_update_state`.
+- **Orchestrator**: um ponto de entrada `process()`; ramos claros (agenda vs principal); agregação de triagem antes de `protocol_engine`; funções auxiliares `_compile_actions`, `_update_state`.
 - **Testes**: cobrir ramos do orchestrator (com/sem questionário ativo), extração de respostas de questionário, classificação de severidade de sintomas.
 - **Config por tenant**: provedor LLM, modelo, idioma e flags (ex.: `use_llm` no symptom analyzer) vêm de `agent_config`; não hardcodar.
 - **Fallback**: se o LLM falhar ou timeout, retornar resposta estruturada com mensagem de fallback e sem ações críticas; o backend envia a mensagem ao paciente.
@@ -98,11 +97,10 @@ Mensagem (WhatsApp) → ChannelGateway → AgentService (NestJS)
 
 ## Melhorias Desejáveis (Roadmap do Agente)
 
-- **Intent detection**: classificar mensagem (saudação, dúvida, sintoma, urgência, fora do escopo) antes do fluxo completo; ajustar prompt e ações.
 - **Respostas curtas e streaming**: 1–3 frases por mensagem; opcionalmente streaming para o canal.
 - **Confirmação em ações sensíveis**: antes de registrar “dor 8/10” ou iniciar questionário, o agente pode pedir confirmação na resposta.
-- **RAG interno**: além do contexto do paciente, recuperar trechos de base de conhecimento (FAQs, guias) por similaridade para enriquecer o prompt.
-- **Modelo duplo**: triagem rápida (intent + sintomas) com modelo leve; modelo forte só quando precisar de resposta longa ou complexa.
+- **RAG interno (corpus)**: trechos educativos sob demanda via tool do orquestrador (`buscar_conhecimento_oncologico`), não injetados automaticamente no contexto estruturado.
+- **Modelo duplo**: modelo leve para roteamento interno; modelo forte para resposta longa (avaliar sem reintroduzir triagem pré-LLM sem ADR).
 - **Guardrails no texto**: pós-processar resposta do LLM para bloquear frases que pareçam diagnóstico/prescrição/garantia e substituir por texto seguro.
 
 ## Checklist ao Implementar ou Alterar o Agente

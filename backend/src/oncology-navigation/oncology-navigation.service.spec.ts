@@ -204,6 +204,206 @@ describe('OncologyNavigationService', () => {
     });
   });
 
+  describe('bootstrapProntuarioEvolutionNavigationStep', () => {
+    it('não chama assertNoConsultationIntervalOverlap nem assertSlotWithinAgendaRules', async () => {
+      const assertOverlap = jest.spyOn(
+        consultationAgendaAvailability,
+        'assertNoConsultationIntervalOverlap'
+      );
+      const assertSlot = jest.spyOn(
+        consultationAgendaAvailability,
+        'assertSlotWithinAgendaRules'
+      );
+
+      mockPrisma.patient.findFirst.mockResolvedValueOnce({
+        id: PATIENT_ID,
+        cancerType: 'bladder',
+        currentStage: JourneyStage.TREATMENT,
+      });
+      mockPrisma.user.findFirst.mockResolvedValueOnce({
+        id: PROFESSIONAL_ID,
+        role: UserRole.NURSE,
+        clinicalSubrole: null,
+      });
+      mockPrisma.cancerDiagnosis.findFirst.mockResolvedValueOnce({ id: 'dx-1' });
+      mockPrisma.patientJourney.findUnique.mockResolvedValueOnce(baseJourney);
+      mockPrisma.navigationStep.aggregate.mockResolvedValueOnce({
+        _max: { stepOrder: 5 },
+      });
+      mockPrisma.navigationStep.create.mockResolvedValueOnce({
+        id: 'step-new',
+        patientId: PATIENT_ID,
+        stepKey: 'navigation_consultation',
+      });
+
+      const before = Date.now();
+      await service.bootstrapProntuarioEvolutionNavigationStep(
+        TENANT,
+        PATIENT_ID,
+        PROFESSIONAL_ID,
+        'navigation_consultation'
+      );
+      const after = Date.now();
+
+      expect(assertOverlap).not.toHaveBeenCalled();
+      expect(assertSlot).not.toHaveBeenCalled();
+      expect(mockPrisma.navigationStep.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            metadata: {
+              source: 'prontuario_evolution_bootstrap',
+              skipAgendaSlotValidation: true,
+            },
+            scheduledProfessionalId: PROFESSIONAL_ID,
+            journeyStage: JourneyStage.TREATMENT,
+            diagnosisId: 'dx-1',
+            isRequired: false,
+          }),
+        })
+      );
+      const createArg = mockPrisma.navigationStep.create.mock.calls[0][0] as {
+        data: { expectedDate: Date };
+      };
+      expect(createArg.data.expectedDate.getTime()).toBeGreaterThanOrEqual(before);
+      expect(createArg.data.expectedDate.getTime()).toBeLessThanOrEqual(after);
+
+      assertOverlap.mockRestore();
+      assertSlot.mockRestore();
+    });
+
+    it('BadRequest quando profissional não é elegível ao tipo de consulta', async () => {
+      mockPrisma.patient.findFirst.mockResolvedValueOnce({
+        id: PATIENT_ID,
+        cancerType: 'bladder',
+        currentStage: JourneyStage.TREATMENT,
+      });
+      mockPrisma.user.findFirst.mockResolvedValueOnce({
+        id: PROFESSIONAL_ID,
+        role: UserRole.NURSE,
+        clinicalSubrole: null,
+      });
+
+      await expect(
+        service.bootstrapProntuarioEvolutionNavigationStep(
+          TENANT,
+          PATIENT_ID,
+          PROFESSIONAL_ID,
+          'specialist_consultation'
+        )
+      ).rejects.toThrow(BadRequestException);
+      expect(mockPrisma.navigationStep.create).not.toHaveBeenCalled();
+    });
+
+    it('NotFound quando paciente não existe', async () => {
+      mockPrisma.patient.findFirst.mockResolvedValueOnce(null);
+
+      await expect(
+        service.bootstrapProntuarioEvolutionNavigationStep(
+          TENANT,
+          PATIENT_ID,
+          PROFESSIONAL_ID,
+          'navigation_consultation'
+        )
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('markConsultationNavigationStepCompletedFromSignedEvolution', () => {
+    const stepId = 'aaaaaaaa-bbbb-4ccc-dddd-eeeeeeeeeeee';
+
+    it('NotFound quando etapa não existe', async () => {
+      mockPrisma.navigationStep.findFirst.mockResolvedValueOnce(null);
+      await expect(
+        service.markConsultationNavigationStepCompletedFromSignedEvolution(
+          stepId,
+          TENANT,
+          'user-1'
+        )
+      ).rejects.toThrow(NotFoundException);
+      expect(mockPrisma.navigationStep.update).not.toHaveBeenCalled();
+    });
+
+    it('não altera etapa quando stepKey não é consulta clínica', async () => {
+      mockPrisma.navigationStep.findFirst.mockResolvedValueOnce({
+        id: stepId,
+        tenantId: TENANT,
+        patientId: PATIENT_ID,
+        stepKey: 'colonoscopy',
+        isCompleted: false,
+        actualDate: null,
+      } as any);
+      await service.markConsultationNavigationStepCompletedFromSignedEvolution(
+        stepId,
+        TENANT,
+        'user-1'
+      );
+      expect(mockPrisma.navigationStep.update).not.toHaveBeenCalled();
+    });
+
+    it('não altera etapa já concluída (idempotente)', async () => {
+      mockPrisma.navigationStep.findFirst.mockResolvedValueOnce({
+        id: stepId,
+        tenantId: TENANT,
+        patientId: PATIENT_ID,
+        stepKey: 'specialist_consultation',
+        isCompleted: true,
+        actualDate: null,
+      } as any);
+      await service.markConsultationNavigationStepCompletedFromSignedEvolution(
+        stepId,
+        TENANT,
+        'user-1'
+      );
+      expect(mockPrisma.scheduledAction.updateMany).not.toHaveBeenCalled();
+      expect(mockPrisma.navigationStep.update).not.toHaveBeenCalled();
+    });
+
+    it('marca consulta como COMPLETED e corre cascata', async () => {
+      const existing = {
+        id: stepId,
+        tenantId: TENANT,
+        patientId: PATIENT_ID,
+        stepKey: 'specialist_consultation',
+        journeyStage: JourneyStage.TREATMENT,
+        isCompleted: false,
+        actualDate: null,
+      };
+      mockPrisma.navigationStep.findFirst.mockResolvedValueOnce(existing);
+      const updated = {
+        ...existing,
+        isCompleted: true,
+        status: NavigationStepStatus.COMPLETED,
+        completedAt: new Date(),
+        completedBy: 'user-1',
+        actualDate: new Date(),
+      };
+      mockPrisma.navigationStep.update.mockResolvedValueOnce(updated);
+      const cascadeSpy = jest
+        .spyOn(service as any, 'runAfterMarkingStepCompleted')
+        .mockResolvedValue(undefined);
+
+      await service.markConsultationNavigationStepCompletedFromSignedEvolution(
+        stepId,
+        TENANT,
+        'user-1'
+      );
+
+      expect(mockPrisma.scheduledAction.updateMany).toHaveBeenCalled();
+      expect(mockPrisma.navigationStep.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: stepId, tenantId: TENANT },
+          data: expect.objectContaining({
+            isCompleted: true,
+            status: NavigationStepStatus.COMPLETED,
+            completedBy: 'user-1',
+          }),
+        })
+      );
+      expect(cascadeSpy).toHaveBeenCalledWith(updated, TENANT);
+      cascadeSpy.mockRestore();
+    });
+  });
+
   // ─── getAvailableStepTemplates ───────────────────────────────────────────────
 
   describe('getAvailableStepTemplates', () => {

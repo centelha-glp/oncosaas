@@ -227,7 +227,7 @@ export function PatientClinicalTab({
                               className="shrink-0"
                               onClick={() => setChartExam(exam)}
                               title="Ver gráfico de evolução"
-                              aria-label="Ver gráfico de evolução"
+                              aria-label={`Abrir gráfico de evolução do exame ${exam.name}`}
                             >
                               <LineChartIcon className="h-4 w-4" />
                             </Button>

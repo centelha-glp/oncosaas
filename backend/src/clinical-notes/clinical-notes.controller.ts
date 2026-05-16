@@ -18,6 +18,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { CurrentUser as CurrentUserType } from '../auth/decorators/current-user.decorator';
 import { UserRole } from '@generated/prisma/client';
 import { ClinicalNotesService } from './clinical-notes.service';
+import { ClinicalNoteExtractionService } from '../clinical-note-extraction/clinical-note-extraction.service';
 import {
   UpdateClinicalNoteDto,
   AddendumClinicalNoteDto,
@@ -37,7 +38,10 @@ const CLINICAL_READ_ROLES = [
 @Controller('clinical-notes')
 @UseGuards(JwtAuthGuard, TenantGuard, RolesGuard)
 export class ClinicalNotesController {
-  constructor(private readonly clinicalNotesService: ClinicalNotesService) {}
+  constructor(
+    private readonly clinicalNotesService: ClinicalNotesService,
+    private readonly clinicalNoteExtractionService: ClinicalNoteExtractionService
+  ) {}
 
   private actor(user: CurrentUserType) {
     return {
@@ -78,6 +82,38 @@ export class ClinicalNotesController {
     @CurrentUser() user: CurrentUserType
   ) {
     return this.clinicalNotesService.getThread(id, user.tenantId);
+  }
+
+  @Get(':id/extraction-status')
+  @Roles(...CLINICAL_READ_ROLES)
+  getExtractionStatus(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: CurrentUserType
+  ) {
+    return this.clinicalNoteExtractionService.getExtractionStatus(
+      id,
+      user.tenantId
+    );
+  }
+
+  @Post(':id/extraction-undo')
+  @Roles(
+    UserRole.NURSE,
+    UserRole.NURSE_CHIEF,
+    UserRole.DOCTOR,
+    UserRole.ONCOLOGIST,
+    UserRole.COORDINATOR,
+    UserRole.ADMIN
+  )
+  undoExtraction(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: CurrentUserType
+  ) {
+    return this.clinicalNoteExtractionService.undoExtraction(
+      id,
+      user.tenantId,
+      this.actor(user)
+    );
   }
 
   @Get(':id')
