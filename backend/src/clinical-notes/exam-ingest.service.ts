@@ -24,6 +24,10 @@ import {
 } from './exam-ingest.constants';
 import { applyComplementaryExamsFromAiItems } from '../clinical-note-extraction/apply-complementary-exams';
 import type { AiComplementaryExamItem } from '../clinical-note-extraction/clinical-note-extraction.types';
+import {
+  partitionComplementaryExamItemsByConfidence,
+  type ComplementaryExamPendingReviewItem,
+} from '../complementary-exams/partition-complementary-exam-items.util';
 
 /** Extrai `detail` de corpo JSON típico do FastAPI (mensagem segura ao cliente). */
 function parseAiServiceErrorDetail(raw: string): string | undefined {
@@ -136,6 +140,8 @@ export type ExamIngestFileEntry = {
   mimeType: string;
   dataBase64: string;
 };
+
+import type { ConfirmComplementaryExamsDto } from './dto/exam-ingest.dto';
 
 @Injectable()
 export class ExamIngestService {
@@ -332,6 +338,8 @@ export class ExamIngestService {
     complementaryExamsSavedCount: number;
     complementaryExamResultSavedCount: number;
     complementaryExamIds: string[];
+    complementaryExamsPendingReview?: ComplementaryExamPendingReviewItem[];
+    complementaryExamsAutoSavedCount?: number;
   }> {
     const { patientId, plainText, sessionId, uploadedFiles } = opts;
     await this.assertPatientTenant(patientId, tenantId);
@@ -498,11 +506,15 @@ export class ExamIngestService {
       const upstreamExams =
         json.complementaryExams ?? json.complementary_exams;
       const mappedExams = mapUpstreamComplementaryExams(upstreamExams);
+      const { autoApply, pendingReview } =
+        partitionComplementaryExamItemsByConfidence(mappedExams);
+      const complementaryExamsPendingReview: ComplementaryExamPendingReviewItem[] =
+        pendingReview;
       let collectionId: string | undefined;
       let complementaryExamsSavedCount = 0;
       let complementaryExamResultSavedCount = 0;
       const complementaryExamIds: string[] = [];
-      if (mappedExams.length > 0) {
+      if (autoApply.length > 0) {
         collectionId = randomUUID();
         const rej: Array<{
           domain: string;
@@ -518,7 +530,7 @@ export class ExamIngestService {
               mergedRejections: rej,
               collectionId,
             },
-            mappedExams
+            autoApply
           );
         });
         complementaryExamsSavedCount = applied.complementaryExamIds.length;
@@ -530,7 +542,6 @@ export class ExamIngestService {
           );
         }
       }
-
       if (sessionId) {
         if (uploadTokenToInvalidate) {
           await this.redis.del(this.tokenKey(uploadTokenToInvalidate));
@@ -548,9 +559,46 @@ export class ExamIngestService {
         complementaryExamsSavedCount,
         complementaryExamResultSavedCount,
         complementaryExamIds,
+        complementaryExamsPendingReview,
+        complementaryExamsAutoSavedCount: autoApply.length,
       };
     } finally {
       clearTimeout(t);
     }
+  }
+
+  async confirmComplementaryExams(
+    tenantId: string,
+    patientId: string,
+    dto: ConfirmComplementaryExamsDto,
+  ) {
+    const items: AiComplementaryExamItem[] = dto.items.map((row) => ({
+      type: row.type.trim(),
+      name: row.name.trim(),
+      code: row.code ?? null,
+      loinc_code: null,
+      result: (row.result as AiComplementaryExamItem['result']) ?? null,
+    }));
+    const collectionId = dto.collectionId ?? randomUUID();
+    const rej: Array<{ domain: string; reason: string; field?: string | null }> =
+      [];
+    const applied = await this.prisma.$transaction(async (tx) => {
+      return applyComplementaryExamsFromAiItems(
+        tx,
+        {
+          tenantId,
+          patientId,
+          mergedRejections: rej,
+          collectionId,
+        },
+        items,
+      );
+    });
+    return {
+      collectionId,
+      complementaryExamsSavedCount: applied.complementaryExamIds.length,
+      complementaryExamResultSavedCount: applied.complementaryExamResultIds.length,
+      complementaryExamIds: applied.complementaryExamIds,
+    };
   }
 }
