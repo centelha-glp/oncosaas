@@ -4,7 +4,95 @@ import type {
   ComplementaryExam,
   ComplementaryExamResult,
   ComplementaryExamResultComponent,
+  ComplementaryExamType,
 } from '@/lib/api/patients';
+
+export function buildComplementaryExamMatchKey(
+  type: ComplementaryExamType | string,
+  name: string,
+  code?: string | null
+): string {
+  const codePart =
+    code === null || code === undefined || String(code).trim() === ''
+      ? ''
+      : normalizeExamLabelKey(String(code).trim());
+  return `${type}|${normalizeExamLabelKey(name)}|${codePart}`;
+}
+
+/** Agrupa registros legados com o mesmo nome/tipo/código num único cabeçalho. */
+export function groupComplementaryExamsByName(
+  exams: ComplementaryExam[]
+): ComplementaryExam[] {
+  const groups = new Map<string, ComplementaryExam>();
+  for (const exam of exams) {
+    const key = buildComplementaryExamMatchKey(exam.type, exam.name, exam.code);
+    const active = dedupeResultsByPerformedInstant(
+      filterActiveComplementaryResults(exam.results)
+    );
+    const existing = groups.get(key);
+    if (!existing) {
+      groups.set(key, { ...exam, results: active });
+      continue;
+    }
+    const merged = dedupeResultsByPerformedInstant([
+      ...existing.results,
+      ...active,
+    ]).sort(
+      (a, b) =>
+        new Date(a.performedAt).getTime() - new Date(b.performedAt).getTime()
+    );
+    groups.set(key, { ...existing, results: merged });
+  }
+  return [...groups.values()];
+}
+
+/** Remove apenas resultados com o mesmo instante (ms) — não colapsa horários do mesmo dia. */
+export function dedupeResultsByPerformedInstant(
+  results: ComplementaryExamResult[]
+): ComplementaryExamResult[] {
+  const byInstant = new Map<number, ComplementaryExamResult>();
+  for (const r of results) {
+    const t = new Date(r.performedAt).getTime();
+    if (!byInstant.has(t)) {
+      byInstant.set(t, r);
+    }
+  }
+  return [...byInstant.values()];
+}
+
+function utcCalendarDayKey(d: Date): string {
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+}
+
+function formatUtcDate(d: Date): string {
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+  return `${day}/${month}/${d.getUTCFullYear()}`;
+}
+
+function formatUtcDateTime(d: Date): string {
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const hours = String(d.getUTCHours()).padStart(2, '0');
+  const minutes = String(d.getUTCMinutes()).padStart(2, '0');
+  return `${day}/${month}/${d.getUTCFullYear()} ${hours}:${minutes}`;
+}
+
+/** dd/MM/yyyy (UTC); se >1 resultado no mesmo dia calendário UTC, inclui HH:mm. */
+export function formatComplementaryResultPerformedAt(
+  allResultsInExam: ComplementaryExamResult[],
+  performedAt: string | Date
+): string {
+  const d = new Date(performedAt);
+  const dayKey = utcCalendarDayKey(d);
+  const sameDayCount = allResultsInExam.filter(
+    (r) => utcCalendarDayKey(new Date(r.performedAt)) === dayKey
+  ).length;
+  if (sameDayCount > 1) {
+    return formatUtcDateTime(d);
+  }
+  return formatUtcDate(d);
+}
 
 /**
  * Garante array de subitens a partir do JSON do backend/Prisma.
@@ -60,6 +148,80 @@ export function normalizeComplementaryResultComponents(
   return out;
 }
 
+/** Chave de comparação de rótulos (sem acentos, minúsculas, só alfanumérico). */
+export function normalizeExamLabelKey(name: string): string {
+  return name
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '');
+}
+
+/** Siglas/nomes entre parênteses no título do exame, ex.: "(TTPa)". */
+export function extractParentheticalAliases(examName: string): string[] {
+  const aliases: string[] = [];
+  const re = /\(([^)]+)\)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(examName)) !== null) {
+    const inner = m[1].trim();
+    if (inner) aliases.push(inner);
+  }
+  return aliases;
+}
+
+function resultHasMainValue(result: ComplementaryExamResult): boolean {
+  if (result.valueNumeric != null) return true;
+  const vt = (result.valueText ?? '').trim();
+  if (vt) return true;
+  const report = (result.report ?? '').trim();
+  if (report) return true;
+  return false;
+}
+
+function componentNameMatchesExam(examName: string, componentName: string): boolean {
+  const examKey = normalizeExamLabelKey(examName);
+  const compKey = normalizeExamLabelKey(componentName);
+  if (!examKey || !compKey) return false;
+  if (examKey === compKey) return true;
+  for (const alias of extractParentheticalAliases(examName)) {
+    if (normalizeExamLabelKey(alias) === compKey) return true;
+  }
+  if (examKey.includes(compKey) || compKey.includes(examKey)) return true;
+  return false;
+}
+
+/**
+ * Quando há um único subitem sinônimo do exame e o pai está vazio, promove o valor
+ * para a linha principal (ex.: TTPa dentro de "Tempo de Tromboplastina... (TTPa)").
+ */
+export function collapseRedundantSingleComponent(
+  examName: string,
+  result: ComplementaryExamResult
+): {
+  result: ComplementaryExamResult;
+  displayComponents: ComplementaryExamResultComponent[];
+} {
+  const comps = normalizeComplementaryResultComponents(result.components);
+  if (comps.length !== 1 || resultHasMainValue(result)) {
+    return { result, displayComponents: comps };
+  }
+  const sole = comps[0];
+  if (!sole.name?.trim() || !componentNameMatchesExam(examName, sole.name)) {
+    return { result, displayComponents: comps };
+  }
+  return {
+    result: {
+      ...result,
+      valueNumeric: sole.valueNumeric ?? result.valueNumeric,
+      valueText: sole.valueText ?? result.valueText,
+      unit: sole.unit ?? result.unit,
+      referenceRange: sole.referenceRange ?? result.referenceRange,
+      isAbnormal: sole.isAbnormal ?? result.isAbnormal,
+    },
+    displayComponents: [],
+  };
+}
+
 export interface ComplementaryExamChartPoint {
   date: string;
   dateSort: number;
@@ -73,16 +235,18 @@ export function filterActiveComplementaryResults(
 }
 
 export function examHasPanelComponents(exam: ComplementaryExam): boolean {
-  return exam.results.some(
-    (r) => normalizeComplementaryResultComponents(r.components).length > 0
-  );
+  return exam.results.some((r) => {
+    const { displayComponents } = collapseRedundantSingleComponent(exam.name, r);
+    return displayComponents.length > 0;
+  });
 }
 
 /** Nomes únicos estáveis (chave case-insensitive, rótulo preserva primeira grafia vista). */
 export function collectUniqueComponentNames(exam: ComplementaryExam): string[] {
   const byKey = new Map<string, string>();
   for (const r of exam.results) {
-    for (const c of normalizeComplementaryResultComponents(r.components)) {
+    const { displayComponents } = collapseRedundantSingleComponent(exam.name, r);
+    for (const c of displayComponents) {
       const raw = c.name?.trim();
       if (!raw) continue;
       const key = raw.toLowerCase();
@@ -93,19 +257,25 @@ export function collectUniqueComponentNames(exam: ComplementaryExam): string[] {
 }
 
 export function findComponentInResult(
+  examName: string,
   result: ComplementaryExamResult,
   componentDisplayName: string
 ): ComplementaryExamResultComponent | undefined {
   const want = componentDisplayName.trim().toLowerCase();
-  return normalizeComplementaryResultComponents(result.components).find(
+  const { displayComponents } = collapseRedundantSingleComponent(examName, result);
+  return displayComponents.find(
     (c) => c.name && c.name.trim().toLowerCase() === want
   );
 }
 
 export function buildParentNumericChartPoints(
-  results: ComplementaryExamResult[]
+  results: ComplementaryExamResult[],
+  examName?: string
 ): ComplementaryExamChartPoint[] {
   return results
+    .map((r) =>
+      examName ? collapseRedundantSingleComponent(examName, r).result : r
+    )
     .filter((r) => r.valueNumeric != null)
     .map((r) => ({
       date: format(new Date(r.performedAt), 'dd/MM/yyyy', { locale: ptBR }),
@@ -117,12 +287,18 @@ export function buildParentNumericChartPoints(
 
 export function buildComponentNumericChartPoints(
   results: ComplementaryExamResult[],
-  componentDisplayName: string
+  componentDisplayName: string,
+  examName?: string
 ): ComplementaryExamChartPoint[] {
   const want = componentDisplayName.trim().toLowerCase();
   return results
     .map((r) => {
-      const c = normalizeComplementaryResultComponents(r.components).find(
+      const { displayComponents } = examName
+        ? collapseRedundantSingleComponent(examName, r)
+        : {
+            displayComponents: normalizeComplementaryResultComponents(r.components),
+          };
+      const c = displayComponents.find(
         (x) => x.name && x.name.trim().toLowerCase() === want
       );
       return {
@@ -142,7 +318,8 @@ export function guessComponentUnit(
 ): string | null {
   const want = componentDisplayName.trim().toLowerCase();
   for (const r of exam.results) {
-    const c = normalizeComplementaryResultComponents(r.components).find(
+    const { displayComponents } = collapseRedundantSingleComponent(exam.name, r);
+    const c = displayComponents.find(
       (x) => x.name && x.name.trim().toLowerCase() === want
     );
     if (c?.unit?.trim()) return c.unit.trim();
