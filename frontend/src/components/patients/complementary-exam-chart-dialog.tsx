@@ -65,10 +65,14 @@ export function ComplementaryExamChartDialog({
   const chartData = React.useMemo(() => {
     if (needsSubitemPick) {
       if (!selectedSubitem.trim()) return [];
-      return buildComponentNumericChartPoints(exam.results, selectedSubitem);
+      return buildComponentNumericChartPoints(
+        exam.results,
+        selectedSubitem,
+        exam.name
+      );
     }
-    return buildParentNumericChartPoints(exam.results);
-  }, [exam.results, needsSubitemPick, selectedSubitem]);
+    return buildParentNumericChartPoints(exam.results, exam.name);
+  }, [exam.results, exam.name, needsSubitemPick, selectedSubitem]);
 
   const hasNumericSeries = chartData.length >= 1;
   const chartUnit = needsSubitemPick && selectedSubitem

@@ -14,29 +14,31 @@ export function extractParentheticalAliases(examName: string): string[] {
   let m: RegExpExecArray | null;
   while ((m = re.exec(examName)) !== null) {
     const inner = m[1].trim();
-    if (inner) aliases.push(inner);
+    if (inner) {aliases.push(inner);}
   }
   return aliases;
 }
 
 function parseComponents(raw: unknown): ExamResultComponentInput[] {
-  if (raw == null) return [];
+  if (raw === null || raw === undefined) {
+    return [];
+  }
   if (typeof raw === 'string') {
     const t = raw.trim();
-    if (!t) return [];
+    if (!t) {return [];}
     try {
       return parseComponents(JSON.parse(t) as unknown);
     } catch {
       return [];
     }
   }
-  if (!Array.isArray(raw)) return [];
+  if (!Array.isArray(raw)) {return [];}
   const out: ExamResultComponentInput[] = [];
   for (const el of raw) {
-    if (!el || typeof el !== 'object' || Array.isArray(el)) continue;
+    if (!el || typeof el !== 'object' || Array.isArray(el)) {continue;}
     const o = el as Record<string, unknown>;
     const nameRaw = o.name;
-    if (typeof nameRaw !== 'string' || !nameRaw.trim()) continue;
+    if (typeof nameRaw !== 'string' || !nameRaw.trim()) {continue;}
     const vn = o.valueNumeric ?? o.value_numeric;
     let valueNumeric: number | undefined;
     if (vn !== null && vn !== undefined && vn !== '') {
@@ -44,7 +46,7 @@ function parseComponents(raw: unknown): ExamResultComponentInput[] {
         valueNumeric = vn;
       } else {
         const n = Number(vn);
-        if (Number.isFinite(n)) valueNumeric = n;
+        if (Number.isFinite(n)) {valueNumeric = n;}
       }
     }
     const vt = o.valueText ?? o.value_text;
@@ -84,8 +86,8 @@ function resultHasMainValue(fields: {
   ) {
     return true;
   }
-  if ((fields.valueText ?? '').trim()) return true;
-  if ((fields.report ?? '').trim()) return true;
+  if ((fields.valueText ?? '').trim()) {return true;}
+  if ((fields.report ?? '').trim()) {return true;}
   return false;
 }
 
@@ -95,12 +97,12 @@ function componentNameMatchesExam(
 ): boolean {
   const examKey = normalizeExamLabelKey(examName);
   const compKey = normalizeExamLabelKey(componentName);
-  if (!examKey || !compKey) return false;
-  if (examKey === compKey) return true;
+  if (!examKey || !compKey) {return false;}
+  if (examKey === compKey) {return true;}
   for (const alias of extractParentheticalAliases(examName)) {
-    if (normalizeExamLabelKey(alias) === compKey) return true;
+    if (normalizeExamLabelKey(alias) === compKey) {return true;}
   }
-  if (examKey.includes(compKey) || compKey.includes(examKey)) return true;
+  if (examKey.includes(compKey) || compKey.includes(examKey)) {return true;}
   return false;
 }
 

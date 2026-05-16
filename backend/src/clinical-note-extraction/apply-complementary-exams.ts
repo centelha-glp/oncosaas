@@ -155,7 +155,12 @@ export async function applyComplementaryExamsFromAiItems(
         referenceRange: collapsed.referenceRange ?? null,
         isAbnormal: collapsed.isAbnormal ?? null,
         report: collapsed.report ?? null,
-        components: collapsed.components as Prisma.InputJsonValue | undefined,
+        components:
+          collapsed.components &&
+          Array.isArray(collapsed.components) &&
+          collapsed.components.length > 0
+            ? (collapsed.components as Prisma.InputJsonValue)
+            : null,
       },
     });
     complementaryExamResultIds.push(resultId);
