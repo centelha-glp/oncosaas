@@ -23,6 +23,7 @@ import {
   useClinicalNotesList,
 } from '../use-clinical-notes';
 import { clinicalNotesApi } from '@/lib/api/clinical-notes';
+import { ApiClientError } from '@/lib/api/client';
 
 function makeWrapper() {
   const queryClient = new QueryClient({
@@ -149,6 +150,19 @@ describe('useClinicalNoteDetail', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(clinicalNotesApi.getById).toHaveBeenCalledWith('n1');
   });
+
+  it('não retenta getById quando a API devolve 404', async () => {
+    vi.mocked(clinicalNotesApi.getById).mockRejectedValue(
+      new ApiClientError('Clinical note not found', 404, 'Not Found')
+    );
+
+    const { result } = renderHook(() => useClinicalNoteDetail('missing-id'), {
+      wrapper: makeWrapper(),
+    });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(clinicalNotesApi.getById).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('useClinicalNoteMutations', () => {
@@ -174,6 +188,24 @@ describe('useClinicalNoteMutations', () => {
       navigationStepId: 'ns-1',
       contentMarkdown: '# Evolução\n\nteste',
     });
+  });
+
+  it('update não retenta quando a API devolve 429', async () => {
+    vi.mocked(clinicalNotesApi.update).mockRejectedValue(
+      new ApiClientError('Muitas requisições', 429, 'Too Many Requests')
+    );
+
+    const { result } = renderHook(() => useClinicalNoteMutations('patient-1'), {
+      wrapper: makeWrapper(),
+    });
+
+    result.current.update.mutate({
+      id: 'n1',
+      contentMarkdown: 'x',
+    });
+
+    await waitFor(() => expect(result.current.update.isError).toBe(true));
+    expect(clinicalNotesApi.update).toHaveBeenCalledTimes(1);
   });
 });
 

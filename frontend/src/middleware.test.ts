@@ -29,6 +29,12 @@ describe('middleware auth gating (probe no backend)', () => {
     expect(resetResponse.headers.get('location')).toBeNull();
   });
 
+  it('allows mobile exam ingest route without session cookie', async () => {
+    const token = 'a'.repeat(64);
+    const res = await middleware(buildRequest(`/m/exam-ingest/${token}`));
+    expect(res.headers.get('location')).toBeNull();
+  });
+
   it('redirects unauthenticated access to protected pages and preserves intent', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 401 })));
     const response = await middleware(buildRequest('/dashboard'));

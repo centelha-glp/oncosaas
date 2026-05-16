@@ -9,6 +9,7 @@ import {
   type CreateConsultationAgendaBlockPayload,
   type UpsertConsultationAgendaConfigPayload,
 } from '@/lib/api/oncology-navigation';
+import { STALE_TIME_PATIENT_NAVIGATION_MS } from '@/lib/query-stale-times';
 
 export const useConsultationAgenda = (
   params: ConsultationAgendaQuery,
@@ -43,7 +44,7 @@ export const usePatientNavigationSteps = (patientId: string | null) => {
     queryKey: ['navigation-steps', patientId],
     queryFn: () => oncologyNavigationApi.getPatientSteps(patientId!),
     enabled: !!patientId,
-    staleTime: 30 * 1000, // 30 segundos
+    staleTime: STALE_TIME_PATIENT_NAVIGATION_MS,
   });
 };
 
@@ -61,7 +62,7 @@ export const useStepsByStage = (
     queryFn: () =>
       oncologyNavigationApi.getStepsByStage(patientId!, journeyStage!),
     enabled: !!patientId && !!journeyStage,
-    staleTime: 30 * 1000,
+    staleTime: STALE_TIME_PATIENT_NAVIGATION_MS,
   });
 };
 

@@ -5,13 +5,14 @@ import {
   PatientDetail,
   PatientSummaryResponse,
 } from '@/lib/api/patients';
+import { STALE_TIME_PATIENT_NAVIGATION_MS } from '@/lib/query-stale-times';
 
 export const usePatientDetail = (id: string | null) => {
   return useQuery<PatientDetail>({
     queryKey: ['patient', id],
     queryFn: () => patientsApi.getDetail(id!),
     enabled: !!id,
-    staleTime: 2 * 60 * 1000,
+    staleTime: STALE_TIME_PATIENT_NAVIGATION_MS,
   });
 };
 

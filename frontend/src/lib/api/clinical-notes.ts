@@ -131,6 +131,18 @@ export interface ClinicalNoteMutationResponse {
   updatedAt: string;
 }
 
+/** Estado da extração estruturada pós-assinatura (backend). */
+export interface ClinicalNoteExtractionStatus {
+  runId: string | null;
+  status: string;
+  appliedAt: string | null;
+  canUndoUntil: string | null;
+  undoWindowDays: number;
+  rejectionReport: unknown;
+  appliedPayloadHash: string | null;
+  errorMessage: string | null;
+}
+
 export interface PaginatedClinicalNotes {
   data: ClinicalNoteListItem[];
   total: number;
@@ -204,6 +216,19 @@ export const clinicalNotesApi = {
     );
   },
 
+  getExtractionStatus(noteId: string): Promise<ClinicalNoteExtractionStatus> {
+    return apiClient.get<ClinicalNoteExtractionStatus>(
+      `/clinical-notes/${noteId}/extraction-status`
+    );
+  },
+
+  undoExtraction(noteId: string): Promise<{ ok: true }> {
+    return apiClient.post<{ ok: true }>(
+      `/clinical-notes/${noteId}/extraction-undo`,
+      {}
+    );
+  },
+
   addendum(
     id: string,
     body: { contentMarkdown?: string }
@@ -218,6 +243,17 @@ export const clinicalNotesApi = {
     return apiClient.post<ClinicalNoteMutationResponse>(
       `/clinical-notes/${id}/void`,
       { voidReason }
+    );
+  },
+
+  /** Cria etapa de consulta compatível com o tipo de evolução quando ainda não existe no paciente. */
+  bootstrapEvolutionNavigationStep(
+    patientId: string,
+    body: { noteType: ClinicalNoteType }
+  ): Promise<{ id: string }> {
+    return apiClient.post<{ id: string }>(
+      `/patients/${patientId}/clinical-notes/bootstrap-evolution-navigation-step`,
+      body
     );
   },
 };
