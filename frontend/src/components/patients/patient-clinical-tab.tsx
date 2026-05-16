@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   PatientDetail,
   Comorbidity,
@@ -20,6 +20,10 @@ import { ComplementaryExamChartDialog } from './complementary-exam-chart-dialog'
 import { ComplementaryExamCreateDialog } from './complementary-exam-create-dialog';
 import { ComplementaryExamResultCreateDialog } from './complementary-exam-result-create-dialog';
 import { PatientSymptomTimeline } from './patient-symptom-timeline';
+import {
+  formatComplementaryResultPerformedAt,
+  groupComplementaryExamsByName,
+} from '@/lib/utils/complementary-exam-series';
 
 interface PatientClinicalTabProps {
   patient: PatientDetail;
@@ -69,11 +73,15 @@ export function PatientClinicalTab({
     null
   );
 
-  const complementaryExams: ComplementaryExam[] = Array.isArray(
-    patient.complementaryExams
-  )
-    ? patient.complementaryExams
-    : [];
+  const complementaryExams: ComplementaryExam[] = useMemo(
+    () =>
+      groupComplementaryExamsByName(
+        Array.isArray(patient.complementaryExams)
+          ? patient.complementaryExams
+          : []
+      ),
+    [patient.complementaryExams]
+  );
 
   const comorbidities: Comorbidity[] = Array.isArray(patient.comorbidities)
     ? patient.comorbidities
@@ -252,10 +260,9 @@ export function PatientClinicalTab({
                                   className="flex items-baseline justify-between gap-2 py-1 border-b border-border/50 last:border-0"
                                 >
                                   <span className="text-muted-foreground shrink-0">
-                                    {format(
-                                      new Date(r.performedAt),
-                                      'dd/MM/yyyy',
-                                      { locale: ptBR }
+                                    {formatComplementaryResultPerformedAt(
+                                      exam.results,
+                                      r.performedAt
                                     )}
                                   </span>
                                   <span className="text-right truncate min-w-0">

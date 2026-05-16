@@ -1,8 +1,6 @@
 'use client';
 
 import React, { useMemo, useState } from 'react';
-import { format } from 'date-fns';
-import { ptBR } from 'date-fns/locale';
 import { ChevronDown, ChevronRight, LineChart as LineChartIcon } from 'lucide-react';
 import type {
   ComplementaryExam,
@@ -12,8 +10,9 @@ import type {
 import { Button } from '@/components/ui/button';
 import { ComplementaryExamChartDialog } from '@/components/patients/complementary-exam-chart-dialog';
 import {
-  filterActiveComplementaryResults,
-  normalizeComplementaryResultComponents,
+  collapseRedundantSingleComponent,
+  formatComplementaryResultPerformedAt,
+  groupComplementaryExamsByName,
 } from '@/lib/utils/complementary-exam-series';
 
 interface PatientProntuarioLabHistoryProps {
@@ -37,11 +36,10 @@ export function PatientProntuarioLabHistory({
     const raw = Array.isArray(patient.complementaryExams)
       ? patient.complementaryExams
       : [];
-    return raw
-      .filter((e) => e.type === 'LABORATORY')
+    return groupComplementaryExamsByName(raw.filter((e) => e.type === 'LABORATORY'))
       .map((e) => ({
         ...e,
-        results: filterActiveComplementaryResults(e.results).sort(
+        results: [...e.results].sort(
           (a, b) =>
             new Date(a.performedAt).getTime() - new Date(b.performedAt).getTime()
         ),
@@ -144,9 +142,8 @@ export function PatientProntuarioLabHistory({
                   </tr>
                 ) : (
                   exam.results.map((r) => {
-                    const comps = normalizeComplementaryResultComponents(
-                      r.components
-                    );
+                    const { result: displayResult, displayComponents: comps } =
+                      collapseRedundantSingleComponent(exam.name, r);
                     const hasChildren = comps.length > 0;
                     const isOpen = expandedIds.has(r.id);
                     const panelId = `lab-panel-${exam.id}-${r.id}`;
@@ -166,8 +163,8 @@ export function PatientProntuarioLabHistory({
                                 onClick={() => toggleExpanded(r.id)}
                                 aria-label={
                                   isOpen
-                                    ? `Recolher subitens da coleta de ${format(new Date(r.performedAt), 'dd/MM/yyyy', { locale: ptBR })}`
-                                    : `Expandir subitens da coleta de ${format(new Date(r.performedAt), 'dd/MM/yyyy', { locale: ptBR })}`
+                                    ? `Recolher subitens da coleta de ${formatComplementaryResultPerformedAt(exam.results, r.performedAt)}`
+                                    : `Expandir subitens da coleta de ${formatComplementaryResultPerformedAt(exam.results, r.performedAt)}`
                                 }
                               >
                                 {isOpen ? (
@@ -179,25 +176,26 @@ export function PatientProntuarioLabHistory({
                             ) : null}
                           </td>
                           <td className="sticky left-10 z-10 whitespace-nowrap border-b border-border/60 bg-background px-2 py-2 text-muted-foreground shadow-[1px_0_0_0_hsl(var(--border))] odd:bg-muted/30">
-                            {format(new Date(r.performedAt), 'dd/MM/yyyy', {
-                              locale: ptBR,
-                            })}
+                            {formatComplementaryResultPerformedAt(
+                              exam.results,
+                              r.performedAt
+                            )}
                           </td>
                           <td className="border-b border-border/60 px-2 py-2 font-medium">
-                            {formatResultMainValue(r)}
+                            {formatResultMainValue(displayResult)}
                           </td>
                           <td className="border-b border-border/60 px-2 py-2 text-muted-foreground">
-                            {r.unit ?? '—'}
+                            {displayResult.unit ?? '—'}
                           </td>
                           <td className="border-b border-border/60 px-2 py-2 text-muted-foreground">
-                            {r.referenceRange ?? '—'}
+                            {displayResult.referenceRange ?? '—'}
                           </td>
                           <td className="border-b border-border/60 px-2 py-2 text-xs">
                             {(() => {
                               const bits: string[] = [];
-                              if (r.criticalHigh) bits.push('Crítico alto');
-                              if (r.criticalLow) bits.push('Crítico baixo');
-                              if (r.isAbnormal) bits.push('Fora da ref.');
+                              if (displayResult.criticalHigh) bits.push('Crítico alto');
+                              if (displayResult.criticalLow) bits.push('Crítico baixo');
+                              if (displayResult.isAbnormal) bits.push('Fora da ref.');
                               if (bits.length === 0) {
                                 return <span className="text-muted-foreground">—</span>;
                               }
