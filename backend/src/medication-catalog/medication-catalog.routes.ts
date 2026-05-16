@@ -21,7 +21,7 @@ export function isAllowedMedicationRoute(
   allowedRoutes: string[]
 ): boolean {
   const normalized = route.trim().toUpperCase();
-  if (!normalized) return true;
-  if (allowedRoutes.length === 0) return true;
+  if (!normalized) {return true;}
+  if (allowedRoutes.length === 0) {return true;}
   return allowedRoutes.some((r) => r.toUpperCase() === normalized);
 }
