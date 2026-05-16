@@ -16,7 +16,6 @@ export type MedicationCatalogSeedDrug = {
 
 const VO_IV_SC = ['VO', 'IV', 'SC'];
 const VO_ONLY = ['VO'];
-const VO_SC = ['VO', 'SC'];
 const SC = ['SC'];
 const IV = ['IV'];
 

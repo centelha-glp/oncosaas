@@ -679,8 +679,10 @@ export function ClinicalNoteOrdersPanel(props: {
                 currentClinicalNoteId={clinicalNoteId}
                 onReuse={(draft) => setRxDraft(draft)}
                 onReuseAllFromNote={(drafts) => {
-                  rxDraftQueueRef.current = [...drafts];
-                  if (drafts[0]) setRxDraft(drafts[0]);
+                  if (drafts.length === 0) return;
+                  const [first, ...rest] = drafts;
+                  rxDraftQueueRef.current = rest;
+                  setRxDraft(first);
                   toast.message(
                     `${drafts.length} item(ns) na fila — confira e clique em Adicionar para cada um.`
                   );

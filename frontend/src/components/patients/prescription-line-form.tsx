@@ -65,6 +65,18 @@ export function PrescriptionLineForm({
     if (draft.catalogKey) {
       setFreeText(false);
       setDrugQuery(draft.medicationName);
+      setSelectedDrug(null);
+      const catalogKey = draft.catalogKey;
+      void medicationCatalogApi
+        .search({ q: catalogKey, limit: 20, offset: 0 })
+        .then((res) => {
+          const drug =
+            res.items.find((d) => d.code === catalogKey) ?? res.items[0] ?? null;
+          if (drug) setSelectedDrug(drug);
+        })
+        .catch(() => {
+          /* catálogo indisponível: usuário pode reselecionar manualmente */
+        });
     } else {
       setFreeText(true);
       setSelectedDrug(null);

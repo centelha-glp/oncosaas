@@ -121,7 +121,7 @@ function makeTx() {
             data: { valueNumeric?: number | null };
           }) => {
             const row = results.find((r) => r.id === where.id);
-            if (!row) throw new Error('not found');
+            if (!row) {throw new Error('not found');}
             if (data.valueNumeric !== undefined) {
               row.valueNumeric = data.valueNumeric;
             }
