@@ -1,0 +1,5 @@
+-- RenameIndex
+ALTER INDEX "clinical_note_extraction_runs_clinicalNoteId_sectionsContentHas" RENAME TO "clinical_note_extraction_runs_clinicalNoteId_sectionsConten_key";
+
+-- RenameIndex
+ALTER INDEX "navigation_steps_tenantId_consultationAttendance_expectedDate_i" RENAME TO "navigation_steps_tenantId_consultationAttendance_expectedDa_idx";

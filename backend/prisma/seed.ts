@@ -107,6 +107,17 @@ async function main() {
   console.log('  - Coordenador:', coordinator.email);
 
   // Limpar pacientes existentes antes de criar novos
+  // Guias TISS primeiro: itens referenciam clinical_exam_requests com onDelete Restrict —
+  // cascata ao apagar paciente pode falhar (P2003) se os guias ainda existirem.
+  console.log('🧹 Removendo guias TISS SP/SADT do tenant...');
+  await prisma.tissSpsadtGuide.deleteMany({
+    where: { tenantId: tenant.id },
+  });
+  // scheduled_actions tem patientId sem FK no schema — não cascata ao apagar paciente.
+  console.log('🧹 Removendo scheduled_actions órfãos do tenant...');
+  await prisma.scheduledAction.deleteMany({
+    where: { tenantId: tenant.id },
+  });
   console.log('🧹 Limpando pacientes existentes...');
   await prisma.patient.deleteMany({
     where: { tenantId: tenant.id },
@@ -1729,7 +1740,7 @@ async function main() {
       data: {
         tenantId: tenant.id,
         llmProvider: 'anthropic',
-        llmModel: 'claude-sonnet-4-6',
+        llmModel: 'claude-haiku-4-5',
         llmFallbackProvider: 'openai',
         llmFallbackModel: 'gpt-4o-mini',
         maxAutoReplies: 10,
