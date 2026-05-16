@@ -185,6 +185,11 @@ describe('Documentation-driven Controller Contracts', () => {
       const classDecorators = getDecorators(classNode, sourceFile);
       const classGuardDecoratorText = classDecorators.find((d) => d.name === 'UseGuards')?.text;
       const classIsGuarded = hasGuardTextWith(classGuardDecoratorText, 'JwtAuthGuard', 'TenantGuard');
+      const classIsPublic = classDecorators.some((d) => d.name === 'Public');
+      const classUsesBackendServiceTokenGuard =
+        classGuardDecoratorText?.includes('BackendServiceTokenGuard') ?? false;
+      const classInternalServiceAuth =
+        classIsPublic && classUsesBackendServiceTokenGuard;
 
       const missingProtection: string[] = [];
 
@@ -207,7 +212,12 @@ describe('Documentation-driven Controller Contracts', () => {
         const methodGuardDecoratorText = methodDecorators.find((d) => d.name === 'UseGuards')?.text;
         const methodIsGuarded = hasGuardTextWith(methodGuardDecoratorText, 'JwtAuthGuard', 'TenantGuard');
 
-        if (!classIsGuarded && !methodIsGuarded && !CONTROLLER_GUARD_EXEMPTIONS.has(fileName)) {
+        if (
+          !classIsGuarded &&
+          !methodIsGuarded &&
+          !classInternalServiceAuth &&
+          !CONTROLLER_GUARD_EXEMPTIONS.has(fileName)
+        ) {
           missingProtection.push(member.name.getText(sourceFile));
         }
 
