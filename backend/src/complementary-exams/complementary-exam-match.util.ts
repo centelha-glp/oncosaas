@@ -2,7 +2,7 @@ import {
   ComplementaryExamType,
   Prisma,
 } from '@generated/prisma/client';
-import { normalizeExamLabelKey } from './collapse-redundant-components.util';
+import { resolveCanonicalExamGroupId } from './complementary-exam-canonical.util';
 
 const YMD_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -15,12 +15,15 @@ export function buildComplementaryExamMatchKey(
   type: string,
   name: string,
   code?: string | null,
+  loincCode?: string | null,
 ): string {
-  const codePart =
-    code === null || code === undefined || String(code).trim() === ''
-      ? ''
-      : normalizeExamLabelKey(String(code).trim());
-  return `${type}|${normalizeExamLabelKey(name)}|${codePart}`;
+  const canonicalId = resolveCanonicalExamGroupId(
+    type,
+    name,
+    code,
+    loincCode,
+  );
+  return `${type}|${canonicalId}`;
 }
 
 /**
@@ -45,11 +48,21 @@ export function parseComplementaryPerformedAt(
 }
 
 function examRowMatchesKey(
-  row: { type: ComplementaryExamType; name: string; code: string | null },
+  row: {
+    type: ComplementaryExamType;
+    name: string;
+    code: string | null;
+    loincCode: string | null;
+  },
   matchKey: string,
 ): boolean {
   return (
-    buildComplementaryExamMatchKey(row.type, row.name, row.code) === matchKey
+    buildComplementaryExamMatchKey(
+      row.type,
+      row.name,
+      row.code,
+      row.loincCode,
+    ) === matchKey
   );
 }
 
@@ -71,7 +84,16 @@ export async function findOrCreateComplementaryExam(
     code === null || code === undefined
       ? null
       : String(code).trim().slice(0, 64) || null;
-  const matchKey = buildComplementaryExamMatchKey(type, trimmedName, trimmedCode);
+  const trimmedLoinc =
+    loincCode === null || loincCode === undefined
+      ? null
+      : String(loincCode).trim().slice(0, 32) || null;
+  const matchKey = buildComplementaryExamMatchKey(
+    type,
+    trimmedName,
+    trimmedCode,
+    trimmedLoinc,
+  );
 
   const cached = batchCache?.get(matchKey);
   if (cached) {
@@ -80,7 +102,7 @@ export async function findOrCreateComplementaryExam(
 
   const existingRows = await tx.complementaryExam.findMany({
     where: { tenantId, patientId, type },
-    select: { id: true, name: true, code: true, type: true },
+    select: { id: true, name: true, code: true, type: true, loincCode: true },
   });
   const found = existingRows.find((row) => examRowMatchesKey(row, matchKey));
   if (found) {
@@ -95,10 +117,7 @@ export async function findOrCreateComplementaryExam(
       type,
       name: trimmedName,
       code: trimmedCode,
-      loincCode:
-        loincCode === null || loincCode === undefined
-          ? null
-          : String(loincCode).trim().slice(0, 32) || null,
+      loincCode: trimmedLoinc,
     },
   });
   batchCache?.set(matchKey, { id: created.id, name: created.name });
