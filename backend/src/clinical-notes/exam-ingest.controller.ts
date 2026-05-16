@@ -21,7 +21,11 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { CurrentUser as CurrentUserType } from '../auth/decorators/current-user.decorator';
 import { UserRole } from '@generated/prisma/client';
 import { ExamIngestService } from './exam-ingest.service';
-import { CreateExamIngestSessionDto, ExamIngestExtractDto } from './dto/exam-ingest.dto';
+import {
+  ConfirmComplementaryExamsDto,
+  CreateExamIngestSessionDto,
+  ExamIngestExtractDto,
+} from './dto/exam-ingest.dto';
 import {
   EXAM_INGEST_MAX_FILE_BYTES,
   EXAM_INGEST_MAX_FILES_PER_SESSION,
@@ -141,5 +145,19 @@ export class ExamIngestController {
       sessionId: dto.sessionId,
       uploadedFiles: uploaded.length > 0 ? uploaded : undefined,
     });
+  }
+
+  @Post('confirm-complementary-exams')
+  @Roles(...CLINICAL_WRITE_ROLES)
+  confirmComplementaryExams(
+    @Param('patientId', ParseUUIDPipe) patientId: string,
+    @Body() dto: ConfirmComplementaryExamsDto,
+    @CurrentUser() user: CurrentUserType
+  ) {
+    return this.examIngest.confirmComplementaryExams(
+      user.tenantId,
+      patientId,
+      dto
+    );
   }
 }

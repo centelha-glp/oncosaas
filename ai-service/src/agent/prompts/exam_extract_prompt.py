@@ -20,12 +20,18 @@ Responda APENAS com um único objeto JSON (sem markdown fences, sem texto antes 
   "disclaimer" (string curta em PT-BR lembrando que o conteúdo foi gerado por IA e deve ser validado pelo profissional),
   "complementary_exams" (lista opcional; omita a chave ou use [] se não houver linhas estruturáveis). Cada elemento é um objeto com:
     - "type": um de LABORATORY, IMAGING, ANATOMOPATHOLOGICAL, IMMUNOHISTOCHEMICAL (alinhado ao cadastro de exames complementares),
-    - "name": nome curto do exame (obrigatório),
+    - "name": nome curto do exame (obrigatório; preferir rótulos do catálogo, ex.: "Creatinina", "Vitamina D 25(OH)D"),
     - "code": código/sigla interna (opcional),
     - "loinc_code": código LOINC (opcional),
     - "result" (opcional): objeto com campos apenas se constarem no material —
         "performed_at" (ISO ou data do laudo), "value_numeric", "value_text", "unit", "reference_range",
-        "is_abnormal" (boolean), "report" (laudo/impressão), "components" (lista JSON de sub-itens, hemograma, etc.).
+        "is_abnormal" (boolean), "report" (laudo/impressão), "components" (lista JSON de sub-itens de painéis compostos).
+
+Regra para exames com um único parâmetro (ex.: TTPa, creatinina, glicemia): preencha "value_numeric", "unit" e "reference_range"
+no objeto "result" e **não** use "components". Reserve "components" apenas para painéis com dois ou mais
+parâmetros distintos (hemograma, perfil lipídico, função hepática, etc.). Não repita no "components" a sigla
+ou sinônimo que já está no "name" do exame (ex.: name "Tempo de Tromboplastina Parcial Ativado (TTPa)" → valor
+no result, sem subitem "TTPa").
 
 Não invente tipos nem resultados fora do material; omita itens que não possa estruturar com segurança.
 

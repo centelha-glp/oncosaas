@@ -24,6 +24,7 @@ import {
 } from './exam-ingest.constants';
 import { applyComplementaryExamsFromAiItems } from '../clinical-note-extraction/apply-complementary-exams';
 import type { AiComplementaryExamItem } from '../clinical-note-extraction/clinical-note-extraction.types';
+import type { ConfirmComplementaryExamsDto } from './dto/exam-ingest.dto';
 
 /** Extrai `detail` de corpo JSON típico do FastAPI (mensagem segura ao cliente). */
 function parseAiServiceErrorDetail(raw: string): string | undefined {
@@ -552,5 +553,47 @@ export class ExamIngestService {
     } finally {
       clearTimeout(t);
     }
+  }
+
+  async confirmComplementaryExams(
+    tenantId: string,
+    patientId: string,
+    dto: ConfirmComplementaryExamsDto,
+  ): Promise<{
+    collectionId: string;
+    complementaryExamsSavedCount: number;
+    complementaryExamResultSavedCount: number;
+    complementaryExamIds: string[];
+  }> {
+    await this.assertPatientTenant(patientId, tenantId);
+
+    const items: AiComplementaryExamItem[] = dto.items.map((row) => ({
+      type: row.type.trim(),
+      name: row.name.trim(),
+      code: row.code ?? null,
+      loinc_code: null,
+      result: (row.result as AiComplementaryExamItem['result']) ?? null,
+    }));
+    const collectionId = dto.collectionId ?? randomUUID();
+    const rej: Array<{ domain: string; reason: string; field?: string | null }> =
+      [];
+    const applied = await this.prisma.$transaction(async (tx) => {
+      return applyComplementaryExamsFromAiItems(
+        tx,
+        {
+          tenantId,
+          patientId,
+          mergedRejections: rej,
+          collectionId,
+        },
+        items,
+      );
+    });
+    return {
+      collectionId,
+      complementaryExamsSavedCount: applied.complementaryExamIds.length,
+      complementaryExamResultSavedCount: applied.complementaryExamResultIds.length,
+      complementaryExamIds: applied.complementaryExamIds,
+    };
   }
 }

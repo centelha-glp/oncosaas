@@ -14,6 +14,11 @@ export class CreateClinicalPrescriptionLineDto {
   @IsOptional()
   @IsString()
   @MaxLength(128)
+  presentationCatalogCode?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
   dosage?: string;
 
   @IsOptional()

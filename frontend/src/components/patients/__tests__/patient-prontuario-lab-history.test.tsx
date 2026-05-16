@@ -251,4 +251,51 @@ describe('PatientProntuarioLabHistory (smoke)', () => {
     expect(screen.queryByText('99')).not.toBeInTheDocument();
     expect(screen.getByText('11')).toBeInTheDocument();
   });
+
+  it('TTPa sinônimo aparece na linha principal sem subitens', () => {
+    const exam = makeLabExam({
+      name: 'Tempo de Tromboplastina Parcial Ativado (TTPa)',
+      results: [
+        {
+          id: 'res-ttpa',
+          performedAt: '2023-10-17T12:00:00.000Z',
+          collectionId: null,
+          valueNumeric: null,
+          valueText: null,
+          unit: null,
+          referenceRange: null,
+          isAbnormal: null,
+          criticalHigh: null,
+          criticalLow: null,
+          report: null,
+          components: [
+            {
+              name: 'TTPa',
+              valueNumeric: 28.7,
+              unit: 'seg',
+              referenceRange: '25,4 a 33,4',
+              isAbnormal: null,
+            },
+          ],
+        },
+      ],
+    });
+    render(<PatientProntuarioLabHistory patient={makePatientDetail([exam])} />);
+
+    const root = screen.getByLabelText('Histórico laboratorial');
+    expect(
+      within(root).getByRole('heading', {
+        name: 'Tempo de Tromboplastina Parcial Ativado (TTPa)',
+      })
+    ).toBeInTheDocument();
+    expect(within(root).getByText('28.7')).toBeInTheDocument();
+    expect(within(root).getByText('seg')).toBeInTheDocument();
+    expect(
+      within(root).queryByRole('button', {
+        name: /Expandir subitens da coleta de 17\/10\/2023/i,
+      })
+    ).not.toBeInTheDocument();
+    expect(within(root).queryByRole('columnheader', { name: 'Subitem' })).not.toBeInTheDocument();
+    expect(within(root).queryByRole('cell', { name: 'TTPa' })).not.toBeInTheDocument();
+  });
 });

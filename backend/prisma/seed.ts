@@ -3,6 +3,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from '@generated/prisma/client';
 import * as bcrypt from 'bcrypt';
 import { EXAM_CATALOG_SEED_ROWS } from './exam-catalog-seed-data';
+import { MEDICATION_CATALOG_SEED_ROWS } from './medication-catalog-seed-data';
 
 const connectionString = `${process.env.DATABASE_URL}`;
 
@@ -1894,6 +1895,52 @@ async function main() {
   }
   console.log(
     `✅ Catálogo de exames (exam_catalog_items): ${examCatalogUpserts} itens (upsert)`,
+  );
+
+  let medicationDrugUpserts = 0;
+  let medicationPresentationUpserts = 0;
+  for (const row of MEDICATION_CATALOG_SEED_ROWS) {
+    await prisma.medicationCatalogDrug.upsert({
+      where: { code: row.code },
+      create: {
+        code: row.code,
+        genericName: row.genericName,
+        displayName: row.displayName,
+        category: row.category,
+        allowedRoutes: row.allowedRoutes,
+        sourceVersion: 'prisma-seed',
+      },
+      update: {
+        genericName: row.genericName,
+        displayName: row.displayName,
+        category: row.category,
+        allowedRoutes: row.allowedRoutes,
+      },
+    });
+    medicationDrugUpserts++;
+    for (const pres of row.presentations) {
+      await prisma.medicationCatalogPresentation.upsert({
+        where: { code: pres.code },
+        create: {
+          code: pres.code,
+          drugCode: row.code,
+          label: pres.label,
+          strength: pres.strength ?? null,
+          form: pres.form ?? null,
+          sourceVersion: 'prisma-seed',
+        },
+        update: {
+          drugCode: row.code,
+          label: pres.label,
+          strength: pres.strength ?? null,
+          form: pres.form ?? null,
+        },
+      });
+      medicationPresentationUpserts++;
+    }
+  }
+  console.log(
+    `✅ Catálogo de medicamentos: ${medicationDrugUpserts} fármacos, ${medicationPresentationUpserts} apresentações (upsert)`,
   );
 
   console.log('');

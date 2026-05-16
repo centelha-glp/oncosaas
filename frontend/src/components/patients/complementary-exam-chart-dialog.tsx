@@ -33,8 +33,8 @@ import {
   buildParentNumericChartPoints,
   collectUniqueComponentNames,
   examHasPanelComponents,
+  collapseRedundantSingleComponent,
   guessComponentUnit,
-  normalizeComplementaryResultComponents,
 } from '@/lib/utils/complementary-exam-series';
 
 interface ComplementaryExamChartDialogProps {
@@ -179,7 +179,12 @@ export function ComplementaryExamChartDialog({
                       })}
                     </span>
                     <span>
-                      {formatResultSummary(r, needsSubitemPick, selectedSubitem)}
+                      {formatResultSummary(
+                        exam.name,
+                        r,
+                        needsSubitemPick,
+                        selectedSubitem
+                      )}
                     </span>
                   </li>
                 ))}
@@ -192,13 +197,18 @@ export function ComplementaryExamChartDialog({
 }
 
 function formatResultSummary(
+  examName: string,
   r: ComplementaryExamResult,
   needsSubitem: boolean,
   selectedSubitem: string
 ): React.ReactNode {
+  const { result: displayResult, displayComponents } =
+    collapseRedundantSingleComponent(examName, r);
+
   if (needsSubitem && selectedSubitem.trim()) {
-    const c = normalizeComplementaryResultComponents(r.components).find(
-      (x) => x.name && x.name.trim().toLowerCase() === selectedSubitem.trim().toLowerCase()
+    const want = selectedSubitem.trim().toLowerCase();
+    const c = displayComponents.find(
+      (x) => x.name && x.name.trim().toLowerCase() === want
     );
     if (c) {
       const text =
@@ -218,10 +228,12 @@ function formatResultSummary(
   }
   return (
     <>
-      {r.valueNumeric != null
-        ? `${r.valueNumeric}${r.unit ? ` ${r.unit}` : ''}`
-        : (r.valueText ?? '-')}
-      {r.isAbnormal && <span className="text-amber-600 ml-1">(fora ref.)</span>}
+      {displayResult.valueNumeric != null
+        ? `${displayResult.valueNumeric}${displayResult.unit ? ` ${displayResult.unit}` : ''}`
+        : (displayResult.valueText ?? '-')}
+      {displayResult.isAbnormal && (
+        <span className="text-amber-600 ml-1">(fora ref.)</span>
+      )}
     </>
   );
 }

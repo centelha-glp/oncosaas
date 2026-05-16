@@ -277,4 +277,74 @@ describe('applyComplementaryExamsFromAiItems', () => {
     );
     expect(results[0]?.performedAt.toISOString()).toBe('2025-04-20T00:00:00.000Z');
   });
+
+  it('sinónimos creatinina + eTFG → 1 exam, 2 results', async () => {
+    const { tx, exams, results } = makeTx();
+    const items: AiComplementaryExamItem[] = [
+      {
+        type: 'LABORATORY',
+        name: 'Creatinina',
+        code: 'CREAT',
+        result: { performed_at: '2025-01-01', value_numeric: 1.0 },
+      },
+      {
+        type: 'LABORATORY',
+        name: 'eTFG',
+        result: { performed_at: '2025-02-01', value_numeric: 72 },
+      },
+    ];
+
+    await applyComplementaryExamsFromAiItems(
+      tx as unknown as Prisma.TransactionClient,
+      baseArgs,
+      items,
+    );
+
+    expect(exams).toHaveLength(1);
+    expect(results).toHaveLength(2);
+    expect(tx.complementaryExam.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('creatinina com painel eTFG no nome reutiliza mesmo exame', async () => {
+    const { tx, exams } = makeTx();
+    await applyComplementaryExamsFromAiItems(
+      tx as unknown as Prisma.TransactionClient,
+      baseArgs,
+      [
+        {
+          type: 'LABORATORY',
+          name: 'Creatinina',
+          result: { performed_at: '2025-01-01', value_numeric: 1.1 },
+        },
+        {
+          type: 'LABORATORY',
+          name: 'Dosagem de Creatinina com eTFG',
+          result: { performed_at: '2025-02-01', value_numeric: 1.0 },
+        },
+      ],
+    );
+    expect(exams).toHaveLength(1);
+  });
+
+  it('sinónimos vitamina D 25-OH → 1 exam', async () => {
+    const { tx, exams } = makeTx();
+    await applyComplementaryExamsFromAiItems(
+      tx as unknown as Prisma.TransactionClient,
+      baseArgs,
+      [
+        {
+          type: 'LABORATORY',
+          name: 'Vitamina D 25(OH)D',
+          result: { performed_at: '2025-01-01', value_numeric: 32 },
+        },
+        {
+          type: 'LABORATORY',
+          name: '25-Hidroxi-Vitamina D',
+          result: { performed_at: '2025-03-01', value_numeric: 28 },
+        },
+      ],
+    );
+    expect(exams).toHaveLength(1);
+    expect(tx.complementaryExam.create).toHaveBeenCalledTimes(1);
+  });
 });

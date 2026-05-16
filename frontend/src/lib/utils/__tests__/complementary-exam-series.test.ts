@@ -86,6 +86,89 @@ describe('complementary-exam-series', () => {
     expect(rows.map((r) => r.id)).toEqual(['a', 'c']);
   });
 
+  it('groupComplementaryExamsByName funde creatinina e eTFG com cabeçalho Creatinina', () => {
+    const e1 = baseExam();
+    e1.id = 'renal-1';
+    e1.name = 'Creatinina';
+    e1.results = [
+      {
+        id: 'r1',
+        performedAt: '2025-01-01T00:00:00.000Z',
+        collectionId: null,
+        valueNumeric: 1.0,
+        valueText: null,
+        unit: null,
+        referenceRange: null,
+        isAbnormal: null,
+        criticalHigh: null,
+        criticalLow: null,
+        report: null,
+      },
+    ];
+    const e2 = baseExam();
+    e2.id = 'renal-2';
+    e2.name = 'eTFG';
+    e2.results = [
+      {
+        id: 'r2',
+        performedAt: '2025-02-01T00:00:00.000Z',
+        collectionId: null,
+        valueNumeric: 70,
+        valueText: null,
+        unit: null,
+        referenceRange: null,
+        isAbnormal: null,
+        criticalHigh: null,
+        criticalLow: null,
+        report: null,
+      },
+    ];
+    const grouped = groupComplementaryExamsByName([e1, e2]);
+    expect(grouped).toHaveLength(1);
+    expect(grouped[0]?.name).toBe('Creatinina');
+    expect(grouped[0]?.results).toHaveLength(2);
+  });
+
+  it('groupComplementaryExamsByName funde sinónimos de vitamina D 25-OH', () => {
+    const e1 = baseExam();
+    e1.name = 'Vitamina D 25(OH)D';
+    e1.results = [
+      {
+        id: 'r1',
+        performedAt: '2025-01-01T00:00:00.000Z',
+        collectionId: null,
+        valueNumeric: 30,
+        valueText: null,
+        unit: null,
+        referenceRange: null,
+        isAbnormal: null,
+        criticalHigh: null,
+        criticalLow: null,
+        report: null,
+      },
+    ];
+    const e2 = baseExam();
+    e2.name = '25-Hidroxi-Vitamina D';
+    e2.results = [
+      {
+        id: 'r2',
+        performedAt: '2025-02-01T00:00:00.000Z',
+        collectionId: null,
+        valueNumeric: 28,
+        valueText: null,
+        unit: null,
+        referenceRange: null,
+        isAbnormal: null,
+        criticalHigh: null,
+        criticalLow: null,
+        report: null,
+      },
+    ];
+    const grouped = groupComplementaryExamsByName([e1, e2]);
+    expect(grouped).toHaveLength(1);
+    expect(grouped[0]?.name).toBe('Vitamina D 25-OH');
+  });
+
   it('groupComplementaryExamsByName funde exames legados duplicados', () => {
     const e1 = baseExam();
     e1.id = 'legacy-1';
