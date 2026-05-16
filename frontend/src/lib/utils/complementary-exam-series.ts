@@ -6,17 +6,24 @@ import type {
   ComplementaryExamResultComponent,
   ComplementaryExamType,
 } from '@/lib/api/patients';
+import {
+  preferredDisplayNameForGroup,
+  resolveCanonicalExamGroupId,
+} from '@/lib/utils/complementary-exam-canonical';
 
 export function buildComplementaryExamMatchKey(
   type: ComplementaryExamType | string,
   name: string,
-  code?: string | null
+  code?: string | null,
+  loincCode?: string | null
 ): string {
-  const codePart =
-    code === null || code === undefined || String(code).trim() === ''
-      ? ''
-      : normalizeExamLabelKey(String(code).trim());
-  return `${type}|${normalizeExamLabelKey(name)}|${codePart}`;
+  const canonicalId = resolveCanonicalExamGroupId(
+    type,
+    name,
+    code,
+    loincCode
+  );
+  return `${type}|${canonicalId}`;
 }
 
 /** Agrupa registros legados com o mesmo nome/tipo/código num único cabeçalho. */
@@ -25,13 +32,20 @@ export function groupComplementaryExamsByName(
 ): ComplementaryExam[] {
   const groups = new Map<string, ComplementaryExam>();
   for (const exam of exams) {
-    const key = buildComplementaryExamMatchKey(exam.type, exam.name, exam.code);
+    const canonicalId = resolveCanonicalExamGroupId(
+      exam.type,
+      exam.name,
+      exam.code,
+      exam.loincCode
+    );
+    const key = `${exam.type}|${canonicalId}`;
+    const displayName = preferredDisplayNameForGroup(canonicalId, exam.name);
     const active = dedupeResultsByPerformedInstant(
       filterActiveComplementaryResults(exam.results)
     );
     const existing = groups.get(key);
     if (!existing) {
-      groups.set(key, { ...exam, results: active });
+      groups.set(key, { ...exam, name: displayName, results: active });
       continue;
     }
     const merged = dedupeResultsByPerformedInstant([
@@ -41,7 +55,7 @@ export function groupComplementaryExamsByName(
       (a, b) =>
         new Date(a.performedAt).getTime() - new Date(b.performedAt).getTime()
     );
-    groups.set(key, { ...existing, results: merged });
+    groups.set(key, { ...existing, name: displayName, results: merged });
   }
   return [...groups.values()];
 }
