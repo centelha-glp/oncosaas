@@ -19,7 +19,7 @@ function parseIsoDate(
   domain: string,
   field: string
 ): Date | null {
-  if (raw == null || String(raw).trim() === '') {
+  if ((raw === null || raw === undefined) || String(raw).trim() === '') {
     return null;
   }
   const d = new Date(String(raw));
@@ -89,11 +89,11 @@ export async function applyComplementaryExamsFromAiItems(
         type: typ as ComplementaryExamType,
         name: name.slice(0, 400),
         code:
-          raw.code == null
+          raw.code === null || raw.code === undefined
             ? null
             : String(raw.code).trim().slice(0, 64) || null,
         loincCode:
-          raw.loinc_code == null
+          raw.loinc_code === null || raw.loinc_code === undefined
             ? null
             : String(raw.loinc_code).trim().slice(0, 32) || null,
       },
@@ -120,31 +120,33 @@ export async function applyComplementaryExamsFromAiItems(
         tenantId,
         examId: exam.id,
         performedAt,
-        ...(collectionId != null && collectionId !== ''
+        ...(collectionId !== null &&
+        collectionId !== undefined &&
+        collectionId !== ''
           ? { collectionId }
           : {}),
         valueNumeric:
-          res.value_numeric == null
+          res.value_numeric === null || res.value_numeric === undefined
             ? null
             : Number.isFinite(Number(res.value_numeric))
               ? Number(res.value_numeric)
               : null,
         valueText:
-          res.value_text == null
+          res.value_text === null || res.value_text === undefined
             ? null
             : String(res.value_text).trim().slice(0, 8000) || null,
         unit:
-          res.unit == null
+          res.unit === null || res.unit === undefined
             ? null
             : String(res.unit).trim().slice(0, 64) || null,
         referenceRange:
-          res.reference_range == null
+          res.reference_range === null || res.reference_range === undefined
             ? null
             : String(res.reference_range).trim().slice(0, 200) || null,
         isAbnormal:
           typeof res.is_abnormal === 'boolean' ? res.is_abnormal : null,
         report:
-          res.report == null
+          res.report === null || res.report === undefined
             ? null
             : String(res.report).trim().slice(0, 12000) || null,
         components: res.components as Prisma.InputJsonValue | undefined,

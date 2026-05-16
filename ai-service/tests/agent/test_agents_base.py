@@ -6,10 +6,8 @@ from src.agent.context_builder import context_builder
 from src.agent.intent_classifier import (
     intent_classifier,
     INTENT_EMERGENCY,
-    INTENT_GREETING,
     INTENT_APPOINTMENT_QUERY,
     INTENT_GENERAL,
-    INTENT_SYMPTOM_REPORT,
 )
 from src.agent.protocol_engine import protocol_engine
 from src.agent.questionnaire_engine import questionnaire_engine

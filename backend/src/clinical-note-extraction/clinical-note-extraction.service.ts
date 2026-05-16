@@ -35,13 +35,7 @@ import {
 
 export type ExtractionStatusDto = {
   runId: string | null;
-  status:
-    | 'NONE'
-    | 'PENDING'
-    | 'APPLIED'
-    | 'FAILED'
-    | 'ROLLED_BACK'
-    | (string & {});
+  status: string;
   appliedAt: string | null;
   canUndoUntil: string | null;
   undoWindowDays: number;

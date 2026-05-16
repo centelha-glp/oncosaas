@@ -31,6 +31,6 @@ export function normalizeExamIngestMime(mimetype: string): string {
 }
 
 export function isExamIngestMimeAllowed(mimetype: string | undefined): boolean {
-  if (!mimetype) return false;
+  if (!mimetype) {return false;}
   return EXAM_INGEST_ALLOWED_MIME_BASES.has(normalizeExamIngestMime(mimetype));
 }

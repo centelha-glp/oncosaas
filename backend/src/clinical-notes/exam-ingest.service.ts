@@ -28,11 +28,11 @@ import type { AiComplementaryExamItem } from '../clinical-note-extraction/clinic
 /** Extrai `detail` de corpo JSON típico do FastAPI (mensagem segura ao cliente). */
 function parseAiServiceErrorDetail(raw: string): string | undefined {
   const t = raw.trim();
-  if (!t) return undefined;
+  if (!t) {return undefined;}
   try {
     const o = JSON.parse(t) as { detail?: unknown };
     const d = o.detail;
-    if (typeof d === 'string' && d.trim()) return d.trim();
+    if (typeof d === 'string' && d.trim()) {return d.trim();}
     if (Array.isArray(d) && d.length > 0) {
       const first = d[0] as { msg?: string };
       if (first && typeof first.msg === 'string' && first.msg.trim()) {
@@ -51,19 +51,19 @@ function pickStr(
   camel: string
 ): string | null | undefined {
   const v = o[snake] ?? o[camel];
-  if (v === null || v === undefined) return v as null | undefined;
+  if (v === null || v === undefined) {return v as null | undefined;}
   return String(v);
 }
 
 function mapUpstreamComplementaryExams(raw: unknown): AiComplementaryExamItem[] {
-  if (!Array.isArray(raw)) return [];
+  if (!Array.isArray(raw)) {return [];}
   const out: AiComplementaryExamItem[] = [];
   for (const el of raw) {
-    if (!el || typeof el !== 'object' || Array.isArray(el)) continue;
+    if (!el || typeof el !== 'object' || Array.isArray(el)) {continue;}
     const o = el as Record<string, unknown>;
     const typ = o.type;
     const name = o.name;
-    if (typeof typ !== 'string' || typeof name !== 'string') continue;
+    if (typeof typ !== 'string' || typeof name !== 'string') {continue;}
     const codeRaw = o.code;
     const loincRaw = o.loinc_code ?? o.loincCode;
     const resRaw = o.result;
@@ -167,7 +167,7 @@ export class ExamIngestService {
       where: { id: patientId, tenantId },
       select: { id: true },
     });
-    if (!p) throw new NotFoundException('Paciente não encontrado');
+    if (!p) {throw new NotFoundException('Paciente não encontrado');}
   }
 
   private async assertClinicalNoteOptional(
@@ -175,12 +175,12 @@ export class ExamIngestService {
     patientId: string,
     tenantId: string
   ): Promise<void> {
-    if (!clinicalNoteId) return;
+    if (!clinicalNoteId) {return;}
     const n = await this.prisma.clinicalNote.findFirst({
       where: { id: clinicalNoteId, patientId, tenantId },
       select: { id: true },
     });
-    if (!n) throw new NotFoundException('Evolução clínica não encontrada');
+    if (!n) {throw new NotFoundException('Evolução clínica não encontrada');}
   }
 
   async createSession(
@@ -236,10 +236,10 @@ export class ExamIngestService {
     expiresInSec: number;
   }> {
     const raw = await this.redis.get(this.sessionMetaKey(sessionId));
-    if (!raw) throw new NotFoundException('Sessão expirada ou inválida');
+    if (!raw) {throw new NotFoundException('Sessão expirada ou inválida');}
     const meta = JSON.parse(raw) as ExamIngestSessionMeta;
-    if (meta.tenantId !== tenantId) throw new ForbiddenException();
-    if (meta.patientId !== patientId) throw new ForbiddenException();
+    if (meta.tenantId !== tenantId) {throw new ForbiddenException();}
+    if (meta.patientId !== patientId) {throw new ForbiddenException();}
     const count = await this.redis.llen(this.sessionFilesKey(sessionId));
     const ttl = await this.redis.ttl(this.sessionMetaKey(sessionId));
 
@@ -267,10 +267,10 @@ export class ExamIngestService {
     }
 
     const raw = await this.redis.get(this.sessionMetaKey(sessionId));
-    if (!raw) throw new NotFoundException('Sessão expirada ou inválida');
+    if (!raw) {throw new NotFoundException('Sessão expirada ou inválida');}
     const meta = JSON.parse(raw) as ExamIngestSessionMeta;
-    if (meta.tenantId !== tenantId) throw new ForbiddenException();
-    if (meta.patientId !== patientId) throw new ForbiddenException();
+    if (meta.tenantId !== tenantId) {throw new ForbiddenException();}
+    if (meta.patientId !== patientId) {throw new ForbiddenException();}
 
     const current = await this.redis.llen(this.sessionFilesKey(sessionId));
     if (current >= EXAM_INGEST_MAX_FILES_PER_SESSION) {
@@ -296,10 +296,10 @@ export class ExamIngestService {
     buffer: Buffer
   ): Promise<{ ok: true; fileCount: number }> {
     const sessionId = await this.redis.get(this.tokenKey(uploadToken));
-    if (!sessionId) throw new NotFoundException('Token inválido ou expirado');
+    if (!sessionId) {throw new NotFoundException('Token inválido ou expirado');}
 
     const raw = await this.redis.get(this.sessionMetaKey(sessionId));
-    if (!raw) throw new NotFoundException('Sessão expirada');
+    if (!raw) {throw new NotFoundException('Sessão expirada');}
     const meta = JSON.parse(raw) as ExamIngestSessionMeta;
 
     return {
@@ -341,7 +341,7 @@ export class ExamIngestService {
 
     if (sessionId) {
       const raw = await this.redis.get(this.sessionMetaKey(sessionId));
-      if (!raw) throw new NotFoundException('Sessão expirada ou inválida');
+      if (!raw) {throw new NotFoundException('Sessão expirada ou inválida');}
       const meta = JSON.parse(raw) as ExamIngestSessionMeta;
       if (meta.tenantId !== tenantId || meta.userId !== userId) {
         throw new ForbiddenException();

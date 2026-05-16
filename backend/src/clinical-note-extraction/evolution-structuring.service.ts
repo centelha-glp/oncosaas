@@ -508,20 +508,20 @@ export class EvolutionStructuringService {
               name: name.slice(0, MAX_MED_COMORB_NAME_LEN),
               dosage,
               frequency:
-                raw.frequency == null
+                raw.frequency === null || raw.frequency === undefined
                   ? null
                   : String(raw.frequency).trim().slice(0, 200) || null,
               indication:
-                raw.indication == null
+                raw.indication === null || raw.indication === undefined
                   ? null
                   : String(raw.indication).trim().slice(0, 500) || null,
               route:
-                raw.route == null
+                raw.route === null || raw.route === undefined
                   ? null
                   : String(raw.route).trim().slice(0, 80) || null,
               category: cat,
               notes:
-                raw.notes == null
+                raw.notes === null || raw.notes === undefined
                   ? null
                   : String(raw.notes).trim().slice(0, 2000) || null,
               isAnticoagulant: cat === MedicationCategory.ANTICOAGULANT,
@@ -596,7 +596,7 @@ export class EvolutionStructuringService {
               controlled:
                 typeof raw.controlled === 'boolean' ? raw.controlled : false,
               notes:
-                raw.notes == null
+                raw.notes === null || raw.notes === undefined
                   ? null
                   : String(raw.notes).trim().slice(0, 2000) || null,
               increasesSepsisRisk: (
@@ -649,7 +649,7 @@ export class EvolutionStructuringService {
             const nextRaw = patch[key];
             if (key === 'performanceStatus') {
               if (nextRaw === null) {
-                if (patientBefore.performanceStatus != null) {
+                if (patientBefore.performanceStatus !== null && patientBefore.performanceStatus !== undefined) {
                   previousValues.performanceStatus =
                     patientBefore.performanceStatus;
                   data.performanceStatus = null;

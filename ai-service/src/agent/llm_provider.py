@@ -1,5 +1,6 @@
 import inspect
 import json
+import math
 import logging
 from io import BytesIO
 from typing import Dict, List, Optional, Any
@@ -815,7 +816,7 @@ class LLMProvider:
                     value_numeric = float(vn)
                 except (TypeError, ValueError):
                     value_numeric = None
-            if value_numeric is not None and value_numeric != value_numeric:  # NaN
+            if value_numeric is not None and math.isnan(value_numeric):
                 value_numeric = None
             vt = rd.get("value_text")
             if vt is None:

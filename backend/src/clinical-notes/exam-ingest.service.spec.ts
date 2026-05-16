@@ -29,9 +29,9 @@ describe('ExamIngestService', () => {
   };
   const config = {
     get: jest.fn((k: string) => {
-      if (k === 'FRONTEND_URL') return 'http://localhost:3000';
-      if (k === 'AI_SERVICE_URL') return 'http://localhost:8001';
-      if (k === 'BACKEND_SERVICE_TOKEN') return 'test-token';
+      if (k === 'FRONTEND_URL') {return 'http://localhost:3000';}
+      if (k === 'AI_SERVICE_URL') {return 'http://localhost:8001';}
+      if (k === 'BACKEND_SERVICE_TOKEN') {return 'test-token';}
       return undefined;
     }),
   };

@@ -6,7 +6,6 @@ from src.agent.clinical_rules import (
     ClinicalRulesResult,
     RuleFinding,
     ER_DAYS,
-    REMOTE_NURSING,
 )
 
 

@@ -63,13 +63,17 @@ function normalizeKey(s: string | null | undefined): string {
     .trim();
 }
 
+function isNil(v: unknown): v is null | undefined {
+  return v === null || v === undefined;
+}
+
 function parseIsoDate(
   raw: string | null | undefined,
   rej: MergedRejection[],
   domain: string,
   field: string
 ): Date | null {
-  if (raw == null || String(raw).trim() === '') {
+  if (isNil(raw) || String(raw).trim() === '') {
     return null;
   }
   const d = new Date(String(raw));
@@ -366,7 +370,7 @@ async function applyJourneyPatch(
     }
     if (val === null) {
       const cur = journey[prismaCol] as number | null;
-      if (cur != null) {
+      if (!isNil(cur)) {
         previousValues[prismaCol] = cur;
         (data as Record<string, unknown>)[prismaCol] = null;
       }
@@ -525,32 +529,25 @@ async function applyDiagnoses(
         tenantId,
         patientId,
         cancerType: cancerType.slice(0, 200),
-        icd10Code:
-          raw.icd10_code == null
+        icd10Code: isNil(raw.icd10_code)
             ? null
             : String(raw.icd10_code).trim().slice(0, 32) || null,
-        stage:
-          raw.stage == null
+        stage: isNil(raw.stage)
             ? null
             : String(raw.stage).trim().slice(0, 200) || null,
-        tStage:
-          raw.t_stage == null
+        tStage: isNil(raw.t_stage)
             ? null
             : String(raw.t_stage).trim().slice(0, 16) || null,
-        nStage:
-          raw.n_stage == null
+        nStage: isNil(raw.n_stage)
             ? null
             : String(raw.n_stage).trim().slice(0, 16) || null,
-        mStage:
-          raw.m_stage == null
+        mStage: isNil(raw.m_stage)
             ? null
             : String(raw.m_stage).trim().slice(0, 16) || null,
-        grade:
-          raw.grade == null
+        grade: isNil(raw.grade)
             ? null
             : String(raw.grade).trim().slice(0, 16) || null,
-        histologicalType:
-          raw.histological_type == null
+        histologicalType: isNil(raw.histological_type)
             ? null
             : String(raw.histological_type).trim().slice(0, 200) || null,
         stagingDate: raw.staging_date
@@ -561,8 +558,7 @@ async function applyDiagnoses(
               `diagnoses[${i}].staging_date`
             )
           : null,
-        pathologyReport:
-          raw.pathology_report == null
+        pathologyReport: isNil(raw.pathology_report)
             ? null
             : String(raw.pathology_report).trim().slice(0, 4000) || null,
         diagnosisDate,
@@ -658,16 +654,13 @@ async function applyTreatments(
         patientId,
         diagnosisId: primaryDiagnosisId!,
         treatmentType: tt as TreatmentType,
-        treatmentName:
-          raw.treatment_name == null
+        treatmentName: isNil(raw.treatment_name)
             ? null
             : String(raw.treatment_name).trim().slice(0, 300) || null,
-        protocol:
-          raw.protocol == null
+        protocol: isNil(raw.protocol)
             ? null
             : String(raw.protocol).trim().slice(0, 500) || null,
-        line:
-          raw.line == null
+        line: isNil(raw.line)
             ? null
             : Number.isFinite(Number(raw.line))
               ? Number(raw.line)
@@ -686,8 +679,7 @@ async function applyTreatments(
           : null,
         status,
         isActive: raw.is_active !== false,
-        notes:
-          raw.notes == null
+        notes: isNil(raw.notes)
             ? null
             : String(raw.notes).trim().slice(0, 4000) || null,
         medications: raw.medications_json as Prisma.InputJsonValue | undefined,
@@ -701,8 +693,7 @@ async function applyTreatments(
               `treatments[${i}].response_date`
             )
           : null,
-        responseNotes:
-          raw.response_notes == null
+        responseNotes: isNil(raw.response_notes)
             ? null
             : String(raw.response_notes).trim().slice(0, 2000) || null,
       },
@@ -839,7 +830,7 @@ async function applyNavigationStepUpdates(
       const cm = full.actualDate?.getTime() ?? null;
       const nm = d?.getTime() ?? null;
       if (raw.actual_date === null || raw.actual_date === '') {
-        if (full.actualDate != null) {
+        if (!isNil(full.actualDate)) {
           previousValues.actualDate = full.actualDate;
           data.actualDate = null;
         }
@@ -917,15 +908,13 @@ async function applyObservations(
         display: display.slice(0, 500),
         effectiveDateTime: eff,
         valueQuantity:
-          raw.value_quantity == null || raw.value_quantity === ''
+          isNil(raw.value_quantity) || raw.value_quantity === ''
             ? null
             : new Prisma.Decimal(String(raw.value_quantity).trim()),
-        valueString:
-          raw.value_string == null
+        valueString: isNil(raw.value_string)
             ? null
             : String(raw.value_string).trim().slice(0, 2000) || null,
-        unit:
-          raw.unit == null
+        unit: isNil(raw.unit)
             ? null
             : String(raw.unit).trim().slice(0, 64) || null,
       },
@@ -974,8 +963,7 @@ async function applyPerformanceHistory(
         assessedAt,
         assessedBy: ctx.signedByUserId,
         source: 'MANUAL',
-        notes:
-          raw.notes == null
+        notes: isNil(raw.notes)
             ? null
             : String(raw.notes).trim().slice(0, 2000) || null,
       },
@@ -1018,28 +1006,22 @@ async function applyPrescriptionLines(
         clinicalNoteVersionNumber: ctx.latestVersionNumber,
         prescribedById: ctx.signedByUserId,
         medicationName: med.slice(0, 400),
-        catalogKey:
-          raw.catalog_key == null
+        catalogKey: isNil(raw.catalog_key)
             ? null
             : String(raw.catalog_key).trim().slice(0, 128) || null,
-        dosage:
-          raw.dosage == null
+        dosage: isNil(raw.dosage)
             ? null
             : String(raw.dosage).trim().slice(0, 200) || null,
-        frequency:
-          raw.frequency == null
+        frequency: isNil(raw.frequency)
             ? null
             : String(raw.frequency).trim().slice(0, 200) || null,
-        route:
-          raw.route == null
+        route: isNil(raw.route)
             ? null
             : String(raw.route).trim().slice(0, 80) || null,
-        duration:
-          raw.duration == null
+        duration: isNil(raw.duration)
             ? null
             : String(raw.duration).trim().slice(0, 200) || null,
-        indication:
-          raw.indication == null
+        indication: isNil(raw.indication)
             ? null
             : String(raw.indication).trim().slice(0, 500) || null,
       },
