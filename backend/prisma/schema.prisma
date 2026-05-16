@@ -430,7 +430,8 @@ model ClinicalPrescriptionLine {
 
   prescribedById String
   medicationName String
-  catalogKey     String?
+  catalogKey              String?
+  presentationCatalogCode String?
   dosage         String?
   frequency      String?
   route          String?
@@ -1764,6 +1765,42 @@ model ExamCatalogItem {
   @@index([type])
   @@index([name])
   @@map("exam_catalog_items")
+}
+
+// Catálogo global de medicamentos (genérico + apresentações) — sem tenant.
+model MedicationCatalogDrug {
+  id            String              @id @default(uuid())
+  code          String              @unique
+  genericName   String
+  displayName   String
+  category      MedicationCategory?
+  allowedRoutes String[]
+  sourceVersion String?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  presentations MedicationCatalogPresentation[]
+
+  @@index([displayName])
+  @@index([genericName])
+  @@map("medication_catalog_drugs")
+}
+
+model MedicationCatalogPresentation {
+  id            String   @id @default(uuid())
+  code          String   @unique
+  drugCode      String
+  label         String
+  strength      String?
+  form          String?
+  sourceVersion String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  drug MedicationCatalogDrug @relation(fields: [drugCode], references: [code], onDelete: Cascade)
+
+  @@index([drugCode])
+  @@map("medication_catalog_presentations")
 }
 
 // Histórico de Intervenções (rastreabilidade de ações do enfermeiro)

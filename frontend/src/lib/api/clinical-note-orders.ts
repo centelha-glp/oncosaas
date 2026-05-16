@@ -17,6 +17,7 @@ export type ClinicalPrescriptionLineRow = {
   clinicalNoteVersionNumber: number;
   medicationName: string;
   catalogKey: string | null;
+  presentationCatalogCode: string | null;
   dosage: string | null;
   frequency: string | null;
   route: string | null;
@@ -78,6 +79,7 @@ export const clinicalNoteOrdersApi = {
     body: {
       medicationName: string;
       catalogKey?: string;
+      presentationCatalogCode?: string;
       dosage?: string;
       frequency?: string;
       route?: string;
@@ -98,6 +100,49 @@ export const clinicalNoteOrdersApi = {
   ): Promise<void> {
     return apiClient.delete(
       `/patients/${patientId}/clinical-notes/${clinicalNoteId}/clinical-orders/prescription-lines/${lineId}`
+    );
+  },
+};
+
+export type PrescriptionHistoryRow = {
+  id: string;
+  clinicalNoteId: string;
+  clinicalNoteVersionNumber: number;
+  medicationName: string;
+  catalogKey: string | null;
+  presentationCatalogCode: string | null;
+  dosage: string | null;
+  frequency: string | null;
+  route: string | null;
+  duration: string | null;
+  indication: string | null;
+  createdAt: string;
+  prescribedBy: { id: string; name: string };
+  clinicalNote: {
+    id: string;
+    status: string;
+    signedAt: string | null;
+    noteType: string;
+  };
+};
+
+export const prescriptionHistoryApi = {
+  list(
+    patientId: string,
+    params?: { q?: string; limit?: number; offset?: number }
+  ): Promise<{
+    items: PrescriptionHistoryRow[];
+    total: number;
+    limit: number;
+    offset: number;
+  }> {
+    const searchParams = new URLSearchParams();
+    if (params?.q?.trim()) searchParams.set('q', params.q.trim());
+    if (params?.limit != null) searchParams.set('limit', String(params.limit));
+    if (params?.offset != null) searchParams.set('offset', String(params.offset));
+    const qs = searchParams.toString();
+    return apiClient.get(
+      `/patients/${patientId}/prescription-history${qs ? `?${qs}` : ''}`
     );
   },
 };

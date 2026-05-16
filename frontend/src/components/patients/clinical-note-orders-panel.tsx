@@ -20,7 +20,15 @@ import {
 import { tissGuidesApi } from '@/lib/api/tiss-guides';
 import type { ClinicalNoteType } from '@/lib/api/clinical-notes';
 import { toast } from 'sonner';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+import { ExamCatalogCombobox } from '@/components/shared/exam-catalog-combobox';
+import { useDebounce } from '@/lib/utils/use-debounce';
+import { useExamCatalogComboboxOptions } from '@/hooks/use-exam-catalog-combobox-options';
+import type { ExamCatalogSelection } from '@/hooks/use-exam-catalog-combobox-options';
+import { buildExamRequestPayload } from '@/lib/utils/clinical-orders-payload';
+import { PrescriptionLineForm } from '@/components/patients/prescription-line-form';
+import { PrescriptionHistoryPanel } from '@/components/patients/prescription-history-panel';
+import type { PrescriptionDraftFromHistory } from '@/lib/utils/clinical-orders-payload';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -166,13 +174,24 @@ export function ClinicalNoteOrdersPanel(props: {
   };
 
   const [examName, setExamName] = useState('');
+  const [examCatalogSelection, setExamCatalogSelection] =
+    useState<ExamCatalogSelection | null>(null);
+  const debouncedExamQ = useDebounce(examName, 300);
+  const { options: examCatalogOptions } = useExamCatalogComboboxOptions(debouncedExamQ);
+
   const addExam = useMutation({
     mutationFn: () =>
-      clinicalNoteOrdersApi.createExamRequest(patientId, clinicalNoteId, {
-        displayName: examName.trim(),
-      }),
+      clinicalNoteOrdersApi.createExamRequest(
+        patientId,
+        clinicalNoteId,
+        buildExamRequestPayload({
+          displayName: examName,
+          catalogSelection: examCatalogSelection,
+        })
+      ),
     onSuccess: () => {
       setExamName('');
+      setExamCatalogSelection(null);
       invalidate();
       toast.success('Pedido de exame registrado.');
     },
@@ -199,30 +218,22 @@ export function ClinicalNoteOrdersPanel(props: {
     onError: () => toast.error('Não foi possível remover o pedido.'),
   });
 
-  const [medName, setMedName] = useState('');
-  const [medDose, setMedDose] = useState('');
-  const [medFreq, setMedFreq] = useState('');
-  const [medRoute, setMedRoute] = useState('');
-  const [medPosology, setMedPosology] = useState('');
+  const [rxDraft, setRxDraft] = useState<PrescriptionDraftFromHistory | null>(null);
+  const rxDraftQueueRef = useRef<PrescriptionDraftFromHistory[]>([]);
 
   const addRx = useMutation({
-    mutationFn: () =>
-      clinicalNoteOrdersApi.createPrescriptionLine(
-        patientId,
-        clinicalNoteId,
-        {
-          medicationName: medName.trim(),
-          dosage: medDose.trim() || undefined,
-          frequency: (medFreq.trim() || medPosology.trim()) || undefined,
-          route: medRoute.trim() || undefined,
-        }
-      ),
+    mutationFn: (body: {
+      medicationName: string;
+      catalogKey?: string;
+      presentationCatalogCode?: string;
+      dosage?: string;
+      frequency?: string;
+      route?: string;
+      duration?: string;
+      indication?: string;
+    }) =>
+      clinicalNoteOrdersApi.createPrescriptionLine(patientId, clinicalNoteId, body),
     onSuccess: () => {
-      setMedName('');
-      setMedDose('');
-      setMedFreq('');
-      setMedRoute('');
-      setMedPosology('');
       invalidate();
       toast.success('Medicamento adicionado à prescrição.');
     },
@@ -550,13 +561,21 @@ export function ClinicalNoteOrdersPanel(props: {
         {canEditExams && (
           <div className="flex flex-col sm:flex-row gap-2 items-end pt-2">
             <div className="flex-1 w-full space-y-1">
-              <Label htmlFor="exam-request-name">Nome do exame</Label>
-              <Input
-                id="exam-request-name"
+              <Label htmlFor="exam-request-name">Exame (catálogo ou texto livre)</Label>
+              <ExamCatalogCombobox
+                options={examCatalogOptions}
                 value={examName}
-                onChange={(e) => setExamName(e.target.value)}
-                placeholder="Ex.: Hemograma completo"
-                autoComplete="off"
+                onValueChange={(v) => {
+                  setExamName(v);
+                  setExamCatalogSelection(null);
+                }}
+                onSelectOption={(opt) => {
+                  setExamCatalogSelection(opt.data);
+                  setExamName(opt.data.displayName);
+                }}
+                placeholder="Pesquisar por nome ou código TUSS..."
+                emptyText="Nenhum exame no catálogo — use o texto digitado."
+                disabled={addExam.isPending}
               />
             </div>
             <Button
@@ -654,68 +673,38 @@ export function ClinicalNoteOrdersPanel(props: {
             )}
           </ul>
           {canEditRx && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2">
-              <div className="space-y-1 sm:col-span-2">
-                <Label htmlFor="rx-med-name">Medicamento</Label>
-                <Input
-                  id="rx-med-name"
-                  value={medName}
-                  onChange={(e) => setMedName(e.target.value)}
-                  placeholder="Nome ou apresentação"
-                  autoComplete="off"
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="rx-dose">Dose</Label>
-                <Input
-                  id="rx-dose"
-                  value={medDose}
-                  onChange={(e) => setMedDose(e.target.value)}
-                  placeholder="Ex.: 1 comprimido"
-                  autoComplete="off"
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="rx-freq">Frequência</Label>
-                <Input
-                  id="rx-freq"
-                  value={medFreq}
-                  onChange={(e) => setMedFreq(e.target.value)}
-                  placeholder="Ex.: 12/12 h"
-                  autoComplete="off"
-                />
-              </div>
-              <div className="space-y-1 sm:col-span-2">
-                <Label htmlFor="rx-posology">Posologia (texto livre)</Label>
-                <Input
-                  id="rx-posology"
-                  value={medPosology}
-                  onChange={(e) => setMedPosology(e.target.value)}
-                  placeholder="Ex.: 50 mg 12/12 h VO"
-                  autoComplete="on"
-                />
-              </div>
-              <div className="space-y-1 sm:col-span-2">
-                <Label htmlFor="rx-route">Via</Label>
-                <Input
-                  id="rx-route"
-                  value={medRoute}
-                  onChange={(e) => setMedRoute(e.target.value)}
-                  placeholder="Ex.: VO, IV"
-                  autoComplete="off"
-                />
-              </div>
-              <div className="sm:col-span-2">
-                <Button
-                  type="button"
-                  size="sm"
-                  disabled={addRx.isPending || !medName.trim()}
-                  onClick={() => addRx.mutate()}
-                >
-                  Adicionar à prescrição
-                </Button>
-              </div>
-            </div>
+            <>
+              <PrescriptionHistoryPanel
+                patientId={patientId}
+                currentClinicalNoteId={clinicalNoteId}
+                onReuse={(draft) => setRxDraft(draft)}
+                onReuseAllFromNote={(drafts) => {
+                  rxDraftQueueRef.current = [...drafts];
+                  if (drafts[0]) setRxDraft(drafts[0]);
+                  toast.message(
+                    `${drafts.length} item(ns) na fila — confira e clique em Adicionar para cada um.`
+                  );
+                }}
+              />
+              <PrescriptionLineForm
+                disabled={!canEditRx}
+                pending={addRx.isPending}
+                draft={rxDraft}
+                onDraftConsumed={() => setRxDraft(null)}
+                onSubmit={(values) => {
+                  addRx.mutate(values, {
+                    onSuccess: () => {
+                      const queue = rxDraftQueueRef.current;
+                      if (queue.length > 0) {
+                        const [next, ...rest] = queue;
+                        rxDraftQueueRef.current = rest;
+                        setRxDraft(next);
+                      }
+                    },
+                  });
+                }}
+              />
+            </>
           )}
         </section>
       )}

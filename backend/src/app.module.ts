@@ -29,6 +29,7 @@ import { AuditLogInterceptor } from './audit-log/audit-log.interceptor';
 import { ScheduledActionsModule } from './scheduled-actions/scheduled-actions.module';
 import { ComplementaryExamsModule } from './complementary-exams/complementary-exams.module';
 import { ExamCatalogModule } from './exam-catalog/exam-catalog.module';
+import { MedicationCatalogModule } from './medication-catalog/medication-catalog.module';
 import { QuestionnaireResponsesModule } from './questionnaire-responses/questionnaire-responses.module';
 import { MedicationsModule } from './medications/medications.module';
 import { ComorbiditiesModule } from './comorbidities/comorbidities.module';
@@ -84,6 +85,7 @@ import { TissGuidesModule } from './tiss-guides/tiss-guides.module';
     ScheduledActionsModule,
     ComplementaryExamsModule,
     ExamCatalogModule,
+    MedicationCatalogModule,
     QuestionnaireResponsesModule,
     MedicationsModule,
     ComorbiditiesModule,

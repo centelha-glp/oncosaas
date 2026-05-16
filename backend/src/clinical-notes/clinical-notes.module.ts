@@ -12,18 +12,22 @@ import { ExamIngestController } from './exam-ingest.controller';
 import { PublicExamIngestController } from './public-exam-ingest.controller';
 import { OncologyNavigationModule } from '../oncology-navigation/oncology-navigation.module';
 import { ClinicalNoteExtractionModule } from '../clinical-note-extraction/clinical-note-extraction.module';
+import { MedicationCatalogModule } from '../medication-catalog/medication-catalog.module';
+import { PatientPrescriptionHistoryController } from './patient-prescription-history.controller';
 
 @Module({
   imports: [
     PrismaModule,
     AuditLogModule,
     OncologyNavigationModule,
+    MedicationCatalogModule,
     forwardRef(() => ClinicalNoteExtractionModule),
   ],
   controllers: [
     ClinicalNotesController,
     PatientClinicalNotesController,
     PatientClinicalNoteOrdersController,
+    PatientPrescriptionHistoryController,
     ExamIngestController,
     PublicExamIngestController,
   ],
