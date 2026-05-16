@@ -29,30 +29,24 @@ AgentOrchestrator (Claude Opus 4.6 — adaptive thinking)
 
 O orchestrator **roteia** — recebe a mensagem, chama subagentes via tool use (`consultar_agente_*`), coleta suas análises e sintetiza a resposta final ao paciente.
 
-Os subagentes **especializam** — executam um agentic loop próprio limitado a 6 iterações, coletam tool calls mas **não os executam**. Tool calls são devolvidos ao orchestrator como `actions` na resposta da API.
+Os subagentes **especializam** — executam um agentic loop próprio limitado a 6 iterações, coletam tool calls mas **não os executam** por defeito. Tool calls são devolvidos ao orchestrator como `actions` na resposta da API. **Exceção:** `SymptomAgent` (e padrão semelhante na secretária de agendamento) pode passar `tool_executor` **só** para tools determinísticas acordadas (`executar_triagem_seguranca`), para o pai agregar `symptom_analysis` + Layer 1.
 
-A classificação de intent (`intent_classifier.classify_async`) usa **apenas LLM** quando há chave Anthropic/OpenAI no `agent_config`/ambiente e `use_llm_intent_classifier` não está `False`; caso contrário devolve `GENERAL` com `metadata.source: no_llm` sem chamar o modelo.
+O módulo `intent_classifier` existe no repositório mas **não** é invocado por `AgentOrchestrator.process()`; não há campo `intent` no dict retornado pelo orquestrador.
 
 ### Invariante de segurança crítica
 
-A ordem do pipeline é imutável **no ramo `main`**. As layers determinísticas (clinical_rules, Layer 1) precedem ML e LLM **sempre que** `_run_safety_triage` corre (ramo `main`). No ramo `appointment_query` (`INTENT_APPOINTMENT_QUERY`) **não** há `symptom_analyzer` nem `clinical_rules_engine.evaluate()` — o Opus roteia para `consultar_agente_navegacao` e o Sonnet pode emitir `informar_agenda_navegacao`. No código atual (`orchestrator.py`), a ordem de entrada é:
+A Layer 1 (`clinical_rules_engine.evaluate`) alimenta o contrato HTTP **após** agregação no ramo com LLM **somente** quando há snapshots da tool `executar_triagem_seguranca` (merge por severidade). Se o modelo **não** invocar a tool, **não** há fallback síncrono `_apply_deterministic_triage` neste ramo: aplica-se contrato explícito `REMOTE_NURSING` com `findings=[]`, reasoning em português, `trace.triage_skipped=True` e `trace.triage_source=skipped_no_snapshots` — sem simular regras R01–R23. No ramo **sem chaves LLM**, a triagem síncrona única continua obrigatória antes da resposta neutra.
+
+Ordem conceptual atual (`orchestrator.py`):
 
 ```
-Intent classification
-  → EMERGENCY + escalate_immediately: triagem mínima (sintomas + Layer 1) + resposta emergência
-  → active_questionnaire: triagem mínima; ER_IMMEDIATE → override; senão fluxo questionário
-  → GREETING (skip_full_pipeline): triagem mínima; is_er → override; senão fast-path + metadados Layer 1
-  → APPOINTMENT_QUERY: trace.pipeline_path = "appointment_query" — sem triagem; placeholders + RAG + multi-agent (sem bloco Layer 1 no contexto)
-  → [main path]
-Symptom Analysis (Layer 0) + Clinical Rules (Layer 1) — apenas ramo `main`
-MASCC/CISNE Scores (Layer 2, dentro do Layer 1) — apenas ramo `main`
-Protocol Engine
-RAG Context Build
-Multi-agent LLM Pipeline (Opus orchestrator → subagentes Sonnet)
-Action Compilation
+Sem chaves LLM → triagem síncrona única → build com Layer1 real → fallback texto
+Com chaves LLM → build (sem Layer1/sintomas forçados no primeiro bloco) → run_agentic_loop
+  → merge snapshots triagem OU contrato “skipped” explícito (sem motor determinístico automático)
+  → protocol_engine → compile actions → pós-main questionário (ER_IMMEDIATE)
 ```
 
-**Nunca mova `clinical_rules_engine.evaluate()` para depois do pipeline LLM** no ramo onde a triagem Layer 1 é obrigatória (`main` e fast-paths com `_run_safety_triage`).
+**Nunca** trate a resposta textual do Opus como substituto da Layer 1 para ações que dependem de `clinical_rules_engine` sem snapshots ou sem ramo sem LLM.
 
 ---
 
@@ -95,7 +89,7 @@ Nunca passar `orch_config` diretamente para subagentes — eles têm seus própr
 
 ### Pipeline do orchestrator com subagentes
 
-O orchestrator usa `ORCHESTRATOR_ROUTING_TOOLS` (4 ferramentas de roteamento) e `routing_tool_executor` como callback para chamar subagentes:
+O orchestrator usa `ORCHESTRATOR_ROUTING_TOOLS` (subagentes + tool de corpus `buscar_conhecimento_oncologico`) e `routing_tool_executor` como callback para chamar subagentes ou retrieval educativo:
 
 ```python
 result = await llm_provider.run_agentic_loop(
@@ -108,7 +102,7 @@ result = await llm_provider.run_agentic_loop(
 )
 ```
 
-O `routing_tool_executor` recebe o nome da ferramenta (`consultar_agente_sintomas`, etc.), instancia o subagente correspondente, executa com `run()` e acumula os tool_calls retornados.
+O `routing_tool_executor` recebe o nome da ferramenta (`consultar_agente_*` ou `buscar_conhecimento_oncologico`), executa o subagente correspondente **com contexto só de `build()`** ou devolve passagens formatadas do corpus.
 
 ### Compilação de actions
 
@@ -159,18 +153,18 @@ class SubAgentResult:
     iterations: int = 0
 ```
 
-### Por que `tool_executor=None`
+### Por que `tool_executor=None` (regra por defeito)
 
-`BaseSubAgent.run()` passa `tool_executor=None` para `run_agentic_loop()` — isso faz com que tool calls sejam **enfileirados** e não executados. O subagente retorna os tool calls ao orchestrator via `SubAgentResult.tool_calls`. Nunca passar um `tool_executor` real a subagentes.
+`BaseSubAgent.run()` passa `tool_executor=None` para `run_agentic_loop()` — tool calls são **enfileiradas** e não executadas no subagente; o orchestrator compila ações a partir do resultado. **Exceções explícitas no código:** `SymptomAgent` com executor parcial só para `executar_triagem_seguranca` (triagem determinística); `SchedulingSecretaryAgent` com padrão análogo. Não generalizar `tool_executor` a outros subagentes sem revisão de segurança.
 
-### Contexto RAG injetado automaticamente
+### Contexto clínico nos subagentes
 
 ```python
 # Em BaseSubAgent.run():
 system = f"{self.system_prompt}\n\n## CONTEXTO CLÍNICO\n\n{context}"
 ```
 
-O `context` já contém o contexto RAG formatado — é passado pelo orchestrator após `context_builder.build_with_rag()`. Subagentes não chamam o RAG diretamente.
+O `context` é a string de **`context_builder.build()`** (sem passagens RAG automáticas). O corpus oncológico chega ao Opus via tool `buscar_conhecimento_oncologico`, não injetado no contexto dos Sonnets por padrão.
 
 ### Constante de iterações
 
@@ -182,7 +176,7 @@ O `context` já contém o contexto RAG formatado — é passado pelo orchestrato
 
 | Subagente | Arquivo | Ferramentas (actions) | Quando o orchestrator o invoca |
 |---|---|---|---|
-| `SymptomAgent` | `symptom_agent.py` | `registrar_sintoma`, `solicitar_avaliacao_medica`, `acionar_enfermagem` | Qualquer sintoma físico relatado |
+| `SymptomAgent` | `symptom_agent.py` | `executar_triagem_seguranca` (determinística, executor parcial), `registrar_sintoma`, `solicitar_avaliacao_medica`, `acionar_enfermagem` | Sintomas físicos; triagem Layer 0+1 exposta como tool |
 | `NavigationAgent` | `navigation_agent.py` | `atualizar_etapa_navegacao`, `agendar_checkin`, `recomendar_consulta`, `informar_agenda_navegacao` | Dúvidas sobre etapas, exames, agenda/prazos |
 | `QuestionnaireAgent` | `questionnaire_agent.py` | `iniciar_questionario_esas`, `iniciar_questionario_pro_ctcae` | Sintomas vagos/difusos, avaliação periódica |
 | `EmotionalSupportAgent` | `emotional_support_agent.py` | `registrar_estado_emocional`, `encaminhar_psicologia` | Ansiedade, medo, suporte emocional |
@@ -249,12 +243,12 @@ tracer.finish_trace(trace, error=str(exc))   # falha
 
 | Campo | Tipo | Quando setar |
 |---|---|---|
-| `pipeline_path` | str | Imediatamente ao entrar num ramo: `"questionnaire"`, `"emergency"`, `"greeting"`, `"greeting_safety_override"`, `"appointment_query"`, `"main"` |
-| `intent` | str | Após `intent_classifier.classify_async()` |
-| `intent_confidence` | float | Junto com `intent` |
-| `symptoms_detected` | int | Após `symptom_analyzer.analyze()` |
-| `overall_severity` | str | Após symptom analysis |
-| `clinical_disposition` | str | Após `clinical_rules_engine.evaluate()` |
+| `pipeline_path` | str | `"main"` (outros valores legados podem aparecer em traces antigos) |
+| `triage_source` | str | `deterministic_no_llm` \| `tool_merge` \| `skipped_no_snapshots` |
+| `triage_skipped` | bool | `True` quando o ramo LLM não recebeu snapshots da tool de triagem |
+| `symptoms_detected` | int | Após agregação final de `symptom_analysis` |
+| `overall_severity` | str | Após agregação final de `symptom_analysis` |
+| `clinical_disposition` | str | Após Layer 1 agregada (tool + merge, triagem síncrona sem LLM, ou contrato skipped) |
 | `clinical_rules_fired` | List[str] | IDs das regras disparadas (ex: `["R01_FEBRILE_NEUTROPENIA"]`) |
 | `actions_generated` | List[str] | Tipos de actions compiladas |
 | `subagents_called` | List[str] | Nomes dos subagentes invocados |
@@ -265,30 +259,21 @@ tracer.finish_trace(trace, error=str(exc))   # falha
 
 ---
 
-## 7. Fast-Paths — Quando e Como Usar
+## 7. Questionário ativo e modo sem LLM
 
-Fast-paths **evitam o pipeline LLM completo** (resposta curta sem `run_agentic_loop`). A triagem mínima Layer 1 (`_run_safety_triage`) aplica-se a **questionário ativo**, **emergência** e **saudação** (`skip_full_pipeline`) antes de retornar cedo. O ramo **`appointment_query`** (`INTENT_APPOINTMENT_QUERY`) **não** é fast-path de LLM: usa o mesmo multi-agent, mas **omite** sintomas e Layer 1; `build_orchestrator_prompt(..., appointment_query=True)` substitui a nota de Layer 1 pré-calculada. Quando a triagem mínima roda e Layer 1 indica ER, o orquestrador **substitui** a resposta curta por override de segurança onde aplicável.
+- **Sem chaves LLM:** não há `run_agentic_loop`; `_apply_deterministic_triage()` corre uma vez; resposta = `_fallback_response()` (texto neutro), com disposição e ações derivadas das regras; `trace.triage_source=deterministic_no_llm`.
+- **Com LLM sem snapshots:** contrato explícito sem findings; `trace.triage_skipped=True`; continuação do questionário só se `_message_plausible_questionnaire_answer` (mensagens longas com `?` não consomem o turno como resposta ESAS).
+- **Questionário ativo + `ER_IMMEDIATE`:** fase pós-main (`_build_layer1_override_response`) interrompe continuação ESAS na mesma resposta.
 
-| Fast-path | Intent / estado | Condição adicional | Pipeline principal (LLM/RAG/protocolo longo) |
-|---|---|---|---|
-| Questionnaire | `active_questionnaire` | — | Não — `_process_questionnaire_answer()` após triagem |
-| Emergency | `INTENT_EMERGENCY` | `escalate_immediately` | Não — ramo emergência com triagem |
-| Greeting | `INTENT_GREETING` | `skip_full_pipeline` | Não — saudação após triagem; override se `is_er` |
-| Appointment query (ramo dedicado) | `INTENT_APPOINTMENT_QUERY` | — | **Sim** — RAG + `run_agentic_loop` + roteamento; **sem** `_run_safety_triage`; `trace.pipeline_path = "appointment_query"` |
+### Evolução futura (intent / fast-paths)
 
-### Como adicionar novo fast-path
+Qualquer reintrodução de classificador de intent **antes** do loop agentic ou de fast-paths que saltem triagem exige ADR, testes de segurança e alinhamento com o decision gate no NestJS.
 
-1. Declare a constante em `intent_classifier.py`: `INTENT_MEU_NOVO = "meu_novo"`
-2. Adicione a verificação no `_process_with_trace()` na posição correta (após intents existentes).
+### Como adicionar nova heurística de ramo
 
-```python
-if intent == INTENT_MEU_NOVO and intent_result.get("skip_full_pipeline"):
-    trace.pipeline_path = "meu_novo"
-    return self._build_meu_novo_response(clinical_context, agent_state)
-```
-
-3. Implemente `_build_meu_novo_response()` como método privado do `AgentOrchestrator`
-4. **Regra**: qualquer novo fast-path **deve** manter triagem Layer 1 antes de `return` curto, ou documentar exceção explícita de produto. Em dúvida, deixar no pipeline principal completo
+1. Preferir prompts do Opus e secções em `context_builder` antes de novo ramo paralelo no orquestrador.
+2. Documentar impacto em `protocol_engine` e questionário ativo.
+3. Testes em `tests/agent/test_agents_base.py`.
 
 ---
 
@@ -299,10 +284,10 @@ Siga os 7 passos nesta ordem:
 1. Crie `ai-service/src/agent/subagents/<nome>_agent.py` estendendo `BaseSubAgent`
 2. Defina `name`, `system_prompt` e `tools` (actions que o subagente pode recomendar)
 3. Exporte o subagente em `ai-service/src/agent/subagents/__init__.py`
-4. Adicione a ferramenta de roteamento correspondente em `ORCHESTRATOR_ROUTING_TOOLS` em `prompts/orchestrator_prompt.py`
-5. No `orchestrator.py`, instancie o subagente no `routing_tool_executor` para o novo tool name
+4. Adicione a ferramenta em `ORCHESTRATOR_ROUTING_TOOLS` em `prompts/orchestrator_prompt.py` (ou estenda o executor se for tool de corpus como `buscar_conhecimento_oncologico`)
+5. No `orchestrator.py`, trate o tool name no `routing_tool_executor` para o novo subagente
 6. Atualize o system prompt do orchestrator para descrever quando invocar o novo subagente
-7. Escreva testes em `tests/agent/` validando que o subagente retorna `SubAgentResult` correto e que `tool_executor=None` (tool calls não executadas)
+7. Escreva testes em `tests/agent/` validando `SubAgentResult` e que apenas tools determinísticas usam executor parcial (padrão `SymptomAgent` / secretária).
 
 ---
 
@@ -314,7 +299,7 @@ O `agent_state` é um dict persistido entre turns da conversa pelo backend NestJ
 
 | Campo | Tipo | Uso |
 |---|---|---|
-| `active_questionnaire` | dict ou None | Questionário ESAS/PRO-CTCAE em andamento — ativa o fast-path |
+| `active_questionnaire` | dict ou None | Questionário ESAS/PRO-CTCAE em andamento — afecta pós-main e prioridade vs. continuação do questionário |
 | `questionnaire_step` | int | Step atual dentro do questionário |
 | `questionnaire_responses` | list | Respostas coletadas |
 | `last_disposition` | str | Última disposição clínica registrada |
@@ -323,7 +308,7 @@ O `agent_state` é um dict persistido entre turns da conversa pelo backend NestJ
 ### Regras de estado
 
 - O orchestrator retorna `new_state` — nunca mutá-lo in-place, sempre retornar nova cópia
-- `active_questionnaire` é o único campo que altera o fluxo do pipeline (fast-path)
+- `active_questionnaire` altera fases pós-main e prioridades (ex.: override `ER_IMMEDIATE`), mas **não** substitui o fluxo de agregação de triagem descrito acima
 - Campos de estado não devem conter PHI além do necessário — `patient_id` e `tenant_id` ficam no trace, não no state
 
 ### Histórico de conversa
@@ -339,7 +324,7 @@ O `conversation_history` é uma lista de `{role: "user"|"assistant", content: st
 Quando `llm_provider.has_any_llm_key(agent_config) == False`:
 - Pipeline LLM não é chamado
 - `llm_provider._fallback_response()` é retornado como resposta
-- Layers 1 (clinical_rules) e 3 (ML) continuam funcionando normalmente
+- Triagem determinística (`symptom_analyzer` + `clinical_rules_engine`) corre **antes** de `protocol_engine` / compilação de ações neste ramo; a resposta textual continua neutra (`_fallback_response()`)
 - A resposta de fallback está em português, é clinicamente neutra e nunca contém conselho clínico específico
 
 ### Erro em subagente
@@ -358,7 +343,7 @@ Usar `llm_provider._fallback_response()` — nunca retornar string vazia como re
 |---|---|---|
 | `ER_IMMEDIATE` disparado | `WARNING` | `logger.warning(f"ER_IMMEDIATE: {rule_id}")` |
 | `ER_DAYS` disparado | `INFO` | `logger.info(f"ER_DAYS: {rule_id}")` |
-| Intent classificado | `INFO` | `logger.info(f"Intent classified: {intent} (confidence={...})")` |
+| Layer 1 agregada (tool ou fallback) | `INFO` / `WARNING` | conforme disposição |
 | Subagente com erro | `ERROR` | `logger.error(f"[{self.name}] Subagent error: {e}")` |
 | Step não-bloqueante com falha | `WARNING` | `logger.warning(f"...: {e}")` — continua |
 | Sem disposição crítica | `DEBUG` | |
@@ -369,18 +354,18 @@ Nunca usar `print()`. Nunca logar valores de API key — usar forma mascarada `k
 
 ## 12. O Que NUNCA Fazer
 
-- **Nunca mover `clinical_rules_engine.evaluate()`** para depois do pipeline LLM — é invariante de segurança
+- **Nunca** expor `clinical_disposition` como resultado de regras R01–R23 sem `clinical_rules_engine.evaluate()` ter corrido sobre o `symptom_analysis` adequado (triagem síncrona sem LLM, ou dados vindos do merge da tool `executar_triagem_seguranca`). O contrato “skipped” no ramo LLM **não** conta como avaliação determinística.
 - **Nunca rebaixar `ER_IMMEDIATE`** gerado por Layer 1 em qualquer layer posterior
-- **Nunca adicionar `tool_executor` a subagentes** — tool calls devem permanecer enfileirados, não executados
+- **Nunca generalizar `tool_executor` em subagentes** — só exceções documentadas (`executar_triagem_seguranca`, secretária)
 - **Nunca chamar `backend_client`** de dentro do caminho crítico do triage (`_process_with_trace`)
 - **Nunca passar `orch_config` para subagentes** — subagentes têm `max_tokens: 1024`, não 16000
 - **Nunca assumir que a chave Anthropic está disponível** sem checar `has_anthropic_key()` antes do `run_agentic_loop()`
 - **Nunca chamar `has_any_llm_key()` em loops** — cachear o resultado por request
 - **Nunca retornar string vazia** como resposta ao paciente em qualquer path — usar `_fallback_response()`
-- **Nunca criar subagente sem registrá-lo** em `ORCHESTRATOR_ROUTING_TOOLS` e no `routing_tool_executor`
+- **Nunca criar subagente sem registrá-lo** em `ORCHESTRATOR_ROUTING_TOOLS` e no `routing_tool_executor` (subagentes); tools de corpus seguem o padrão da tool de conhecimento oncológico
 - **Nunca usar `print()`** — sempre `logging.getLogger(__name__)`
 - **Nunca adicionar lógica probabilística** (scores LLM, output ML) dentro de `clinical_rules.py`
 - **Nunca expor `GET /api/v1/observability/traces`** sem autenticação em produção — contém PHI
 - **Nunca persistir traces em banco de dados** — ring buffer in-memory apenas (MAX_TRACES = 500)
 - **Nunca aumentar `MAX_SUBAGENT_ITERATIONS`** acima de 6 sem medir impacto em latência
-- **Nunca criar fast-path** para intents com possível conteúdo clínico urgente — deixar no pipeline principal
+- **Nunca criar atalho** que injete findings ou disposições de urgência “como se” a Layer 1 tivesse corrido quando `trace.triage_skipped` é verdadeiro no ramo LLM

@@ -22,7 +22,7 @@ O RAG oncológico é composto por três arquivos:
 |---|---|
 | `ai-service/src/agent/rag/knowledge_base.py` | `OncologyKnowledgeRAG` — embedding, indexação FAISS, retrieval |
 | `ai-service/src/agent/rag/oncology_corpus.json` | Corpus de conhecimento oncológico (documentos em JSON) |
-| `ai-service/src/agent/context_builder.py` | Integração do RAG no pipeline via `build_with_rag()` |
+| `ai-service/src/agent/context_builder.py` | `build()` estruturado; helpers RAG; `build_with_rag()` legado; orquestrador usa tool `buscar_conhecimento_oncologico` |
 
 ### Fluxo de execução
 
@@ -54,7 +54,7 @@ retrieve(query, cancer_type, top_k)
         ▼
 format_context(passages)
   → "## Base de Conhecimento Relevante\n**[1] título**\nconteúdo\n..."
-  → injetado no system prompt via context_builder.build_with_rag()
+  → devolvido à tool `buscar_conhecimento_oncologico` no orquestrador (JSON com campo `markdown`), quando o Opus solicita
 ```
 
 ### Invariante de falha
@@ -91,7 +91,7 @@ Nunca configurar `_SCORE_THRESHOLD` abaixo de 0.20 em produção.
 - `cancer_type=None` ou `cancer_type="ALL"` — retorna documentos de todos os tipos
 - `cancer_type="BLADDER"` — retorna documentos com `cancer_types` contendo `"BLADDER"` ou `"ALL"`
 - O valor é comparado com `doc.get("cancer_types", ["ALL"])` — documentos sem o campo são tratados como universais
-- `_extract_cancer_type()` em `context_builder.py` extrai o tipo de `patient.cancerType` ou `diagnoses[0].cancerType` e converte para maiúsculas antes de passar ao RAG
+- `extract_cancer_type_for_rag()` em `context_builder.py` extrai o tipo de `patient.cancerType` ou `diagnoses[0].cancerType` e converte para maiúsculas antes de passar ao RAG
 
 ---
 
@@ -268,16 +268,19 @@ Qualquer mudança de modelo exige:
 
 ---
 
-## 7. Integração com context_builder
+## 7. Integração com context_builder e orquestrador
 
-`ClinicalContextBuilder.build_with_rag()` em `context_builder.py` é o único ponto de entrada para o RAG no pipeline:
+- **`context_builder.build()`** — única fonte do bloco estruturado (dados do paciente, protocolo, sintomas) injetado no system prompt do Opus e nos subagentes.
+- **`build_with_rag()`** — legado / testes: `build()` + `retrieve` + `format_context` no mesmo string; **não** é usado no caminho principal do `orchestrator.py`.
+- **Tool `buscar_conhecimento_oncologico`** (`ORCHESTRATOR_ROUTING_TOOLS`): o Opus passa `consulta: string`; o `routing_tool_executor` chama `rag_query_for_message` + `extract_cancer_type_for_rag` + `knowledge_rag.retrieve` + `format_context` e devolve JSON (`markdown`, `passagens`, …).
+
+Fluxo equivalente ao antigo `build_with_rag()` (só legado):
 
 ```python
-# Fluxo interno de build_with_rag()
-base_context = self.build(clinical_context, ...)
+base_context = context_builder.build(...)
 
-cancer_type = self._extract_cancer_type(clinical_context)
-rag_query = self._rag_query_for_message(patient_message, conversation_history)
+cancer_type = context_builder.extract_cancer_type_for_rag(clinical_context)
+rag_query = context_builder.rag_query_for_message(patient_message, conversation_history)
 passages = knowledge_rag.retrieve(query=rag_query, cancer_type=cancer_type)
 
 if passages:
@@ -289,11 +292,11 @@ return base_context
 
 ### Lógica de query para mensagens genéricas
 
-`_rag_query_for_message()` trata confirmações curtas como "sim", "não", "ok", "é", "isso" (comprimento < 15 ou membro de `_GENERIC_REPLIES`): usa a última mensagem do assistente (até 200 chars) como query em vez da mensagem do paciente. Isso evita recuperar passagens irrelevantes para respostas de confirmação.
+`rag_query_for_message()` trata confirmações curtas como "sim", "não", "ok", "é", "isso" (comprimento < 15 ou membro de `_GENERIC_REPLIES`): usa a última mensagem do assistente (até 200 chars) como query em vez da mensagem do paciente. Isso evita recuperar passagens irrelevantes para respostas de confirmação.
 
 ### Extração de cancer_type
 
-`_extract_cancer_type()` procura em `patient.cancerType` primeiro, depois em `diagnoses[0].cancerType`, e converte para `.upper()`. Retorna `None` se não encontrar. Com `cancer_type=None`, o RAG não filtra por tipo de câncer.
+`extract_cancer_type_for_rag()` procura em `patient.cancerType` primeiro, depois em `diagnoses[0].cancerType`, e converte para `.upper()`. Retorna `None` se não encontrar. Com `cancer_type=None`, o RAG não filtra por tipo de câncer.
 
 ---
 
@@ -387,6 +390,6 @@ Executar após qualquer modificação no corpus ou em `knowledge_base.py`. Todas
 - **Nunca** usar `IndexFlatL2` (distância euclidiana) — o código usa `IndexFlatIP` com vetores normalizados (cosine similarity)
 - **Nunca** alterar o modelo de embedding em produção sem invalidar o cache e reindexar
 - **Nunca** assumir que RAG está disponível — sempre checar `knowledge_rag.is_ready` antes de usar
-- **Nunca** omitir `cancer_types` em MAIÚSCULAS no corpus — a comparação com `_extract_cancer_type()` usa `.upper()`
+- **Nunca** omitir `cancer_types` em MAIÚSCULAS no corpus — a comparação com `extract_cancer_type_for_rag()` usa `.upper()`
 - **Nunca** adicionar lógica de retrieval ou scoring fora de `knowledge_base.py` — toda lógica RAG fica encapsulada no singleton `knowledge_rag`
 - **Nunca** expor o corpus via endpoint de API sem autenticação — o arquivo contém conhecimento clínico proprietário
