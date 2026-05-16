@@ -263,8 +263,15 @@ describe('ExamIngestService', () => {
     const resCreate = jest.fn().mockResolvedValue({ id: 'res-1' });
     prisma.$transaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) =>
       fn({
-        complementaryExam: { create: examCreate },
-        complementaryExamResult: { create: resCreate },
+        complementaryExam: {
+          findMany: jest.fn().mockResolvedValue([]),
+          create: examCreate,
+        },
+        complementaryExamResult: {
+          findFirst: jest.fn().mockResolvedValue(null),
+          create: resCreate,
+          update: jest.fn(),
+        },
       })
     );
 
