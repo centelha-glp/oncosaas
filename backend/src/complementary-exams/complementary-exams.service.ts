@@ -13,6 +13,7 @@ import { CreateComplementaryExamResultDto } from './dto/create-complementary-exa
 import { UpdateComplementaryExamResultDto } from './dto/update-complementary-exam-result.dto';
 import { parsePerformedAtDateOnly } from '../common/utils/date-only.util';
 import { isSpecimenAllowedForType } from './specimen-allowed.util';
+import { collapseRedundantComponentsForSave } from './collapse-redundant-components.util';
 import {
   computeIsAbnormalFromRange,
   enrichComponentsWithAbnormal,
@@ -200,20 +201,37 @@ export class ComplementaryExamsService {
         ? exam.referenceRange
         : dto.referenceRange;
 
+    const collapsed = collapseRedundantComponentsForSave(exam.name, {
+      valueNumeric: dto.valueNumeric,
+      valueText: dto.valueText,
+      unit: unitFromExam,
+      referenceRange: referenceFromExam,
+      isAbnormal: dto.isAbnormal,
+      report: dto.report,
+      components: dto.components,
+    });
+
     const componentsPayload = enrichComponentsWithAbnormal(
-      dto.components as ExamResultComponentInput[] | undefined,
+      collapsed.components as ExamResultComponentInput[] | undefined,
     );
+
+    const valueNumericResolved = collapsed.valueNumeric ?? dto.valueNumeric;
+    const valueTextResolved = collapsed.valueText ?? dto.valueText;
+    const unitResolved = collapsed.unit ?? unitFromExam;
+    const referenceResolved = collapsed.referenceRange ?? referenceFromExam;
 
     let isAbnormalResolved: boolean;
     if (componentsPayload?.length) {
       isAbnormalResolved = componentsPayload.some((c) => c.isAbnormal);
     } else {
       const computed = computeIsAbnormalFromRange(
-        dto.valueNumeric,
-        referenceFromExam,
+        valueNumericResolved,
+        referenceResolved,
       );
       isAbnormalResolved =
-        computed !== null ? computed : (dto.isAbnormal ?? false);
+        computed !== null
+          ? computed
+          : (collapsed.isAbnormal ?? dto.isAbnormal ?? false);
     }
 
     const result = await this.prisma.complementaryExamResult.create({
@@ -222,14 +240,14 @@ export class ComplementaryExamsService {
         tenantId,
         performedAt,
         collectionId: dto.collectionId,
-        valueNumeric: dto.valueNumeric,
-        valueText: dto.valueText,
-        unit: unitFromExam,
-        referenceRange: referenceFromExam,
+        valueNumeric: valueNumericResolved,
+        valueText: valueTextResolved,
+        unit: unitResolved,
+        referenceRange: referenceResolved,
         isAbnormal: isAbnormalResolved,
         criticalHigh: dto.criticalHigh,
         criticalLow: dto.criticalLow,
-        report: dto.report,
+        report: collapsed.report ?? dto.report,
         components: componentsPayload
           ? (componentsPayload as object)
           : undefined,
@@ -293,16 +311,52 @@ export class ComplementaryExamsService {
     const valueNumericMerged =
       dto.valueNumeric !== undefined ? dto.valueNumeric : result.valueNumeric;
 
-    const componentsPayload =
-      dto.components !== undefined
-        ? enrichComponentsWithAbnormal(
-            dto.components as ExamResultComponentInput[],
-          )
-        : undefined;
+    const touchesResultValues =
+      dto.components !== undefined ||
+      dto.valueNumeric !== undefined ||
+      dto.valueText !== undefined ||
+      dto.unit !== undefined ||
+      dto.referenceRange !== undefined ||
+      dto.report !== undefined;
 
-    let isAbnormalResolved: boolean;
-    if (componentsPayload?.length) {
-      isAbnormalResolved = componentsPayload.some((c) => c.isAbnormal);
+    let componentsPayload: ReturnType<typeof enrichComponentsWithAbnormal>;
+    let isAbnormalResolved: boolean | undefined;
+    let valueNumericForUpdate = dto.valueNumeric;
+    let valueTextForUpdate = dto.valueText;
+    let unitForUpdate = unitResolved;
+    let referenceForUpdate = referenceResolved;
+    let reportForUpdate = dto.report;
+    let componentsForUpdate: object | undefined;
+
+    if (touchesResultValues) {
+      const collapsed = collapseRedundantComponentsForSave(exam.name, {
+        valueNumeric: valueNumericMerged,
+        valueText:
+          dto.valueText !== undefined ? dto.valueText : result.valueText,
+        unit: unitResolved,
+        referenceRange: referenceResolved,
+        isAbnormal:
+          dto.isAbnormal !== undefined ? dto.isAbnormal : result.isAbnormal,
+        report: dto.report !== undefined ? dto.report : result.report,
+        components:
+          dto.components !== undefined ? dto.components : result.components,
+      });
+      componentsPayload = enrichComponentsWithAbnormal(
+        collapsed.components as ExamResultComponentInput[] | undefined,
+      );
+      valueNumericForUpdate = collapsed.valueNumeric ?? undefined;
+      valueTextForUpdate = collapsed.valueText ?? undefined;
+      unitForUpdate = collapsed.unit ?? unitResolved;
+      referenceForUpdate = collapsed.referenceRange ?? referenceResolved;
+      reportForUpdate =
+        collapsed.report !== undefined && collapsed.report !== null
+          ? collapsed.report
+          : dto.report !== undefined
+            ? dto.report
+            : result.report ?? undefined;
+      componentsForUpdate = componentsPayload
+        ? (componentsPayload as object)
+        : undefined;
     } else if (
       dto.components === undefined &&
       result.components &&
@@ -313,7 +367,22 @@ export class ComplementaryExamsService {
         result.components as unknown as ExamResultComponentInput[],
       );
       isAbnormalResolved = enriched?.some((c) => c.isAbnormal) ?? false;
-    } else {
+    }
+
+    if (touchesResultValues) {
+      if (componentsPayload?.length) {
+        isAbnormalResolved = componentsPayload.some((c) => c.isAbnormal);
+      } else {
+        const computed = computeIsAbnormalFromRange(
+          valueNumericForUpdate ?? undefined,
+          referenceForUpdate,
+        );
+        isAbnormalResolved =
+          computed !== null
+            ? computed
+            : (dto.isAbnormal ?? result.isAbnormal ?? false);
+      }
+    } else if (isAbnormalResolved === undefined) {
       const computed = computeIsAbnormalFromRange(
         valueNumericMerged ?? undefined,
         referenceResolved,
@@ -329,18 +398,15 @@ export class ComplementaryExamsService {
       data: {
         performedAt: performedAtUpdate,
         collectionId: dto.collectionId,
-        valueNumeric: dto.valueNumeric,
-        valueText: dto.valueText,
-        unit: unitResolved,
-        referenceRange: referenceResolved,
+        valueNumeric: valueNumericForUpdate,
+        valueText: valueTextForUpdate,
+        unit: unitForUpdate,
+        referenceRange: referenceForUpdate,
         isAbnormal: isAbnormalResolved,
         criticalHigh: dto.criticalHigh,
         criticalLow: dto.criticalLow,
-        report: dto.report,
-        components:
-          componentsPayload !== undefined
-            ? (componentsPayload as object)
-            : undefined,
+        report: reportForUpdate,
+        components: touchesResultValues ? componentsForUpdate : undefined,
       },
     });
 
