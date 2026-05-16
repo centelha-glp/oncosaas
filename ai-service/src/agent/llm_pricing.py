@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 _DEFAULT_ANTHROPIC_RATES: Tuple[Tuple[str, Tuple[float, float]], ...] = (
     ("claude-opus-4", (15.0, 75.0)),
     ("claude-sonnet-4", (3.0, 15.0)),
+    ("claude-haiku-4", (1.0, 5.0)),
     ("claude-3-5-sonnet", (3.0, 15.0)),
     ("claude-3-opus", (15.0, 75.0)),
     ("claude-3-sonnet", (3.0, 15.0)),

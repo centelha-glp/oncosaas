@@ -9,6 +9,8 @@ def test_agent_trace_to_dict_includes_main_multi_agent_llm_used():
     assert d["main_multi_agent_llm_used"] is False
     assert d.get("intent_llm") is None
     assert d.get("symptom_llm") is None
+    assert d.get("triage_source") is None
+    assert d.get("triage_skipped") is False
     assert d.get("rag_context_output") is None
     assert d.get("orchestrator_input") is None
     assert d.get("subagent_outputs") == []
@@ -25,7 +27,7 @@ def test_agent_trace_to_dict_sums_token_usage_events():
         usage_event(
             step="intent",
             provider="anthropic",
-            model="claude-sonnet-4-6",
+            model="claude-haiku-4-5",
             input_tokens=100,
             output_tokens=50,
         )

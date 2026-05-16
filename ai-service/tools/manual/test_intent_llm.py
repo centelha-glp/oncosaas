@@ -22,7 +22,7 @@ def build_agent_config() -> dict:
         "anthropic_api_key": anthropic_key or None,
         "openai_api_key": openai_key or None,
         "llm_provider": "anthropic" if anthropic_key else "openai",
-        "llm_model": "claude-sonnet-4-6" if anthropic_key else "gpt-4o-mini",
+        "llm_model": "claude-haiku-4-5" if anthropic_key else "gpt-4o-mini",
         "use_llm_intent_classifier": True,
     }
 

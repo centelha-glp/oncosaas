@@ -20,7 +20,7 @@ def test_agent_process_response_accepts_pipeline_trace():
 
 
 def test_agent_process_response_symptom_analysis_requires_string_severity():
-    """Ramo APPOINTMENT_QUERY no orchestrator não pode usar overallSeverity=None (quebra response_model)."""
+    """SymptomAnalysis no contrato HTTP deve usar overallSeverity string (ex.: LOW)."""
     AgentProcessResponse(
         response="ok",
         actions=[],

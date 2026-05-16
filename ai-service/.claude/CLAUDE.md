@@ -106,23 +106,18 @@ FastAPI microservice (port 8001). **Stateless per request** — receives full cl
 
 ### Multi-layer triage pipeline
 
-The core safety invariant: **deterministic rules (Layer 1) always fire before ML (Layer 3) and LLM (agents)**. Layer 1 cannot be weakened or overridden by downstream layers.
+The core safety invariant: **deterministic rules (Layer 1) must be applied to the final `symptom_analysis` before protocol evaluation and action compilation** when triagem síncrona runs (no LLM keys) **or** when the `executar_triagem_seguranca` tool produced snapshots merged by the orchestrator. On the **LLM branch**, if the model never calls the triage tool, the orchestrator applies an **explicit no-rules contract** (documented reasoning, empty findings, `trace.triage_skipped`) — **no** silent `_apply_deterministic_triage` after the loop. Layer 1 cannot be weakened by probabilistic layers when real deterministic evaluation has run.
 
 ```
 Incoming message
     │
-    ├─ [Fast path] Intent = EMERGENCY → _build_emergency_response()
-    ├─ [Fast path] Intent = GREETING  → _build_greeting_response()
-    │
-    └─ [Main path]
-          ├─ Layer 0: Symptom Analyzer (keyword regex + optional LLM nuance detection)
-          ├─ Layer 1: ClinicalRulesEngine (23 deterministic rules R01–R23)
-          │    └─ Layer 2: MASCC/CISNE scores (called inside rules engine when fever present)
-          ├─ Layer 3: OncologyPriorityModel (LightGBM, 32 features, 5 ordinal classes)
-          │    └─ Layer 4: Social modifiers applied post-prediction
-          ├─ RAG ContextBuilder (FAISS retrieval injected into LLM prompt)
-          ├─ Multi-agent pipeline (Opus orchestrator → Sonnet subagents)
-          └─ Action compilation (rule actions merged with LLM tool-call actions)
+    └─ [Default path]
+          ├─ Without LLM keys: Symptom Analyzer + ClinicalRulesEngine (Layer 1) once → neutral fallback text
+          ├─ With LLM keys: structured context without fabricated pre-loop triage → Opus multi-agent loop
+          │       → merge triage tool results OR explicit skipped contract (no automatic deterministic fallback)
+          ├─ Layer 3: OncologyPriorityModel (LightGBM) where applicable on /risk routes (not the full story of /agent/process)
+          ├─ RAG / corpus only when orchestrator tool `buscar_conhecimento_oncologico` runs
+          └─ Action compilation (rule actions merged with queued subagent tool calls)
 ```
 
 Dispositions (ascending severity): `REMOTE_NURSING` → `SCHEDULED_CONSULT` → `ADVANCE_CONSULT` → `ER_DAYS` → `ER_IMMEDIATE`
@@ -134,7 +129,7 @@ Rules R01–R23 are evaluated in priority order (ER_IMMEDIATE first). Once a hig
 Layer 2 (MASCC/CISNE) is invoked from inside the rules engine when fever is present. It can upgrade `ER_DAYS → ER_IMMEDIATE` but cannot downgrade an already-fired ER_IMMEDIATE.
 
 #### Rules
-- Hard rules must always evaluate before the ML model and before the LLM pipeline
+- Hard rules must always feed the **final** disposition used in the HTTP contract after real deterministic evaluation (sync triage without LLM, or merged tool snapshots). When the LLM branch skips triage (`triage_skipped`), the contract is explicit `REMOTE_NURSING` with empty findings — not a substitute for R01–R23.
 - `ER_IMMEDIATE` findings are never downgraded by any downstream layer
 - Never add probabilistic logic (LLM output, ML scores) into `clinical_rules.py`
 
@@ -150,11 +145,11 @@ Layer 2 (MASCC/CISNE) is invoked from inside the rules engine when fever is pres
 
 ### Multi-agent pipeline (`src/agent/orchestrator.py`, `src/agent/subagents/`)
 
-Orchestrator uses `claude-opus-4-6` with adaptive thinking (max 8 iterations). Subagents use `claude-sonnet-4-6` (max 6 iterations). Subagents **do not execute tool calls** — they collect tool calls and return them to the orchestrator. The orchestrator compiles all tool calls into `actions`, returned in the API response for the NestJS backend to execute.
+Orchestrator uses `claude-opus-4-6` with adaptive thinking (max 8 iterations). Subagents use `claude-sonnet-4-6` (max 6 iterations). Subagents **do not execute tool calls by default** — they collect tool calls and return them to the orchestrator. **Exception:** `SymptomAgent` uses a partial `tool_executor` only for the deterministic tool `executar_triagem_seguranca` so the orchestrator can merge Layer 0+1. The orchestrator compiles other tool calls into `actions`, returned in the API response for the NestJS backend to execute.
 
 #### Rules
-- Never add `tool_executor` to subagents — tool calls must remain queued, not executed
-- Hard rules always run before the multi-agent pipeline, not inside it
+- Do not add arbitrary `tool_executor` callbacks to subagents — only the documented deterministic-tool pattern (`executar_triagem_seguranca`, scheduling secretary)
+- Final Layer 1 disposition for the HTTP contract must come from aggregated triage (tool snapshots + merge or synchronous branch without LLM). The skipped contract after an LLM turn without the tool is **not** a rules-engine outcome.
 - On empty LLM response, use `llm_provider._fallback_response()` — not an empty string
 
 ### LLM Provider (`src/agent/llm_provider.py`)
@@ -199,7 +194,7 @@ Corpus loaded from `src/agent/rag/oncology_corpus.json` (not committed — RAG i
 | `src/models/priority_model.py` | `OncologyPriorityModel` + `extract_features()` |
 | `src/models/train_priority.py` | Synthetic data generation + `load_or_train()` |
 | `src/models/schemas.py` | All Pydantic request/response models |
-| `src/agent/orchestrator.py` | Main async pipeline, intent routing, multi-agent dispatch |
+| `src/agent/orchestrator.py` | Main async pipeline, triage aggregation, multi-agent dispatch; trace `triage_source` / `triage_skipped` |
 | `src/agent/clinical_rules.py` | Layer 1 deterministic triage (23 rules — DO NOT add ML logic) |
 | `src/agent/clinical_scores.py` | Layer 2 MASCC/CISNE validated scores |
 | `src/agent/llm_provider.py` | Multi-LLM abstraction (Anthropic preferred, OpenAI fallback) |

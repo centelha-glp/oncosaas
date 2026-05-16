@@ -13,3 +13,4 @@ fastembed==0.7.4
 faiss-cpu==1.13.2
 httpx==0.28.1
 python-multipart==0.0.22
+pypdf==5.1.0

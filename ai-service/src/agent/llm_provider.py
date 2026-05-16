@@ -1,13 +1,17 @@
+import inspect
 import json
 import logging
+from io import BytesIO
 from typing import Dict, List, Optional, Any
-from anthropic import AsyncAnthropic
+from anthropic import APIStatusError, AsyncAnthropic, PermissionDeniedError, RateLimitError
 from openai import AsyncOpenAI
+from openai import APIError as OpenAIAPIError
 import os
 from pathlib import Path
 from dotenv import dotenv_values
 
-from src.config.llm_defaults import merge_agent_llm_config
+from src.agent.exam_audio_whisper_vocab import build_exam_whisper_prompt
+from src.config.llm_defaults import DEFAULT_OPENAI_CHAT_MODEL, merge_agent_llm_config
 
 """
 Multi-LLM provider abstraction.
@@ -15,6 +19,89 @@ Supports Anthropic (Claude) and OpenAI (GPT-4), configurable per tenant.
 """
 
 logger = logging.getLogger(__name__)
+
+
+class ExamExtractStructuredParseError(Exception):
+    """
+    Resposta do modelo não pôde ser interpretada como JSON de extração estruturada.
+    `had_model_text` indica se houve texto bruto do modelo (vs. resposta vazia/erro upstream).
+    """
+
+    def __init__(self, *, had_model_text: bool) -> None:
+        super().__init__(
+            "exam_extract_structured_parse_failed"
+            + ("_with_model_output" if had_model_text else "_empty_model_output")
+        )
+        self.had_model_text = had_model_text
+
+
+_BILLING_QUOTA_KEYWORDS = (
+    "billing",
+    "credit",
+    "balance",
+    "payment",
+    "quota",
+    "usage",
+    "spend limit",
+    "exceeded your",
+    "insufficient",
+    "not enough",
+    "requires payment",
+)
+
+
+def is_anthropic_openai_fallback_eligible(exc: BaseException) -> bool:
+    """
+    True when an Anthropic API failure should trigger an automatic retry on OpenAI
+    (billing / credits / quota / rate limits). Used to avoid masking unrelated bugs.
+    """
+    if isinstance(exc, RateLimitError):
+        return True
+    if isinstance(exc, APIStatusError):
+        code = int(getattr(exc, "status_code", 0) or 0)
+        if code == 402:
+            return True
+        if code == 429:
+            return True
+        err_type = getattr(exc, "type", None)
+        if err_type in ("billing_error", "rate_limit_error"):
+            return True
+        blob = f"{exc} {_anthropic_error_body_blob(getattr(exc, 'body', None))}".lower()
+        if "insufficient_quota" in blob:
+            return True
+        if code == 403 and isinstance(exc, PermissionDeniedError):
+            if err_type == "billing_error":
+                return True
+            return any(k in blob for k in _BILLING_QUOTA_KEYWORDS)
+    return False
+
+
+def _anthropic_error_body_blob(body: Any) -> str:
+    if body is None:
+        return ""
+    if isinstance(body, dict):
+        err = body.get("error")
+        if isinstance(err, dict):
+            return f"{err.get('type', '')} {err.get('message', '')}"
+        return str(body)
+    if isinstance(body, str):
+        return body
+    return str(body)
+
+
+def _openai_fallback_chat_model(config: Dict[str, Any]) -> str:
+    """Model id for OpenAI when falling back from a failed Anthropic call."""
+    if config.get("llm_fallback_provider") == "openai":
+        fb = (config.get("llm_fallback_model") or "").strip()
+        if fb:
+            return fb
+    oa = (config.get("llm_openai_agentic_model") or "").strip()
+    if oa:
+        return oa
+    cur = (config.get("llm_model") or "").strip()
+    if cur and not cur.lower().startswith("claude"):
+        return cur
+    return DEFAULT_OPENAI_CHAT_MODEL
 
 
 def _usage_from_anthropic_message(response: Any) -> Dict[str, int]:
@@ -152,6 +239,51 @@ class LLMProvider:
             return None
         return AsyncOpenAI(api_key=key)
 
+    async def transcribe_exam_audio(
+        self,
+        raw_bytes: bytes,
+        *,
+        filename: str,
+        mime_hint: str,
+        config: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """
+        Transcreve áudio de exame via Whisper (OpenAI). Exige cliente OpenAI configurado.
+
+        Usa ``build_exam_whisper_prompt()`` como ``prompt`` do Whisper (ASR dedicado).
+        Isto não é Realtime API nem transcrição *out-of-band* do cookbook OpenAI
+        (segundo ``response.create`` na mesma sessão WebSocket); para ficheiro
+        gravado, Whisper + eventual pós-processamento textual é o caminho alinhado.
+        """
+        raw_cfg = config or {}
+        client = self._get_openai_client(raw_cfg.get("openai_api_key"))
+        if not client:
+            raise RuntimeError(
+                "Configure OPENAI_API_KEY no ai-service para transcrever áudio na extração de exames."
+            )
+        _ = mime_hint  # reservado para extensões futuras (nome do ficheiro guia o formato)
+        model = (os.getenv("EXAM_AUDIO_TRANSCRIBE_MODEL", "whisper-1") or "whisper-1").strip()
+        buf = BytesIO(raw_bytes)
+        buf.name = filename
+        prompt = build_exam_whisper_prompt()
+        create_kwargs: Dict[str, Any] = {
+            "model": model,
+            "file": buf,
+            "prompt": prompt,
+        }
+        try:
+            sig = inspect.signature(client.audio.transcriptions.create)
+        except (TypeError, ValueError):
+            sig = None
+        if sig is not None and "language" in sig.parameters:
+            create_kwargs["language"] = "pt"
+        try:
+            resp = await client.audio.transcriptions.create(**create_kwargs)
+        except OpenAIAPIError:
+            raise
+        text = getattr(resp, "text", None) or ""
+        return (text or "").strip()
+
     async def generate(
         self,
         system_prompt: str,
@@ -160,6 +292,8 @@ class LLMProvider:
         *,
         usage_events: Optional[List[Dict[str, Any]]] = None,
         usage_step: str = "generate",
+        max_output_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
     ) -> str:
         """
         Generate a response using the configured LLM provider.
@@ -179,13 +313,18 @@ class LLMProvider:
         has_a = self.has_anthropic_key(raw)
         config = merge_agent_llm_config(raw, has_anthropic_key=has_a)
         provider = config.get("llm_provider", "anthropic")
-        model = config.get("llm_model", "claude-sonnet-4-6")
+        model = config.get("llm_model", "claude-haiku-4-5")
 
         # Try primary provider
         try:
             if provider == "anthropic":
                 text, usage = await self._call_anthropic(
-                    system_prompt, messages, model, config
+                    system_prompt,
+                    messages,
+                    model,
+                    config,
+                    max_tokens=max_output_tokens or 1024,
+                    temperature=temperature,
                 )
                 _append_usage_event(
                     usage_events,
@@ -198,7 +337,12 @@ class LLMProvider:
                 return text
             if provider == "openai":
                 text, usage = await self._call_openai(
-                    system_prompt, messages, model, config
+                    system_prompt,
+                    messages,
+                    model,
+                    config,
+                    max_tokens=max_output_tokens or 1024,
+                    temperature=temperature if temperature is not None else 0.7,
                 )
                 _append_usage_event(
                     usage_events,
@@ -211,6 +355,43 @@ class LLMProvider:
                 return text
             raise ValueError(f"Provider não suportado: {provider}")
         except Exception as e:
+            if (
+                provider == "anthropic"
+                and is_anthropic_openai_fallback_eligible(e)
+                and self._get_openai_client(config.get("openai_api_key"))
+            ):
+                o_model = _openai_fallback_chat_model(config)
+                logger.warning(
+                    "Anthropic generate failed with billing/quota-type error; "
+                    "retrying with OpenAI model=%s: %s",
+                    o_model,
+                    e,
+                )
+                try:
+                    text, usage = await self._call_openai(
+                        system_prompt,
+                        messages,
+                        o_model,
+                        config,
+                        max_tokens=max_output_tokens or 1024,
+                        temperature=temperature if temperature is not None else 0.7,
+                    )
+                    _append_usage_event(
+                        usage_events,
+                        step=f"{usage_step}_anthropic_billing_fallback",
+                        provider="openai",
+                        model=o_model,
+                        input_tokens=usage["input_tokens"],
+                        output_tokens=usage["output_tokens"],
+                    )
+                    return text
+                except Exception as oa_err:
+                    logger.error(
+                        "OpenAI fallback after Anthropic billing/quota error also failed: %s",
+                        oa_err,
+                        exc_info=True,
+                    )
+
             logger.error(
                 "Primary LLM (%s/%s) failed: %s (use fallback or safe message)",
                 provider,
@@ -228,7 +409,12 @@ class LLMProvider:
                 try:
                     if fallback_provider == "anthropic":
                         text, usage = await self._call_anthropic(
-                            system_prompt, messages, fallback_model, config
+                            system_prompt,
+                            messages,
+                            fallback_model,
+                            config,
+                            max_tokens=max_output_tokens or 1024,
+                            temperature=temperature,
                         )
                         _append_usage_event(
                             usage_events,
@@ -241,7 +427,12 @@ class LLMProvider:
                         return text
                     if fallback_provider == "openai":
                         text, usage = await self._call_openai(
-                            system_prompt, messages, fallback_model, config
+                            system_prompt,
+                            messages,
+                            fallback_model,
+                            config,
+                            max_tokens=max_output_tokens or 1024,
+                            temperature=temperature if temperature is not None else 0.7,
                         )
                         _append_usage_event(
                             usage_events,
@@ -285,14 +476,36 @@ class LLMProvider:
         has_a = self.has_anthropic_key(raw)
         config = merge_agent_llm_config(raw, has_anthropic_key=has_a)
         provider = config.get("llm_provider", "anthropic")
-        model = config.get("llm_model", "claude-sonnet-4-6")
+        model = config.get("llm_model", "claude-haiku-4-5")
 
         if provider == "anthropic":
-            return await self._call_anthropic_with_tools(
-                system_prompt, messages, tools, model, config,
-                usage_events=usage_events,
-                usage_step=usage_step,
-            )
+            try:
+                return await self._call_anthropic_with_tools(
+                    system_prompt, messages, tools, model, config,
+                    usage_events=usage_events,
+                    usage_step=usage_step,
+                )
+            except Exception as e:
+                if is_anthropic_openai_fallback_eligible(e) and self._get_openai_client(
+                    config.get("openai_api_key")
+                ):
+                    o_model = _openai_fallback_chat_model(config)
+                    logger.warning(
+                        "Anthropic generate_with_tools failed (billing/quota); "
+                        "falling back to OpenAI model=%s: %s",
+                        o_model,
+                        e,
+                    )
+                    return await self._call_openai_with_tools(
+                        system_prompt,
+                        messages,
+                        tools,
+                        o_model,
+                        config,
+                        usage_events=usage_events,
+                        usage_step=f"{usage_step}_anthropic_billing_fallback",
+                    )
+                raise
         if provider == "openai":
             return await self._call_openai_with_tools(
                 system_prompt, messages, tools, model, config,
@@ -308,6 +521,9 @@ class LLMProvider:
         messages: List[Dict[str, str]],
         model: str,
         config: Dict[str, Any],
+        *,
+        max_tokens: int = 1024,
+        temperature: Optional[float] = None,
     ) -> tuple:
         """Call Anthropic Claude API. Retorna (texto, usage dict)."""
         api_key = config.get("anthropic_api_key")
@@ -323,12 +539,16 @@ class LLMProvider:
             if m["role"] != "system"
         ]
 
-        response = await client.messages.create(
-            model=model,
-            max_tokens=1024,
-            system=system_prompt,
-            messages=anthropic_messages,
-        )
+        create_kwargs: Dict[str, Any] = {
+            "model": model,
+            "max_tokens": max_tokens,
+            "system": system_prompt,
+            "messages": anthropic_messages,
+        }
+        if temperature is not None:
+            create_kwargs["temperature"] = temperature
+
+        response = await client.messages.create(**create_kwargs)
 
         text = response.content[0].text if response.content else ""
         usage = _usage_from_anthropic_message(response)
@@ -340,6 +560,9 @@ class LLMProvider:
         messages: List[Dict[str, str]],
         model: str,
         config: Dict[str, Any],
+        *,
+        max_tokens: int = 1024,
+        temperature: float = 0.7,
     ) -> tuple:
         """Call OpenAI GPT API. Retorna (texto, usage dict)."""
         api_key = config.get("openai_api_key")
@@ -356,13 +579,319 @@ class LLMProvider:
         response = await client.chat.completions.create(
             model=model,
             messages=openai_messages,
-            temperature=0.7,
-            max_tokens=1024,
+            temperature=temperature,
+            max_tokens=max_tokens,
         )
 
         text = response.choices[0].message.content or ""
         usage = _usage_from_openai_chat(response)
         return text, usage
+
+    async def _exam_extract_via_openai(
+        self,
+        cfg: Dict[str, Any],
+        *,
+        system_prompt: str,
+        openai_user_content: List[Dict[str, Any]],
+        user_text_instruction: str,
+    ) -> str:
+        """Multimodal / text completion for exam extract via OpenAI chat."""
+        client_o = self._get_openai_client(cfg.get("openai_api_key"))
+        if not client_o:
+            return ""
+        o_model = (
+            cfg.get("llm_openai_agentic_model")
+            or cfg.get("llm_model")
+            or "gpt-4o"
+        )
+        msgs = [{"role": "system", "content": system_prompt}]
+        if openai_user_content:
+            msgs.append({"role": "user", "content": openai_user_content})
+        else:
+            msgs.append({"role": "user", "content": user_text_instruction})
+        response = await client_o.chat.completions.create(
+            model=o_model,
+            messages=msgs,
+            temperature=0.2,
+            max_tokens=4096,
+        )
+        return (response.choices[0].message.content or "").strip()
+
+    @staticmethod
+    def _mock_exam_extract_structured(*, user_text_instruction: str) -> Dict[str, Any]:
+        """
+        Resposta JSON válida quando não há chaves LLM (dev/CI), alinhado ao contrato da rota.
+        Não inventa valores laboratoriais; apenas ecoa instrução/texto recebido com aviso claro.
+        """
+        ut = (user_text_instruction or "").strip()
+        excerpt = ut[:4000] if ut else ""
+        if excerpt:
+            md = (
+                "## Modo desenvolvimento (sem API LLM)\n\n"
+                "Não há `OPENAI_API_KEY` nem `ANTHROPIC_API_KEY` utilizáveis neste ai-service. "
+                "Segue-se o texto recebido, sem extração automática por modelo.\n\n"
+                "---\n\n"
+                f"{excerpt}"
+            )
+        else:
+            md = (
+                "## Modo desenvolvimento (sem API LLM)\n\n"
+                "Não há chaves de API configuradas; não foi possível analisar multimédia "
+                "automaticamente neste modo."
+            )
+        return {
+            "markdownSummary": md,
+            "detectedCategories": ["OTHER"],
+            "disclaimer": (
+                "Resposta simulada para desenvolvimento: configure OPENAI_API_KEY e/ou "
+                "ANTHROPIC_API_KEY para extração real. Valide sempre com o documento clínico original."
+            ),
+            "markdownFromStructuredParse": True,
+        }
+
+    async def generate_exam_extract_structured(
+        self,
+        *,
+        system_prompt: str,
+        user_text_instruction: str,
+        anthropic_user_blocks: List[Dict[str, Any]],
+        openai_user_content: List[Dict[str, Any]],
+        config: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Extração multimodal de exames: prefere Anthropic (PDF como document + imagens);
+        fallback OpenAI (imagens + texto extraído de PDF).
+        Retorna dict com markdownSummary, detectedCategories, disclaimer,
+        markdownFromStructuredParse (sempre True neste ramo), e opcionalmente
+        complementaryExams (lista de objetos em camelCase para a API).
+        """
+        raw_cfg = config or {}
+        has_a = self.has_anthropic_key(raw_cfg)
+        cfg = merge_agent_llm_config(raw_cfg, has_anthropic_key=has_a)
+        if not self.has_any_llm_key(cfg):
+            logger.info(
+                "exam_extract: no LLM API keys; returning structured mock (markdownFromStructuredParse=true)"
+            )
+            return self._mock_exam_extract_structured(
+                user_text_instruction=user_text_instruction
+            )
+        provider = cfg.get("llm_provider", "anthropic")
+        model = cfg.get("llm_model", "claude-haiku-4-5")
+
+        text_out = ""
+        try:
+            if provider == "anthropic":
+                client = self._get_anthropic_client(cfg.get("anthropic_api_key"))
+                if client and anthropic_user_blocks:
+                    try:
+                        response = await client.messages.create(
+                            model=model,
+                            max_tokens=4096,
+                            system=system_prompt,
+                            messages=[
+                                {"role": "user", "content": anthropic_user_blocks},
+                            ],
+                        )
+                        parts: List[str] = []
+                        for block in response.content or []:
+                            if getattr(block, "type", None) == "text":
+                                parts.append(getattr(block, "text", "") or "")
+                        text_out = "\n".join(parts).strip()
+                    except Exception as ae:
+                        if is_anthropic_openai_fallback_eligible(ae) and self._get_openai_client(
+                            cfg.get("openai_api_key")
+                        ):
+                            logger.warning(
+                                "Anthropic exam_extract failed (billing/quota); "
+                                "falling back to OpenAI: %s",
+                                ae,
+                            )
+                            text_out = await self._exam_extract_via_openai(
+                                cfg,
+                                system_prompt=system_prompt,
+                                openai_user_content=openai_user_content,
+                                user_text_instruction=user_text_instruction,
+                            )
+                        else:
+                            raise
+                elif client:
+                    text_out = await self.generate(
+                        system_prompt,
+                        [{"role": "user", "content": user_text_instruction}],
+                        cfg,
+                        usage_step="exam_extract",
+                    )
+            if not text_out and provider == "openai":
+                text_out = await self._exam_extract_via_openai(
+                    cfg,
+                    system_prompt=system_prompt,
+                    openai_user_content=openai_user_content,
+                    user_text_instruction=user_text_instruction,
+                )
+            if not text_out:
+                text_out = await self.generate(
+                    system_prompt,
+                    [{"role": "user", "content": user_text_instruction}],
+                    cfg,
+                    usage_step="exam_extract",
+                )
+        except Exception as e:
+            logger.error("exam_extract LLM failed: %s", e, exc_info=True)
+            text_out = ""
+
+        parsed = self._parse_exam_extract_json(text_out)
+        if parsed:
+            parsed["markdownFromStructuredParse"] = True
+            return parsed
+
+        tw = (text_out or "").strip()
+        if not tw:
+            logger.warning(
+                "exam_extract: empty or whitespace-only model output after retries "
+                "(no parseable JSON); check API keys, quotas, provider errors, and max_tokens."
+            )
+        else:
+            logger.warning(
+                "exam_extract: model output not parseable as exam JSON (len=%d); "
+                "expected markdownSummary, detectedCategories, disclaimer.",
+                len(tw),
+            )
+        raise ExamExtractStructuredParseError(had_model_text=bool(tw))
+
+    @staticmethod
+    def _parse_exam_extract_json(raw: str) -> Optional[Dict[str, Any]]:
+        import re
+
+        text = (raw or "").strip()
+        if not text:
+            return None
+        if text.startswith("```"):
+            text = re.sub(r"^```[a-zA-Z]*\s*", "", text)
+            text = re.sub(r"\s*```$", "", text).strip()
+        try:
+            obj = json.loads(text)
+        except Exception:
+            m = re.search(r"\{[\s\S]*\}", text)
+            if not m:
+                return None
+            try:
+                obj = json.loads(m.group(0))
+            except Exception:
+                return None
+        if not isinstance(obj, dict):
+            return None
+        md = obj.get("markdownSummary")
+        dc = obj.get("detectedCategories")
+        disc = obj.get("disclaimer")
+        if not isinstance(md, str) or not isinstance(disc, str):
+            return None
+        if not isinstance(dc, list):
+            dc = []
+        allowed = {"LAB", "IMAGING", "PATHOLOGY", "OTHER"}
+        cats = [c for c in dc if isinstance(c, str) and c in allowed]
+        if not cats:
+            cats = ["OTHER"]
+
+        allowed_types = {
+            "LABORATORY",
+            "IMAGING",
+            "ANATOMOPATHOLOGICAL",
+            "IMMUNOHISTOCHEMICAL",
+        }
+
+        def coerce_result(res: Any) -> Optional[Dict[str, Any]]:
+            if not isinstance(res, dict):
+                return None
+            rd = res
+            performed = rd.get("performed_at")
+            if performed is None:
+                performed = rd.get("performedAt")
+            vn = rd.get("value_numeric")
+            if vn is None:
+                vn = rd.get("valueNumeric")
+            value_numeric = None
+            if vn is not None and vn != "" and not isinstance(vn, bool):
+                try:
+                    value_numeric = float(vn)
+                except (TypeError, ValueError):
+                    value_numeric = None
+            if value_numeric is not None and value_numeric != value_numeric:  # NaN
+                value_numeric = None
+            vt = rd.get("value_text")
+            if vt is None:
+                vt = rd.get("valueText")
+            unit = rd.get("unit")
+            rr = rd.get("reference_range")
+            if rr is None:
+                rr = rd.get("referenceRange")
+            ab = rd.get("is_abnormal")
+            if ab is None:
+                ab = rd.get("isAbnormal")
+            report = rd.get("report")
+            cmp = rd.get("components")
+            out_r: Dict[str, Any] = {}
+            if isinstance(performed, str) and performed.strip():
+                out_r["performedAt"] = performed.strip()
+            if value_numeric is not None:
+                out_r["valueNumeric"] = value_numeric
+            if isinstance(vt, str) and vt.strip():
+                out_r["valueText"] = vt.strip()
+            if isinstance(unit, str) and unit.strip():
+                out_r["unit"] = unit.strip()
+            if isinstance(rr, str) and rr.strip():
+                out_r["referenceRange"] = rr.strip()
+            if isinstance(ab, bool):
+                out_r["isAbnormal"] = ab
+            if isinstance(report, str) and report.strip():
+                out_r["report"] = report.strip()
+            if cmp is not None:
+                out_r["components"] = cmp
+            return out_r if out_r else None
+
+        coerced_items: List[Dict[str, Any]] = []
+        raw_ce = obj.get("complementary_exams")
+        if raw_ce is None:
+            raw_ce = obj.get("complementaryExams")
+        if isinstance(raw_ce, list):
+            for it in raw_ce:
+                if not isinstance(it, dict):
+                    continue
+                typ = it.get("type")
+                name = it.get("name")
+                if not isinstance(typ, str) or not isinstance(name, str):
+                    continue
+                t_up = typ.strip().upper()
+                if t_up not in allowed_types:
+                    continue
+                ntrim = name.strip()
+                if not ntrim or len(ntrim) > 400:
+                    continue
+                code = it.get("code")
+                loinc = it.get("loinc_code")
+                if loinc is None:
+                    loinc = it.get("loincCode")
+                entry: Dict[str, Any] = {
+                    "type": t_up,
+                    "name": ntrim[:400],
+                }
+                if isinstance(code, str) and code.strip():
+                    entry["code"] = code.strip()[:64]
+                if isinstance(loinc, str) and loinc.strip():
+                    entry["loincCode"] = loinc.strip()[:32]
+                r_raw = it.get("result")
+                cr = coerce_result(r_raw)
+                if cr:
+                    entry["result"] = cr
+                coerced_items.append(entry)
+
+        out: Dict[str, Any] = {
+            "markdownSummary": md,
+            "detectedCategories": cats,
+            "disclaimer": disc,
+        }
+        if coerced_items:
+            out["complementaryExams"] = coerced_items
+        return out
 
     def _anthropic_block_to_assistant_param(self, block: Any) -> Optional[Dict[str, Any]]:
         """
@@ -737,6 +1266,7 @@ class LLMProvider:
 
         # 1) Prefer Anthropic
         client_anthropic = self._get_anthropic_client(config.get("anthropic_api_key"))
+        should_try_openai = not bool(client_anthropic)
         if client_anthropic:
             try:
                 anthropic_tools = self._tools_openai_to_anthropic(tools)
@@ -748,7 +1278,7 @@ class LLMProvider:
                 all_tool_calls: List[Dict[str, Any]] = []
                 final_text = ""
                 iterations = 0
-                model = config.get("llm_model") or "claude-opus-4-6"
+                model = config.get("llm_model") or "claude-haiku-4-5"
                 extra_params: Dict[str, Any] = {}
                 if config.get("use_adaptive_thinking") and model in ("claude-opus-4-6", "claude-sonnet-4-6"):
                     extra_params["thinking"] = {"type": "adaptive"}
@@ -842,11 +1372,21 @@ class LLMProvider:
                 }
                 if result["response"]:
                     return result
+                should_try_openai = True
             except Exception as e:
-                logger.warning("Anthropic agentic loop failed, trying OpenAI fallback: %s", e)
+                if is_anthropic_openai_fallback_eligible(e):
+                    logger.warning(
+                        "Anthropic agentic loop failed with billing/quota-type error; "
+                        "trying OpenAI fallback: %s",
+                        e,
+                    )
+                    should_try_openai = True
+                else:
+                    logger.warning("Anthropic agentic loop failed (non-billing error): %s", e)
+                    should_try_openai = False
 
-        # 2) Fallback: OpenAI
-        if self._get_openai_client(config.get("openai_api_key")):
+        # 2) OpenAI: no Anthropic client, billing/quota fallback, or empty Anthropic response (legacy)
+        if self._get_openai_client(config.get("openai_api_key")) and should_try_openai:
             try:
                 result = await self._run_agentic_loop_openai(
                     system_prompt=system_prompt,

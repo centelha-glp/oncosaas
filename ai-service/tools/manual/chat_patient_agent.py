@@ -22,7 +22,7 @@ def resolve_llm_config() -> dict:
     if anthropic_key:
         return {
             "llm_provider": "anthropic",
-            "llm_model": "claude-sonnet-4-6",
+            "llm_model": "claude-haiku-4-5",
             "llm_fallback_provider": "openai" if openai_key else None,
             "llm_fallback_model": "gpt-4o-mini" if openai_key else None,
             "anthropic_api_key": anthropic_key,

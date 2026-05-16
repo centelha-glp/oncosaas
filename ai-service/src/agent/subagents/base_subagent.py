@@ -8,6 +8,8 @@ The orchestrator converts collected tool calls into backend action objects.
 
 import logging
 from dataclasses import dataclass, field
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from typing import Any, Dict, List, Optional
 
 from src.config.llm_defaults import merge_agent_llm_config
@@ -39,8 +41,9 @@ class BaseSubAgent:
     - system_prompt: domain-specific instructions
     - tools: domain-specific action tools
 
-    The run() method uses run_agentic_loop() with no tool_executor,
-    so tool calls are queued and returned to the orchestrator for processing.
+    The run() method queues tool calls by default. A caller may provide a
+    read-only tool_executor for tools that must return data within the same turn
+    (ex.: `SchedulingSecretaryAgent`, `SymptomAgent` triage tool — wired by the orchestrator).
     """
 
     name: str = "base"
@@ -61,12 +64,16 @@ class BaseSubAgent:
         *,
         usage_events: Optional[List[Dict[str, Any]]] = None,
         usage_step: Optional[str] = None,
+        tool_executor: Optional[Any] = None,
     ) -> SubAgentResult:
         """
         Run the subagent's agentic loop.
 
         Args:
-            context: Formatted clinical context string (from context_builder + RAG)
+            context: Texto de contexto clínico formatado: `context_builder.build()` completo
+                (orquestrador) **ou** `context_builder.build_slice(role=...)` por subagente —
+                mesmo estilo de secções `###`; ferramentas síncronas (ex.: triagem, vagas) usam
+                dados estruturados via executor, não dependem deste texto completo.
             conversation_history: Recent conversation turns [{role, content}]
             config: LLM config (provider, model, api_keys)
 
@@ -85,7 +92,14 @@ class BaseSubAgent:
             "max_tokens": 1024,
         }
 
-        system = f"{self.system_prompt}\n\n## CONTEXTO CLÍNICO\n\n{context}"
+        now_sp = datetime.now(ZoneInfo("America/Sao_Paulo"))
+        system = (
+            f"{self.system_prompt}\n\n"
+            "## DATA/HORA ATUAL\n\n"
+            f"- Agora em Brasília: {now_sp.isoformat()}\n"
+            f"- Data local: {now_sp.strftime('%d/%m/%Y')}\n\n"
+            f"## CONTEXTO CLÍNICO\n\n{context}"
+        )
 
         messages = [
             m for m in conversation_history
@@ -98,7 +112,7 @@ class BaseSubAgent:
                 initial_messages=messages,
                 tools=self.tools,
                 config=subagent_config,
-                tool_executor=None,
+                tool_executor=tool_executor,
                 max_iterations=MAX_SUBAGENT_ITERATIONS,
                 usage_events=usage_events,
                 usage_step=usage_step or f"subagent:{self.name}",

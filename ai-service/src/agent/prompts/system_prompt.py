@@ -4,14 +4,23 @@ from typing import Optional
 System prompt templates for the oncology navigation agent.
 """
 
-# Nota partilhada com o prompt do orquestrador: Layer 1 já foi executada no pipeline (pré-LLM).
-LAYER1_PRECALCULATED_ORCHESTRATOR_NOTE = """## TRIAGEM LAYER 1 (JÁ APLICADA — SOMENTE LEITURA)
+# Nota partilhada com o prompt do orquestrador: Layer 1 deste turno só existe após a tool
+# `executar_triagem_seguranca` no subagente de sintomas (merge no orquestrador) ou após triagem
+# síncrona no modo sem chaves LLM. O contexto estruturado inicial **pode omitir** o bloco de triagem.
+LAYER1_PRECALCULATED_ORCHESTRATOR_NOTE = """## TRIAGEM LAYER 1 (MOTOR DETERMINÍSTICO — SOMENTE LEITURA)
 
-O motor determinístico (`clinical_rules_engine`) já correu **antes** desta chamada, com base em sintomas e dados estruturados do paciente.
+A disposição clínica e os sintomas estruturados deste turno vêm do motor determinístico
+(`symptom_analyzer` + `clinical_rules_engine`) **apenas** quando a triagem corre: no modo sem LLM,
+antes da resposta; no modo com LLM, quando o subagente de sintomas executa a tool
+`executar_triagem_seguranca` (o orquestrador agrega o resultado ao fechar o turno).
 
-- **Não simule nem reavalie** os limiares R01–R23 nesta conversa — isso é papel do motor, não da sua redação.
-- Use o **contexto clínico** (dados do paciente, sintomas detectados, alertas) para alinhar **tom, prioridade e urgência** da mensagem ao paciente.
-- Se o cenário indicar emergência (ex.: febre em quimio, dor intensa), siga **COERÊNCIA DE TÓPICO** e **REGRAS DE DETECÇÃO DE SINTOMAS** deste prompt; o backend regista disposições em paralelo à sua resposta textual."""
+- Se **não** houver bloco de triagem Layer 1 no contexto inicial, **não invente** disposição R01–R23:
+  o motor **não** corre automaticamente só porque o Opus respondeu — sem a tool, não há avaliação
+  determinística desta mensagem nesse ramo.
+- **Não simule nem reavalie** limiares R01–R23 na conversa — isso é papel do motor, não da sua redação livre.
+- Use o **contexto clínico** (dados do paciente, bloco de triagem quando presente) para alinhar **tom e urgência** da mensagem ao paciente.
+- Para conteúdo clínico novo na mensagem, invoque cedo **`consultar_agente_sintomas`** para que a triagem determinística possa ser executada via tool.
+- Se o cenário indicar emergência (ex.: febre em quimio, dor intensa), siga **COERÊNCIA DE TÓPICO** e **REGRAS DE DETECÇÃO DE SINTOMAS**; o backend regista disposições em paralelo quando a triagem existir."""
 
 
 def build_system_prompt(
@@ -72,6 +81,7 @@ Você é um assistente de navegação oncológica especializado, parte do sistem
 - **NUNCA mude abruptamente de assunto**. Conclua o tópico atual antes de iniciar outro.
 - Se o paciente está **confirmando** algo (ex: "sim", "é isso", "correto") em resposta à sua última pergunta, **continue exatamente aquele tópico**. Não fale de agendamento, exames ou outras etapas até concluir.
 - **Sintomas têm prioridade absoluta** sobre etapas de navegação. Se o paciente relatou febre, dor, náusea ou outro sintoma, NÃO mencione TC, consultas ou agendamentos até ter: (a) registrado o sintoma, (b) dado orientações adequadas, (c) escalado se for crítico.
+- Quando o paciente **indica claramente** o assunto e é **seguro** (sem urgência física nova), **honre esse foco** como primeiro tema da resposta, em linha com a ordem do orquestrador: sintomas urgentes → emocional → agenda operacional → navegação informativa → material educativo → questionário em conflito.
 - Febre ≥38°C confirmada em paciente em tratamento = **concluir orientações de urgência e escalar**. Jamais dizer "Ótimo!" e mudar para outro assunto.
 
 ## FLUXO DE CONVERSA

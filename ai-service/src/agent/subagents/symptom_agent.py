@@ -10,20 +10,38 @@ from typing import Any, Dict, List
 from ..prompts.action_tools import AGENT_ACTION_TOOLS
 from .base_subagent import BaseSubAgent
 
-_TOOL_NAMES = {"registrar_sintoma", "criar_alerta", "escalar_para_enfermagem"}
-_TOOLS = [t for t in AGENT_ACTION_TOOLS if t["name"] in _TOOL_NAMES]
+SYMPTOM_TRIAGE_TOOL_NAME = "executar_triagem_seguranca"
 
-_SYSTEM_PROMPT = """# Agente Especialista em Sintomas Oncológicos
+_TOOL_ORDER = (
+    SYMPTOM_TRIAGE_TOOL_NAME,
+    "registrar_sintoma",
+    "criar_alerta",
+    "escalar_para_enfermagem",
+)
+_TOOLS = sorted(
+    [t for t in AGENT_ACTION_TOOLS if t["name"] in _TOOL_ORDER],
+    key=lambda t: _TOOL_ORDER.index(t["name"]),
+)
+
+_SYSTEM_PROMPT = f"""# Agente Especialista em Sintomas Oncológicos
 
 Você é um agente especialista em análise clínica de sintomas para pacientes oncológicos.
 Sua função é analisar a mensagem do paciente, identificar sintomas, classificar sua severidade
 e tomar as ações clínicas adequadas.
 
+## TRIAGEM DETERMINÍSTICA (OBRIGATÓRIA NO INÍCIO)
+Antes de qualquer `registrar_sintoma`, `criar_alerta` ou `escalar_para_enfermagem`, invoque
+**`{SYMPTOM_TRIAGE_TOOL_NAME}`** uma vez por turno quando a mensagem do paciente puder conter
+sinais, sintomas ou dados clínicos (incluindo respostas curtas numéricas durante fluxos).
+Esta ferramenta corre o analisador de sintomas e o motor Layer 1 no backend do subagente;
+o orquestrador agrega o resultado para disposição clínica e auditoria.
+
 ## PROTOCOLO DE ANÁLISE
-1. Identifique TODOS os sintomas mencionados (explícitos e implícitos)
-2. Avalie a severidade de cada sintoma com base nos critérios oncológicos
-3. Verifique o contexto clínico (tipo de câncer, tratamento ativo, histórico)
-4. Execute as ações clínicas apropriadas com as ferramentas disponíveis
+1. Chame `{SYMPTOM_TRIAGE_TOOL_NAME}` quando aplicável (quase sempre que houver conteúdo clínico)
+2. Identifique TODOS os sintomas mencionados (explícitos e implícitos)
+3. Avalie a severidade de cada sintoma com base nos critérios oncológicos
+4. Verifique o contexto clínico (tipo de câncer, tratamento ativo, histórico)
+5. Execute as ações clínicas apropriadas com as ferramentas disponíveis
 
 ## CRITÉRIOS DE SEVERIDADE
 

@@ -67,6 +67,7 @@ class Settings(BaseSettings):
     google_cloud_project_id: str = ""
     backend_url: str = "http://localhost:3002"
     backend_service_token: str = ""
+    backend_tls_verify: bool = True
     cors_origins: str = "http://localhost:3000,http://localhost:3002"
     rag_embedding_model: str = DEFAULT_EMBEDDING_MODEL
     rag_top_k: int = DEFAULT_TOP_K
@@ -76,8 +77,8 @@ class Settings(BaseSettings):
     llm_default_model: str = ""
     llm_fallback_provider: str = ""
     llm_fallback_model: str = ""
-    llm_orchestrator_model: str = "claude-opus-4-6"
-    llm_subagent_model: str = "claude-sonnet-4-6"
+    llm_orchestrator_model: str = "claude-haiku-4-5"
+    llm_subagent_model: str = "claude-haiku-4-5"
     llm_openai_agentic_model: str = "gpt-4o"
 
 

@@ -267,7 +267,7 @@ class SymptomAnalyzer:
             out["_symptomLlmMeta"] = {
                 "called": llm_results is not None,
                 "provider": merged_llm.get("llm_provider", "anthropic"),
-                "model": merged_llm.get("llm_model", "claude-sonnet-4-6"),
+                "model": merged_llm.get("llm_model", "claude-haiku-4-5"),
             }
             out["_symptomTokenUsageEvents"] = llm_token_usage_events
         return out

@@ -69,6 +69,9 @@ class AgentTrace:
         self.pipeline_path: str = "main"  # main | questionnaire | emergency | greeting
         self.intent: Optional[str] = None
         self.intent_confidence: Optional[float] = None
+        # triage_source: deterministic_no_llm | tool_merge | skipped_no_snapshots
+        self.triage_source: Optional[str] = None
+        self.triage_skipped: bool = False
         self.symptoms_detected: int = 0
         self.overall_severity: Optional[str] = None
         self.clinical_disposition: Optional[str] = None
@@ -83,7 +86,7 @@ class AgentTrace:
         self.intent_llm: Optional[Dict[str, Any]] = None
         self.symptom_llm: Optional[Dict[str, Any]] = None
 
-        # Texto RAG + input do orquestrador + saídas dos subagentes (só ramo multi-agente)
+        # Texto do bloco clínico estruturado enviado ao orquestrador (preview; nome legado `rag_*`).
         self.rag_context_output: Optional[Dict[str, Any]] = None
         self.orchestrator_input: Optional[Dict[str, Any]] = None
         self.subagent_outputs: List[Dict[str, Any]] = []
@@ -121,6 +124,8 @@ class AgentTrace:
             "pipeline_path": self.pipeline_path,
             "intent": self.intent,
             "intent_confidence": self.intent_confidence,
+            "triage_source": self.triage_source,
+            "triage_skipped": self.triage_skipped,
             "symptoms_detected": self.symptoms_detected,
             "overall_severity": self.overall_severity,
             "clinical_disposition": self.clinical_disposition,

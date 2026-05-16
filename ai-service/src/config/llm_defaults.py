@@ -10,10 +10,10 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 
 # Literais canónicos (alinhados ao seed Prisma / comportamento anterior)
-DEFAULT_ANTHROPIC_CHAT_MODEL = "claude-sonnet-4-6"
+DEFAULT_ANTHROPIC_CHAT_MODEL = "claude-haiku-4-5"
 DEFAULT_OPENAI_CHAT_MODEL = "gpt-4o-mini"
-DEFAULT_ORCHESTRATOR_MODEL = "claude-opus-4-6"
-DEFAULT_SUBAGENT_MODEL = "claude-sonnet-4-6"
+DEFAULT_ORCHESTRATOR_MODEL = "claude-haiku-4-5"
+DEFAULT_SUBAGENT_MODEL = "claude-haiku-4-5"
 DEFAULT_OPENAI_AGENTIC_MODEL = "gpt-4o"
 
 _OVERLAY_KEYS = (
