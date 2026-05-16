@@ -201,6 +201,70 @@ class TestAnthropicOpenaiFallbackEligible:
         e = _anthropic_http_exc(400, body=body, cls=BadRequestError)
         assert is_anthropic_openai_fallback_eligible(e) is False
 
+    def test_400_credit_balance_true(self):
+        body = {
+            "error": {
+                "type": "invalid_request_error",
+                "message": "Your credit balance is too low to access the Anthropic API.",
+            }
+        }
+        e = _anthropic_http_exc(400, body=body, cls=BadRequestError)
+        assert is_anthropic_openai_fallback_eligible(e) is True
+
+
+class TestExamExtractAnthropicToOpenaiFallback:
+
+    _EXAM_JSON = (
+        '{"markdownSummary":"## Laboratorial\\nHb 12","detectedCategories":["LAB"],'
+        '"disclaimer":"Validar com original."}'
+    )
+
+    @pytest.mark.asyncio
+    async def test_exam_extract_falls_back_on_anthropic_400_credit(
+        self, provider, monkeypatch
+    ):
+        async def boom_create(*a, **k):
+            raise _anthropic_http_exc(
+                400,
+                body={
+                    "error": {
+                        "type": "invalid_request_error",
+                        "message": "Your credit balance is too low to access the Anthropic API.",
+                    }
+                },
+                cls=BadRequestError,
+            )
+
+        mock_client = SimpleNamespace(
+            messages=SimpleNamespace(create=boom_create),
+        )
+        called = {"openai": 0}
+
+        async def ok_openai(*a, **k):
+            called["openai"] += 1
+            return TestExamExtractAnthropicToOpenaiFallback._EXAM_JSON
+
+        monkeypatch.setattr(provider, "has_anthropic_key", lambda cfg: True)
+        monkeypatch.setattr(provider, "has_any_llm_key", lambda cfg: True)
+        monkeypatch.setattr(provider, "_get_anthropic_client", lambda key: mock_client)
+        monkeypatch.setattr(provider, "_get_openai_client", lambda key: object())
+        monkeypatch.setattr(provider, "_exam_extract_via_openai", ok_openai)
+
+        out = await provider.generate_exam_extract_structured(
+            system_prompt="sys",
+            user_text_instruction="Hemograma",
+            anthropic_user_blocks=[{"type": "text", "text": "x"}],
+            openai_user_content=[{"type": "text", "text": "x"}],
+            config={
+                "llm_provider": "anthropic",
+                "anthropic_api_key": "sk-ant-test",
+                "openai_api_key": "sk-oai-test",
+            },
+        )
+        assert called["openai"] >= 1
+        assert out["markdownFromStructuredParse"] is True
+        assert "Hb 12" in out["markdownSummary"]
+
 
 class TestOpenaiFallbackChatModel:
 

@@ -70,6 +70,10 @@ def is_anthropic_openai_fallback_eligible(exc: BaseException) -> bool:
         blob = f"{exc} {_anthropic_error_body_blob(getattr(exc, 'body', None))}".lower()
         if "insufficient_quota" in blob:
             return True
+        if any(k in blob for k in _BILLING_QUOTA_KEYWORDS):
+            # Anthropic may return 400 invalid_request_error when credits are depleted.
+            if code in (400, 402, 403, 429):
+                return True
         if code == 403 and isinstance(exc, PermissionDeniedError):
             if err_type == "billing_error":
                 return True
@@ -739,6 +743,48 @@ class LLMProvider:
         except Exception as e:
             logger.error("exam_extract LLM failed: %s", e, exc_info=True)
             text_out = ""
+            if is_anthropic_openai_fallback_eligible(e) and self._get_openai_client(
+                cfg.get("openai_api_key")
+            ):
+                logger.warning(
+                    "exam_extract: outer failure; falling back to OpenAI: %s",
+                    e,
+                )
+                try:
+                    text_out = await self._exam_extract_via_openai(
+                        cfg,
+                        system_prompt=system_prompt,
+                        openai_user_content=openai_user_content,
+                        user_text_instruction=user_text_instruction,
+                    )
+                except Exception as oae:
+                    logger.error(
+                        "exam_extract OpenAI fallback failed: %s",
+                        oae,
+                        exc_info=True,
+                    )
+                    text_out = ""
+
+        if not (text_out or "").strip() and self._get_openai_client(
+            cfg.get("openai_api_key")
+        ):
+            logger.warning(
+                "exam_extract: empty output after primary path; attempting OpenAI"
+            )
+            try:
+                text_out = await self._exam_extract_via_openai(
+                    cfg,
+                    system_prompt=system_prompt,
+                    openai_user_content=openai_user_content,
+                    user_text_instruction=user_text_instruction,
+                )
+            except Exception as oae:
+                logger.error(
+                    "exam_extract OpenAI last-resort failed: %s",
+                    oae,
+                    exc_info=True,
+                )
+                text_out = ""
 
         parsed = self._parse_exam_extract_json(text_out)
         if parsed:
