@@ -10,7 +10,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import type { ConsultationAgendaScope } from '@/lib/api/oncology-navigation';
+import type {
+  ConsultationAgendaScope,
+  ConsultationAgendaSchedulableProfessional,
+} from '@/lib/api/oncology-navigation';
 import { useConsultationAgendaSchedulableProfessionals } from '@/hooks/useOncologyNavigation';
 
 const dateInputClass =
@@ -29,6 +32,11 @@ export interface ConsultationAgendaFiltersProps {
   onScopeChange: (value: ConsultationAgendaScope) => void;
   onProfessionalIdChange: (value: string) => void;
   onShiftMonth: (delta: -1 | 1) => void;
+  onToday: () => void;
+  onNext7Days: () => void;
+  /** Evita fetch duplicado quando o pai já carregou a lista. */
+  schedulableProfessionals?: ConsultationAgendaSchedulableProfessional[];
+  schedulableProfessionalsLoading?: boolean;
 }
 
 const ALL_PROFESSIONALS = '__all__';
@@ -44,11 +52,19 @@ export function ConsultationAgendaFilters({
   onScopeChange,
   onProfessionalIdChange,
   onShiftMonth,
+  onToday,
+  onNext7Days,
+  schedulableProfessionals: schedulableProfessionalsProp,
+  schedulableProfessionalsLoading: schedulableProfessionalsLoadingProp,
 }: ConsultationAgendaFiltersProps) {
-  const { data: schedulableProfessionals = [], isLoading: usersLoading } =
+  const { data: fetchedProfessionals = [], isLoading: fetchedLoading } =
     useConsultationAgendaSchedulableProfessionals({
-      enabled: showProfessionalFilter,
+      enabled: showProfessionalFilter && schedulableProfessionalsProp === undefined,
     });
+  const schedulableProfessionals =
+    schedulableProfessionalsProp ?? fetchedProfessionals;
+  const usersLoading =
+    schedulableProfessionalsLoadingProp ?? fetchedLoading;
 
   return (
     <Card>
@@ -141,6 +157,17 @@ export function ConsultationAgendaFilters({
           )}
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="outline" size="sm" onClick={onToday}>
+            Hoje
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={onNext7Days}
+          >
+            Próximos 7 dias
+          </Button>
           <Button
             type="button"
             variant="outline"
