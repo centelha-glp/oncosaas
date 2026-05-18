@@ -2,11 +2,19 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { endOfMonth, format, parseISO, startOfDay, startOfMonth } from 'date-fns';
+import {
+  endOfMonth,
+  format,
+  parseISO,
+  startOfDay,
+  startOfMonth,
+} from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { CalendarDays, Plus, RefreshCw, UserRound } from 'lucide-react';
+import { CalendarDays, Plus, Printer, RefreshCw, UserRound } from 'lucide-react';
 import { ConsultationAgendaAvailabilityCalendar } from '@/components/oncology-navigation/consultation-agenda-availability-calendar';
 import { ConsultationAgendaDaySection } from '@/components/oncology-navigation/consultation-agenda-day-section';
+import { ConsultationAgendaDayTimeline } from '@/components/oncology-navigation/consultation-agenda-day-timeline';
+import { ConsultationAgendaDayPrint } from '@/components/oncology-navigation/consultation-agenda-day-print';
 import { ConsultationAgendaMetricsStrip } from '@/components/oncology-navigation/consultation-agenda-metrics-strip';
 import { ConsultationAgendaFilters } from '@/components/oncology-navigation/consultation-agenda-filters';
 import { ConsultationAgendaOperationalBar } from '@/components/oncology-navigation/consultation-agenda-operational-bar';
@@ -24,6 +32,7 @@ import {
   consultationAgendaOverviewIsoRange,
   consultationAgendaOverviewStepKeyForUser,
   consultationAgendaTodayRange,
+  combineLocalDateAndTime,
   filterConsultationAgendaItemsByOperational,
   type ConsultationAgendaCalendarView,
   type ConsultationAgendaOperationalFilter,
@@ -37,6 +46,7 @@ import {
   useConsultationAgendaDayOverview,
   useConsultationAgendaMetrics,
   useConsultationAgendaSchedulableProfessionals,
+  useConsultationAvailableSlots,
 } from '@/hooks/useOncologyNavigation';
 import type { ConsultationAgendaScope } from '@/lib/api/oncology-navigation';
 import {
@@ -45,6 +55,7 @@ import {
 } from '@/components/oncology-navigation/consultation-agenda-new-appointment-dialog';
 import { useAuthStore } from '@/stores/auth-store';
 import type { User } from '@/lib/api/users';
+import { useDebounce } from '@/lib/utils/use-debounce';
 
 export default function ConsultationAgendaPage() {
   const { user } = useAuthStore();
@@ -54,8 +65,9 @@ export default function ConsultationAgendaPage() {
     isLoading: schedulableProfessionalsLoading,
   } = useConsultationAgendaSchedulableProfessionals();
   const now = useMemo(() => new Date(), []);
-  const [from, setFrom] = useState(() => toYmd(startOfMonth(now)));
-  const [to, setTo] = useState(() => toYmd(endOfMonth(now)));
+  /** Abertura padrão: dia de hoje (lista filtrada ao dia, não mês inteiro). */
+  const [from, setFrom] = useState(() => consultationAgendaTodayRange(now).from);
+  const [to, setTo] = useState(() => consultationAgendaTodayRange(now).to);
   const [scope, setScope] = useState<ConsultationAgendaScope>('consultations');
   const [professionalId, setProfessionalId] = useState('');
   const [page, setPage] = useState(1);
@@ -75,6 +87,8 @@ export default function ConsultationAgendaPage() {
   const [operationalFilters, setOperationalFilters] = useState<
     ConsultationAgendaOperationalFilter[]
   >([]);
+  const [patientNameFilter, setPatientNameFilter] = useState('');
+  const debouncedPatientNameFilter = useDebounce(patientNameFilter, 300);
   const [manualSlotsStepKey, setManualSlotsStepKey] =
     useState<ConsultationAppointmentStepKey | null>(null);
   const limit = 50;
@@ -176,6 +190,8 @@ export default function ConsultationAgendaPage() {
     return { from, to };
   }, [listShowsFullMonth, selectedDayYmd, from, to]);
 
+  const patientSearchQuery = debouncedPatientNameFilter.trim();
+
   const queryParams = useMemo(
     () => ({
       ...listRange,
@@ -183,8 +199,9 @@ export default function ConsultationAgendaPage() {
       page,
       limit,
       ...(professionalId ? { professionalId } : {}),
+      ...(patientSearchQuery ? { q: patientSearchQuery } : {}),
     }),
-    [listRange, scope, page, limit, professionalId]
+    [listRange, scope, page, limit, professionalId, patientSearchQuery]
   );
 
   const metricsParams = useMemo(
@@ -220,6 +237,41 @@ export default function ConsultationAgendaPage() {
     );
   }, [data?.items, operationalFilters]);
 
+  const slotsRangeForTimeline = useMemo(() => {
+    if (
+      listShowsFullMonth ||
+      !selectedDayYmd ||
+      !effectiveProfessionalId ||
+      !effectiveSlotsStepKey
+    ) {
+      return null;
+    }
+    const day = parseISO(selectedDayYmd);
+    const start = combineLocalDateAndTime(day, '00:00');
+    const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+    return {
+      professionalId: effectiveProfessionalId,
+      stepKey: effectiveSlotsStepKey,
+      from: start.toISOString(),
+      to: end.toISOString(),
+    };
+  }, [
+    listShowsFullMonth,
+    selectedDayYmd,
+    effectiveProfessionalId,
+    effectiveSlotsStepKey,
+  ]);
+
+  const {
+    data: timelineSlotsData,
+    isFetching: timelineSlotsFetching,
+  } = useConsultationAvailableSlots(slotsRangeForTimeline, {
+    enabled: !!slotsRangeForTimeline && agendaListEnabled,
+  });
+
+  const timelineSlotIsos = timelineSlotsData?.slots ?? [];
+  const showDayTimeline = !listShowsFullMonth && !!selectedDayYmd;
+
   const grouped = useMemo(
     () => groupConsultationAgendaByDay(filteredItems),
     [filteredItems]
@@ -236,6 +288,8 @@ export default function ConsultationAgendaPage() {
       next.setMonth(next.getMonth() + delta);
       setFrom(toYmd(startOfMonth(next)));
       setTo(toYmd(endOfMonth(next)));
+      setAgendaCalendarAnchor(startOfMonth(next));
+      setListShowsFullMonth(true);
       setPage(1);
     },
     [from]
@@ -244,6 +298,7 @@ export default function ConsultationAgendaPage() {
   const onSyncListToMonth = useCallback((monthStart: Date) => {
     setFrom(toYmd(startOfMonth(monthStart)));
     setTo(toYmd(endOfMonth(monthStart)));
+    setListShowsFullMonth(true);
     setPage(1);
   }, []);
 
@@ -327,6 +382,30 @@ export default function ConsultationAgendaPage() {
 
   const showPartialMonthListWarning = listShowsFullMonth && listHasPaginationGap;
 
+  const printProfessionalLabel = useMemo(() => {
+    if (!effectiveProfessionalId) {
+      return null;
+    }
+    if (showProfessionalFilter) {
+      return (
+        schedulableProfessionals.find((p) => p.id === effectiveProfessionalId)
+          ?.name ?? null
+      );
+    }
+    return user?.name ?? null;
+  }, [
+    effectiveProfessionalId,
+    showProfessionalFilter,
+    schedulableProfessionals,
+    user?.name,
+  ]);
+
+  const canPrintSelectedDay =
+    agendaListEnabled &&
+    !listShowsFullMonth &&
+    !!selectedDayYmd &&
+    filteredItems.length > 0;
+
   const calendarPanel = (
     <ConsultationAgendaAvailabilityCalendar
       className="lg:sticky lg:top-4 min-w-0 xl:sticky xl:top-4"
@@ -352,6 +431,7 @@ export default function ConsultationAgendaPage() {
         setNewAppointmentOpen(true);
       }}
       dayStatusMap={overviewData?.days ?? {}}
+      dayAgendaItems={showDayTimeline ? filteredItems : []}
       isLoading={!!overviewQuery && overviewLoading}
       isError={!!overviewQuery && overviewError}
       errorMessage={
@@ -368,6 +448,11 @@ export default function ConsultationAgendaPage() {
         to={to}
         scope={scope}
         professionalId={professionalId}
+        patientNameFilter={patientNameFilter}
+        onPatientNameFilterChange={(v) => {
+          setPatientNameFilter(v);
+          setPage(1);
+        }}
         showProfessionalFilter={showProfessionalFilter}
         schedulableProfessionals={schedulableProfessionals}
         schedulableProfessionalsLoading={schedulableProfessionalsLoading}
@@ -481,7 +566,9 @@ export default function ConsultationAgendaPage() {
             <p className="text-sm text-muted-foreground" role="status">
               Exibindo {filteredItems.length} de {data.items.length} registro
               {data.items.length === 1 ? '' : 's'} nesta página
-              {operationalFilters.length > 0 ? ' (com filtros ativos)' : ''}
+              {operationalFilters.length > 0 || patientNameFilter.trim()
+                ? ' (com filtros ativos)'
+                : ''}
               {' · '}
               {data.total} no período
               {totalPages > 1
@@ -511,11 +598,37 @@ export default function ConsultationAgendaPage() {
               </p>
             )}
 
-            {operationalFilters.length > 0 && filteredItems.length === 0 && (
-              <p className="text-sm text-muted-foreground" role="status">
-                Nenhum registro nesta página corresponde aos filtros ativos.
-                Tente outra página ou limpe os filtros.
-              </p>
+            {(operationalFilters.length > 0 || patientNameFilter.trim()) &&
+              filteredItems.length === 0 && (
+                <p className="text-sm text-muted-foreground" role="status">
+                  Nenhum registro nesta página corresponde aos filtros ativos.
+                  Tente outra página ou limpe os filtros.
+                </p>
+              )}
+
+            {showDayTimeline && (
+              <ConsultationAgendaDayTimeline
+                className="xl:hidden"
+                items={filteredItems}
+                slotIsos={timelineSlotIsos}
+                isLoadingSlots={timelineSlotsFetching}
+                onFreeSlotClick={({ timeHHmm }) => {
+                  if (
+                    !agendaSelectedDay ||
+                    !effectiveProfessionalId ||
+                    !effectiveSlotsStepKey
+                  ) {
+                    return;
+                  }
+                  setAppointmentPrefill({
+                    scheduledProfessionalId: effectiveProfessionalId,
+                    stepKey: effectiveSlotsStepKey,
+                    expectedDate: agendaSelectedDay,
+                    appointmentTime: timeHHmm,
+                  });
+                  setNewAppointmentOpen(true);
+                }}
+              />
             )}
 
             <div className="space-y-8">
@@ -543,9 +656,16 @@ export default function ConsultationAgendaPage() {
   );
 
   return (
-    <div className="flex-1 flex flex-col bg-muted/30 overflow-y-auto">
+    <div className="flex-1 flex flex-col bg-muted/30 overflow-y-auto print:bg-white">
+      {canPrintSelectedDay && selectedDayYmd ? (
+        <ConsultationAgendaDayPrint
+          dayKey={selectedDayYmd}
+          items={filteredItems}
+          professionalLabel={printProfessionalLabel}
+        />
+      ) : null}
       <main
-        className="mx-auto w-full max-w-full flex-1 space-y-6 p-4 md:p-6 xl:px-8"
+        className="mx-auto w-full max-w-full flex-1 space-y-6 p-4 md:p-6 xl:px-8 print:hidden"
         id="main-content"
       >
         <header className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
@@ -554,7 +674,8 @@ export default function ConsultationAgendaPage() {
               Agenda
             </h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              Etapas de consulta com data agendada no mês selecionado.
+              Consultas agendadas — por padrão o dia de hoje; use o calendário ou o mês
+              nos filtros para outro período.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -586,6 +707,18 @@ export default function ConsultationAgendaPage() {
                 Board de navegação
               </Link>
             )}
+            {canPrintSelectedDay ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => window.print()}
+                aria-label="Imprimir consultas do dia selecionado"
+              >
+                <Printer className="mr-2 h-4 w-4" aria-hidden />
+                Imprimir dia
+              </Button>
+            ) : null}
             <Button
               type="button"
               variant="outline"

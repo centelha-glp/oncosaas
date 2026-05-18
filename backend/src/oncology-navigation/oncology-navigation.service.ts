@@ -348,6 +348,7 @@ export class OncologyNavigationService {
       to: string;
       scope?: ConsultationAgendaScope;
       professionalId?: string;
+      q?: string;
       page?: number;
       limit?: number;
     }
@@ -389,12 +390,25 @@ export class OncologyNavigationService {
       ? { scheduledProfessionalId: params.professionalId }
       : {};
 
+    const patientNameQuery = params.q?.trim();
+    const patientNameFilter = patientNameQuery
+      ? {
+          patient: {
+            name: {
+              contains: patientNameQuery,
+              mode: 'insensitive' as const,
+            },
+          },
+        }
+      : {};
+
     const where: Prisma.NavigationStepWhereInput = {
       tenantId,
       status: { not: NavigationStepStatus.CANCELLED },
       ...stepKeyFilter,
       ...dateFilter,
       ...professionalFilter,
+      ...patientNameFilter,
     };
 
     const [total, rows] = await this.prisma.$transaction([

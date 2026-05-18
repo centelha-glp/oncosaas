@@ -1505,6 +1505,29 @@ describe('OncologyNavigationService', () => {
         waitingMinutesLive: null,
       });
     });
+
+    it('filtra por nome do paciente (q) de forma case-insensitive', async () => {
+      mockPrisma.$transaction.mockResolvedValue([0, []]);
+
+      await service.getConsultationAgenda(TENANT, {
+        from: '2026-05-01',
+        to: '2026-05-31',
+        q: 'maria',
+      });
+
+      const countArg = mockPrisma.navigationStep.count.mock.calls[0][0];
+      expect(countArg.where).toEqual(
+        expect.objectContaining({
+          tenantId: TENANT,
+          patient: {
+            name: {
+              contains: 'maria',
+              mode: 'insensitive',
+            },
+          },
+        })
+      );
+    });
   });
 
   describe('patchConsultationCheckIn', () => {

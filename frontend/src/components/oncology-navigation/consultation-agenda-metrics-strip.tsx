@@ -82,6 +82,14 @@ export function ConsultationAgendaMetricsStrip({
     return null;
   }
 
+  const outcomeTotal =
+    metrics.completedAppointments + metrics.noShows;
+  const completedPct =
+    outcomeTotal > 0
+      ? Math.round((metrics.completedAppointments / outcomeTotal) * 100)
+      : 0;
+  const noShowPct = outcomeTotal > 0 ? 100 - completedPct : 0;
+
   return (
     <section aria-label={`Métricas da agenda — ${periodLabel}`}>
       <p className="mb-2 text-xs font-medium text-muted-foreground">{periodLabel}</p>
@@ -107,6 +115,36 @@ export function ConsultationAgendaMetricsStrip({
           icon={Timer}
         />
       </div>
+      {outcomeTotal > 0 ? (
+        <div
+          className="mt-3 max-w-md rounded-lg border bg-card px-3 py-2.5"
+          aria-label="Comparativo concluídas versus faltas"
+        >
+          <p className="mb-2 text-xs font-medium text-muted-foreground">
+            Concluídas vs faltas
+          </p>
+          <div className="flex h-3 overflow-hidden rounded-full bg-muted">
+            <div
+              className="bg-priority-low"
+              style={{ width: `${completedPct}%` }}
+              title={`Concluídas: ${completedPct}%`}
+            />
+            <div
+              className="bg-priority-critical"
+              style={{ width: `${noShowPct}%` }}
+              title={`Faltas: ${noShowPct}%`}
+            />
+          </div>
+          <div className="mt-1.5 flex justify-between text-xs text-muted-foreground">
+            <span>
+              Concluídas {metrics.completedAppointments} ({completedPct}%)
+            </span>
+            <span>
+              Faltas {metrics.noShows} ({noShowPct}%)
+            </span>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }

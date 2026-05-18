@@ -125,6 +125,8 @@ export interface ConsultationAgendaQuery {
   limit?: number;
   /** Filtra itens cujo profissional agendado corresponde ao ID. */
   professionalId?: string;
+  /** Busca parcial por nome do paciente (servidor). */
+  q?: string;
 }
 
 export interface ConsultationAgendaMetricsQuery {
@@ -267,6 +269,7 @@ export const oncologyNavigationApi = {
           ...(params.professionalId
             ? { professionalId: params.professionalId }
             : {}),
+          ...(params.q ? { q: params.q } : {}),
         },
       }
     );

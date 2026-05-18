@@ -1,8 +1,12 @@
 'use client';
 
+import { format, parseISO } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
@@ -16,21 +20,20 @@ import type {
 } from '@/lib/api/oncology-navigation';
 import { useConsultationAgendaSchedulableProfessionals } from '@/hooks/useOncologyNavigation';
 
-const dateInputClass =
-  'flex h-10 w-full min-w-[10rem] rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2';
-
 export interface ConsultationAgendaFiltersProps {
   from: string;
   to: string;
   scope: ConsultationAgendaScope;
   /** ID do profissional agendado ou string vazia para todos. */
   professionalId: string;
+  patientNameFilter: string;
   /** Secretaria e gestão: mostrar filtro; demais papéis a agenda já é só a própria no servidor. */
   showProfessionalFilter?: boolean;
   onFromChange: (value: string) => void;
   onToChange: (value: string) => void;
   onScopeChange: (value: ConsultationAgendaScope) => void;
   onProfessionalIdChange: (value: string) => void;
+  onPatientNameFilterChange: (value: string) => void;
   onShiftMonth: (delta: -1 | 1) => void;
   onToday: () => void;
   onNext7Days: () => void;
@@ -46,11 +49,13 @@ export function ConsultationAgendaFilters({
   to,
   scope,
   professionalId,
+  patientNameFilter,
   showProfessionalFilter = true,
   onFromChange,
   onToChange,
   onScopeChange,
   onProfessionalIdChange,
+  onPatientNameFilterChange,
   onShiftMonth,
   onToday,
   onNext7Days,
@@ -66,37 +71,78 @@ export function ConsultationAgendaFilters({
   const usersLoading =
     schedulableProfessionalsLoadingProp ?? fetchedLoading;
 
+  let monthLabel = 'Período';
+  try {
+    monthLabel = format(parseISO(from), "MMMM 'de' yyyy", { locale: ptBR });
+  } catch {
+    /* mantém fallback */
+  }
+
   return (
     <Card>
       <CardHeader className="pb-4">
         <CardTitle className="text-base font-medium">Filtros</CardTitle>
+        <p className="text-xs text-muted-foreground">
+          Ao abrir, a agenda mostra o dia de hoje. Use o mês abaixo para navegar no
+          calendário e na lista.
+        </p>
       </CardHeader>
       <CardContent className="space-y-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 flex-1 items-center justify-center gap-2 sm:justify-start">
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              onClick={() => onShiftMonth(-1)}
+              aria-label="Mês anterior"
+            >
+              <ChevronLeft className="h-4 w-4" aria-hidden />
+            </Button>
+            <p
+              className="min-w-0 flex-1 text-center text-sm font-semibold capitalize text-foreground sm:text-left"
+              id="agenda-month-label"
+            >
+              Mês de {monthLabel}
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              onClick={() => onShiftMonth(1)}
+              aria-label="Próximo mês"
+            >
+              <ChevronRight className="h-4 w-4" aria-hidden />
+            </Button>
+          </div>
+          <div className="flex flex-wrap justify-center gap-2 sm:justify-end">
+            <Button type="button" variant="outline" size="sm" onClick={onToday}>
+              Hoje
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={onNext7Days}
+            >
+              Próximos 7 dias
+            </Button>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="agenda-patient-filter">Paciente</Label>
+          <Input
+            id="agenda-patient-filter"
+            type="search"
+            value={patientNameFilter}
+            onChange={(e) => onPatientNameFilterChange(e.target.value)}
+            placeholder="Buscar paciente por nome"
+            autoComplete="off"
+          />
+        </div>
+
         <div className="flex flex-wrap items-end gap-4">
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor="agenda-from" className="text-sm font-medium">
-              De
-            </label>
-            <input
-              id="agenda-from"
-              type="date"
-              value={from}
-              onChange={(e) => onFromChange(e.target.value)}
-              className={dateInputClass}
-            />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor="agenda-to" className="text-sm font-medium">
-              Até
-            </label>
-            <input
-              id="agenda-to"
-              type="date"
-              value={to}
-              onChange={(e) => onToChange(e.target.value)}
-              className={dateInputClass}
-            />
-          </div>
           <div className="flex flex-col gap-1.5">
             <span id="agenda-scope-label" className="text-sm font-medium">
               Escopo
@@ -156,37 +202,39 @@ export function ConsultationAgendaFilters({
             </div>
           )}
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="outline" size="sm" onClick={onToday}>
-            Hoje
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={onNext7Days}
-          >
-            Próximos 7 dias
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => onShiftMonth(-1)}
-          >
-            <ChevronLeft className="mr-1 h-4 w-4" aria-hidden />
-            Mês anterior
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => onShiftMonth(1)}
-          >
-            Próximo mês
-            <ChevronRight className="ml-1 h-4 w-4" aria-hidden />
-          </Button>
-        </div>
+
+        <details className="rounded-md border border-border bg-muted/20 px-3 py-2">
+          <summary className="cursor-pointer text-sm font-medium text-foreground">
+            Período personalizado (De / Até)
+          </summary>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Ajuste manual do intervalo da lista e das métricas. O controlo «Mês de…»
+            acima continua a ser a forma principal de navegar no calendário.
+          </p>
+          <div className="mt-3 flex flex-wrap items-end gap-4">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="agenda-from">De</Label>
+              <Input
+                id="agenda-from"
+                type="date"
+                value={from}
+                onChange={(e) => onFromChange(e.target.value)}
+                className="min-w-[10rem]"
+                aria-describedby="agenda-month-label"
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="agenda-to">Até</Label>
+              <Input
+                id="agenda-to"
+                type="date"
+                value={to}
+                onChange={(e) => onToChange(e.target.value)}
+                className="min-w-[10rem]"
+              />
+            </div>
+          </div>
+        </details>
       </CardContent>
     </Card>
   );

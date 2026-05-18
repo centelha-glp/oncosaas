@@ -119,6 +119,7 @@ export class OncologyNavigationController {
       to: query.to,
       scope: query.scope,
       professionalId,
+      q: query.q?.trim() || undefined,
       page: query.page,
       limit: query.limit,
     });

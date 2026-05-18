@@ -4,9 +4,12 @@ import {
   IsIn,
   IsInt,
   IsOptional,
+  IsString,
   IsUUID,
   Max,
+  MaxLength,
   Min,
+  MinLength,
 } from 'class-validator';
 
 export type ConsultationAgendaScope = 'consultations' | 'all';
@@ -26,6 +29,13 @@ export class ConsultationAgendaQueryDto {
   @IsOptional()
   @IsUUID()
   professionalId?: string;
+
+  /** Filtro parcial por nome do paciente (case-insensitive). */
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(120)
+  q?: string;
 
   @IsOptional()
   @Type(() => Number)
