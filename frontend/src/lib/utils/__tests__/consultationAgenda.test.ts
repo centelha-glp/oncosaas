@@ -2,12 +2,18 @@ import type { ConsultationAgendaItem } from '@/lib/api/oncology-navigation';
 import type { User } from '@/lib/api/users';
 import {
   consultationAgendaItemBorderClass,
+  consultationAgendaListHasPaginationGap,
+  consultationAgendaNext7DaysRange,
   consultationAgendaOverviewIsoRange,
   consultationAgendaOverviewStepKeyForUser,
   consultationAgendaStatusBadgeVariant,
+  consultationAgendaTodayRange,
+  filterConsultationAgendaItemsByOperational,
   formatAgendaDateTime,
   formatShortAgendaDate,
   groupConsultationAgendaByDay,
+  itemMatchesConsultationAgendaOperationalFilters,
+  sortConsultationAgendaItemsByExpectedDate,
   isConsultationAgendaSlotPrefillComplete,
   resolveInitialScheduledProfessionalId,
   userEligibleForAnyConsultationAgendaSlot,
@@ -66,6 +72,33 @@ describe('consultationAgenda utils', () => {
     const map = groupConsultationAgendaByDay(items);
     expect(map.get('2024-05-07')?.map((i) => i.id).sort()).toEqual(['a', 'b']);
     expect(map.get('2024-05-08')?.map((i) => i.id)).toEqual(['c']);
+  });
+
+  it('sortConsultationAgendaItemsByExpectedDate ordena por horário ascendente', () => {
+    const items = [
+      makeItem({ id: 'late', expectedDate: '2024-05-07T15:00:00.000Z' }),
+      makeItem({ id: 'early', expectedDate: '2024-05-07T09:00:00.000Z' }),
+      makeItem({ id: 'none', expectedDate: null }),
+    ];
+    const sorted = sortConsultationAgendaItemsByExpectedDate(items);
+    expect(sorted.map((i) => i.id)).toEqual(['early', 'late', 'none']);
+  });
+
+  it('groupConsultationAgendaByDay ordena itens do mesmo dia por expectedDate', () => {
+    const items = [
+      makeItem({
+        id: 'b',
+        agendaDate: '2024-05-07',
+        expectedDate: '2024-05-07T14:00:00.000Z',
+      }),
+      makeItem({
+        id: 'a',
+        agendaDate: '2024-05-07',
+        expectedDate: '2024-05-07T08:00:00.000Z',
+      }),
+    ];
+    const map = groupConsultationAgendaByDay(items);
+    expect(map.get('2024-05-07')?.map((i) => i.id)).toEqual(['a', 'b']);
   });
 
   it('formatShortAgendaDate retorna — para null e data válida em pt-BR', () => {
@@ -237,6 +270,60 @@ describe('consultationAgenda utils', () => {
         })
       ).toBe(false);
     });
+  });
+
+  it('consultationAgendaTodayRange usa o mesmo dia em from e to', () => {
+    const r = consultationAgendaTodayRange(new Date(2026, 4, 18));
+    expect(r.from).toBe('2026-05-18');
+    expect(r.to).toBe('2026-05-18');
+  });
+
+  it('consultationAgendaNext7DaysRange cobre 7 dias inclusive', () => {
+    const r = consultationAgendaNext7DaysRange(new Date(2026, 4, 18));
+    expect(r.from).toBe('2026-05-18');
+    expect(r.to).toBe('2026-05-24');
+  });
+
+  it('filterConsultationAgendaItemsByOperational filtra atrasadas e confirmação', () => {
+    const items = [
+      makeItem({ id: 'overdue', status: 'OVERDUE' }),
+      makeItem({
+        id: 'await',
+        status: 'PENDING',
+        appointmentConfirmationStatus: 'AWAITING_RESPONSE',
+      }),
+      makeItem({ id: 'ok', status: 'PENDING' }),
+    ];
+    expect(
+      filterConsultationAgendaItemsByOperational(items, ['overdue']).map(
+        (i) => i.id
+      )
+    ).toEqual(['overdue']);
+    expect(
+      filterConsultationAgendaItemsByOperational(items, [
+        'awaiting_confirmation',
+      ]).map((i) => i.id)
+    ).toEqual(['await']);
+    expect(
+      itemMatchesConsultationAgendaOperationalFilters(items[2], ['overdue'])
+    ).toBe(false);
+  });
+
+  it('consultationAgendaListHasPaginationGap detecta total maior que página', () => {
+    expect(
+      consultationAgendaListHasPaginationGap({
+        total: 120,
+        itemCount: 50,
+        totalPages: 3,
+      })
+    ).toBe(true);
+    expect(
+      consultationAgendaListHasPaginationGap({
+        total: 10,
+        itemCount: 10,
+        totalPages: 1,
+      })
+    ).toBe(false);
   });
 
   describe('resolveInitialScheduledProfessionalId', () => {

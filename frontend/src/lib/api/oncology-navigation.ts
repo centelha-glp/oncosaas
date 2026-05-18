@@ -127,6 +127,26 @@ export interface ConsultationAgendaQuery {
   professionalId?: string;
 }
 
+export interface ConsultationAgendaMetricsQuery {
+  from: string;
+  to: string;
+  professionalId?: string;
+}
+
+/** Resposta de `GET .../consultation-agenda-metrics`. */
+export interface ConsultationAgendaMetrics {
+  completedAppointments: number;
+  noShows: number;
+  avgWaitingMinutes: number | null;
+  avgLateMinutes: number | null;
+  avgConsultationDurationMinutes: number | null;
+  sumWaitingMinutes: number;
+  sumLateMinutes: number;
+  countWaitingSample: number;
+  countLateSample: number;
+  countConsultationDurationSample: number;
+}
+
 export interface UpdateNavigationStepDto {
   status?:
     | 'PENDING'
@@ -244,6 +264,23 @@ export const oncologyNavigationApi = {
           scope: params.scope,
           page: params.page,
           limit: params.limit,
+          ...(params.professionalId
+            ? { professionalId: params.professionalId }
+            : {}),
+        },
+      }
+    );
+  },
+
+  getConsultationAgendaMetrics: async (
+    params: ConsultationAgendaMetricsQuery
+  ): Promise<ConsultationAgendaMetrics> => {
+    return apiClient.get<ConsultationAgendaMetrics>(
+      '/oncology-navigation/consultation-agenda-metrics',
+      {
+        params: {
+          from: params.from,
+          to: params.to,
           ...(params.professionalId
             ? { professionalId: params.professionalId }
             : {}),

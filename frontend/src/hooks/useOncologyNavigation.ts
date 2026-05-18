@@ -3,6 +3,7 @@ import { toast } from 'sonner';
 import {
   oncologyNavigationApi,
   type ConsultationAgendaDayOverviewQuery,
+  type ConsultationAgendaMetricsQuery,
   type ConsultationAgendaQuery,
   type ConsultationAvailableSlotsQuery,
   type CreateConsultationAppointmentDto,
@@ -23,6 +24,21 @@ export const useConsultationAgenda = (
       Boolean(params.from) &&
       Boolean(params.to),
     staleTime: 30 * 1000,
+  });
+};
+
+export const useConsultationAgendaMetrics = (
+  params: ConsultationAgendaMetricsQuery,
+  options?: { enabled?: boolean }
+) => {
+  return useQuery({
+    queryKey: ['consultation-agenda-metrics', params],
+    queryFn: () => oncologyNavigationApi.getConsultationAgendaMetrics(params),
+    enabled:
+      (options?.enabled ?? true) &&
+      Boolean(params.from) &&
+      Boolean(params.to),
+    staleTime: 60 * 1000,
   });
 };
 
