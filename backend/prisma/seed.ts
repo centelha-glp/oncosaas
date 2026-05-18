@@ -4,6 +4,10 @@ import { PrismaClient } from '@generated/prisma/client';
 import * as bcrypt from 'bcrypt';
 import { EXAM_CATALOG_SEED_ROWS } from './exam-catalog-seed-data';
 import { MEDICATION_CATALOG_SEED_ROWS } from './medication-catalog-seed-data';
+import {
+  seedConsultationAgendaDemo,
+  upsertSecretaryUser,
+} from './consultation-agenda-seed';
 
 const connectionString = `${process.env.DATABASE_URL}`;
 
@@ -101,11 +105,18 @@ async function main() {
     },
   });
 
+  const secretary = await upsertSecretaryUser(
+    prisma,
+    tenant.id,
+    hashedPassword,
+  );
+
   console.log('✅ Usuários criados:');
   console.log('  - Admin:', admin.email);
   console.log('  - Oncologista:', oncologist.email);
   console.log('  - Enfermeira:', nurse.email);
   console.log('  - Coordenador:', coordinator.email);
+  console.log('  - Secretária:', secretary.email);
 
   // Limpar pacientes existentes antes de criar novos
   // Guias TISS primeiro: itens referenciam clinical_exam_requests com onDelete Restrict —
@@ -1732,6 +1743,24 @@ async function main() {
     },
   });
 
+  // ─── Agenda de consultas (/agenda) ─────────────────────────────────────────
+  const agendaSeed = await seedConsultationAgendaDemo({
+    prisma,
+    tenantId: tenant.id,
+    users: {
+      oncologistId: oncologist.id,
+      nurseId: nurse.id,
+      coordinatorId: coordinator.id,
+    },
+    patients,
+  });
+  console.log(
+    `✅ Agenda de consultas: ${agendaSeed.stepsCreated} etapas, ${agendaSeed.configsUpserted} configs (oncologista, enfermeira, coordenador)`,
+  );
+  console.log(
+    '   UI: /agenda — hoje/semana com CONFIRMED, AWAITING_RESPONSE, OVERDUE; secretária vê todos os profissionais',
+  );
+
   // ─── AgentConfig ────────────────────────────────────────────────────────────
   const existingAgentConfig = await prisma.agentConfig.findUnique({
     where: { tenantId: tenant.id },
@@ -1946,12 +1975,11 @@ async function main() {
   console.log('');
   console.log('🎉 Seed concluído com sucesso!');
   console.log('');
-  console.log('📋 Credenciais de teste:');
-  console.log('  Email: admin@hospitalteste.com');
-  console.log('  Senha: senha123');
-  console.log('');
-  console.log('  Email: enfermeira@hospitalteste.com');
-  console.log('  Senha: senha123');
+  console.log('📋 Credenciais de teste (senha: senha123):');
+  console.log('  admin@hospitalteste.com');
+  console.log('  oncologista@hospitalteste.com  → /agenda (consultas specialist_consultation)');
+  console.log('  enfermeira@hospitalteste.com   → /agenda (consultas navigation_consultation)');
+  console.log('  secretaria@hospitalteste.com   → /agenda (visão global + filtro por profissional)');
   console.log('');
 }
 
