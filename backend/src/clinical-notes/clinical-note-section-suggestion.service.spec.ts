@@ -1,4 +1,48 @@
-import { ageYearsInTimeZone } from './clinical-note-section-suggestion.service';
+import {
+  ageYearsInTimeZone,
+  formatComplementaryExamDisplayName,
+} from './clinical-note-section-suggestion.service';
+
+describe('formatComplementaryExamDisplayName', () => {
+  it('inclui código TUSS/sigla quando code está preenchido', () => {
+    expect(
+      formatComplementaryExamDisplayName({
+        name: 'Hemograma completo',
+        code: '40304361',
+        loincCode: '58410-2',
+      })
+    ).toBe('Hemograma completo (40304361)');
+  });
+
+  it('usa LOINC quando não há code', () => {
+    expect(
+      formatComplementaryExamDisplayName({
+        name: 'Glicemia',
+        code: null,
+        loincCode: '2345-7',
+      })
+    ).toBe('Glicemia (LOINC 2345-7)');
+  });
+
+  it('retorna só o nome quando não há código nem LOINC', () => {
+    expect(
+      formatComplementaryExamDisplayName({
+        name: 'Raio-X de tórax',
+        code: undefined,
+        loincCode: '',
+      })
+    ).toBe('Raio-X de tórax');
+  });
+
+  it('normaliza espaços e nome vazio vira "Exame"', () => {
+    expect(
+      formatComplementaryExamDisplayName({
+        name: '   ',
+        code: '  ABC  ',
+      })
+    ).toBe('Exame (ABC)');
+  });
+});
 
 describe('ageYearsInTimeZone', () => {
   it('calcula idade no fuso America/Sao_Paulo', () => {
