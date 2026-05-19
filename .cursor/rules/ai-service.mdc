@@ -25,8 +25,8 @@ O `orchestrator` **não** chama `intent_classifier` nem triagem síncrona pré-`
 ```
 1.   Sem chaves LLM              — `_apply_deterministic_triage()` uma vez → `trace.triage_source=deterministic_no_llm` → `context_builder.build()` com triagem real → `_fallback_response()`
 2.   Com chaves LLM              — primeiro `context_builder.build(..., symptom_analysis=None, layer1_clinical_rules=None)` (+ secção **Questionário ativo** no estado)
-3.   Multi-agent LLM             — `run_agentic_loop` (Opus) + `routing_tool_executor` (subagentes)
-4.   Agregação Layer 0+1         — apenas `_merge_triage_snapshots(symptom_triage_snapshots)`; se **vazio**: contrato explícito `_skipped_llm_branch_triage_contract()` (REMOTE_NURSING, findings=[], reasoning em PT), `trace.triage_source=skipped_no_snapshots`, `trace.triage_skipped=True` — **sem** `_apply_deterministic_triage` nem span `triage_fallback_last_resort` neste ramo
+3.   Multi-agent LLM             — `run_agentic_loop` (Haiku 4.5 por defeito) + `routing_tool_executor` (subagentes; tools do mesmo turno em `asyncio.gather`)
+4.   Agregação Layer 0+1         — `_apply_deterministic_triage` ao invocar `consultar_agente_sintomas` + `_merge_triage_snapshots`; se subagente de sintomas **não** foi chamado: contrato `_skipped_llm_branch_triage_contract()`, `trace.triage_source=skipped_no_snapshots`, `trace.triage_skipped=True` — **sem** heurística pós-loop
 5.   Protocol evaluation         — `protocol_engine.evaluate()` com o `symptom_analysis` + Layer 1 resultantes do passo 4
 6.   Action compilation          — `_compile_actions` + merge com tool calls dos subagentes (exceto a tool de triagem, consumida só para estado)
 7.   Pós-main questionário       — se havia ESAS/PRO ativo e `clinical_rules_result.is_immediate`, `_build_layer1_override_response()`; continuação do questionário só se `_message_plausible_questionnaire_answer` (evita consumir turno com pergunta longa fora do item)

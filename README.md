@@ -196,6 +196,8 @@ cd ai-service
 pytest
 ```
 
+Regressão dos assistentes de **evolução clínica** e **extração de exames** (fixtures sintéticas, sem LLM no CI): ver secção «Evals clínicos» em [ai-service/README.md](ai-service/README.md).
+
 ## Documentação
 
 - [SPECS.md](SPECS.md)
