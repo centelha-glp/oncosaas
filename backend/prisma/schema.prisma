@@ -260,8 +260,10 @@ model ClinicalNote {
 /// Estado do pipeline de extração estruturada após assinatura da evolução (BullMQ + ai-service).
 enum ClinicalNoteExtractionRunStatus {
   PENDING // Job enfileirado ou em processamento
+  AWAITING_REVIEW // Proposta estruturada pronta; aguarda aprovação do profissional
   APPLIED // Escritas aplicadas (parcial ou total); pode desfazer na janela configurada
   FAILED // Falha antes de aplicar mutações
+  REJECTED // Profissional rejeitou a proposta; não aplicada
   ROLLED_BACK // Desfeito via API de undo
 }
 
@@ -276,6 +278,8 @@ model ClinicalNoteExtractionRun {
   latestVersionNumber   Int
   signedByUserId        String
   status                ClinicalNoteExtractionRunStatus @default(PENDING)
+  /// Payload estruturado proposto pela IA (pré-aplicação)
+  proposedPayload       Json?
   /// Relatório de rejeições por domínio/campo (aplicação parcial)
   rejectionReport       Json?
   /// SHA-256 hex do payload canónico aplicado (sem PHI completo)
@@ -283,6 +287,8 @@ model ClinicalNoteExtractionRun {
   errorMessage            String?
   appliedAt             DateTime?
   rolledBackAt          DateTime?
+  reviewedAt            DateTime?
+  reviewedByUserId      String?
 
   tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   patient      Patient      @relation(fields: [patientId], references: [id], onDelete: Cascade)
@@ -297,6 +303,7 @@ model ClinicalNoteExtractionRun {
   @@index([tenantId])
   @@index([clinicalNoteId])
   @@index([tenantId, patientId])
+  @@index([tenantId, patientId, status])
   @@map("clinical_note_extraction_runs")
 }
 
@@ -432,10 +439,12 @@ model ClinicalPrescriptionLine {
   medicationName String
   catalogKey              String?
   presentationCatalogCode String?
+  quantity       String?
   dosage         String?
   frequency      String?
   route          String?
   duration       String?
+  /// Observação clínica (alias `observation` na API)
   indication     String?
 
   tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)

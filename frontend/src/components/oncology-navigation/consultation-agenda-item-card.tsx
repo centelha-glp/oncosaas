@@ -57,7 +57,7 @@ import {
   isSchedulableConsultationRole,
   userEligibleForConsultationStep,
 } from '@/lib/utils/consultationAgenda';
-import type { ConsultationAgendaSchedulableProfessional } from '@/lib/api/oncology-navigation';
+import { useUsers } from '@/hooks/useUsers';
 import {
   useSendConsultationConfirmation,
   useUpdateNavigationStep,
@@ -67,28 +67,19 @@ import { toast } from 'sonner';
 
 export interface ConsultationAgendaItemCardProps {
   item: ConsultationAgendaItem;
-  schedulableProfessionals: ConsultationAgendaSchedulableProfessional[];
-  schedulableProfessionalsLoading?: boolean;
 }
 
-export function ConsultationAgendaItemCard({
-  item,
-  schedulableProfessionals,
-  schedulableProfessionalsLoading = false,
-}: ConsultationAgendaItemCardProps) {
+export function ConsultationAgendaItemCard({ item }: ConsultationAgendaItemCardProps) {
   const sendMut = useSendConsultationConfirmation();
   const updateMut = useUpdateNavigationStep();
+  const { data: users = [], isLoading: usersLoading } = useUsers();
   const consultationStepKey = consultationAppointmentStepKeyFromString(item.stepKey);
-  const rescheduleProfessionals = useMemo(() => {
+  const schedulableProfessionals = useMemo(() => {
     if (consultationStepKey) {
-      return schedulableProfessionals.filter((u) =>
-        userEligibleForConsultationStep(u, consultationStepKey)
-      );
+      return users.filter((u) => userEligibleForConsultationStep(u, consultationStepKey));
     }
-    return schedulableProfessionals.filter((u) =>
-      isSchedulableConsultationRole(u.role)
-    );
-  }, [schedulableProfessionals, consultationStepKey]);
+    return users.filter((u) => isSchedulableConsultationRole(u.role));
+  }, [users, consultationStepKey]);
 
   const [sendOpen, setSendOpen] = useState(false);
   const [sendMessage, setSendMessage] = useState('');
@@ -275,8 +266,9 @@ export function ConsultationAgendaItemCard({
                   <>
                     <Button
                       type="button"
-                      variant="success"
+                      variant="ghost"
                       size="sm"
+                      className="text-green-700 dark:text-green-400"
                       disabled={updateMut.isPending}
                       onClick={() => void handleConfirmationStatus('CONFIRMED')}
                     >
@@ -363,7 +355,7 @@ export function ConsultationAgendaItemCard({
               <Select
                 value={rescheduleProfessionalId || undefined}
                 onValueChange={setRescheduleProfessionalId}
-                disabled={schedulableProfessionalsLoading}
+                disabled={usersLoading}
               >
                 <SelectTrigger
                   id={`reschedule-prof-${item.id}`}
@@ -371,14 +363,12 @@ export function ConsultationAgendaItemCard({
                 >
                   <SelectValue
                     placeholder={
-                      schedulableProfessionalsLoading
-                        ? 'Carregando…'
-                        : 'Selecione o profissional'
+                      usersLoading ? 'Carregando…' : 'Selecione o profissional'
                     }
                   />
                 </SelectTrigger>
                 <SelectContent>
-                  {rescheduleProfessionals.map((u) => (
+                  {schedulableProfessionals.map((u) => (
                     <SelectItem key={u.id} value={u.id}>
                       {u.name}
                     </SelectItem>
