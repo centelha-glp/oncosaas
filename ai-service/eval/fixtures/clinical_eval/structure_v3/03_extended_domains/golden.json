@@ -1,0 +1,9 @@
+{
+  "description": "Domínios estendidos — tratamento válido + linha de prescrição; rejeição de enum inválido",
+  "expect": {
+    "parse_ok": true,
+    "degraded": false,
+    "rejection_count_min": 1,
+    "medication_names": ["Omeprazol"]
+  }
+}

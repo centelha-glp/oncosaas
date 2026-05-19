@@ -1,0 +1,17 @@
+{
+  "markdownSummary": "## Laboratorial\n\n| EXAME | RESULTADO |\n| --- | --- |\n| Hemoglobina | 12,1 g/dL |\n| Creatinina | 0,9 mg/dL |",
+  "detectedCategories": ["LAB"],
+  "disclaimer": "Conteúdo sintético para teste.",
+  "complementary_exams": [
+    {
+      "type": "LABORATORY",
+      "name": "Hemoglobina",
+      "result": {
+        "valueNumeric": 12.1,
+        "unit": "g/dL",
+        "referenceRange": "12-16",
+        "isAbnormal": false
+      }
+    }
+  ]
+}

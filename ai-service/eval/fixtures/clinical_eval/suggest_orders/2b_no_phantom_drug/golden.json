@@ -1,0 +1,6 @@
+{
+  "description": "Não emitir fármaco ausente de uso/conduta",
+  "expect": {
+    "prescription_medication_names": []
+  }
+}

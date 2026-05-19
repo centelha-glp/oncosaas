@@ -1,0 +1,15 @@
+{
+  "clinical_exam_requests": [
+    {
+      "display_name": "Creatinina",
+      "request_source": "contextual",
+      "rationale": "Metformina em uso; creatinina antiga no snapshot sem controle recente."
+    },
+    {
+      "display_name": "Ureia",
+      "request_source": "contextual",
+      "rationale": "Monitorização de função renal com metformina."
+    }
+  ],
+  "rejection_report": []
+}

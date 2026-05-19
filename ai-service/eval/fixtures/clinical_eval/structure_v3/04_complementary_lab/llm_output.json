@@ -1,0 +1,22 @@
+{
+  "clinical_exam_requests": [{"display_name": "Função renal"}],
+  "medications": [],
+  "comorbidities": [],
+  "patient_patch": {"performanceStatus": 1},
+  "journey_patch": {},
+  "diagnoses": [],
+  "treatments": [],
+  "navigation_step_updates": [],
+  "complementary_exams": [
+    {
+      "type": "LABORATORY",
+      "name": "Creatinina",
+      "result": {"value_numeric": 1.0, "unit": "mg/dL", "is_abnormal": false}
+    }
+  ],
+  "observations": [],
+  "performance_status_history": [],
+  "clinical_prescription_lines": [],
+  "questionnaire_responses": [],
+  "rejection_report": []
+}

@@ -1,0 +1,8 @@
+{
+  "description": "Markdown com laboratório e imagem",
+  "expect": {
+    "parse_ok": true,
+    "detected_categories": ["LAB", "IMAGING"],
+    "markdown_contains": ["ressonância", "hemograma"]
+  }
+}

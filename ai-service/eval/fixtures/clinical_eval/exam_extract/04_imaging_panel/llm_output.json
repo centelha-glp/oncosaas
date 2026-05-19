@@ -1,0 +1,12 @@
+{
+  "markdownSummary": "## Imagem\nTomografia de tórax sem nódulos novos.",
+  "detectedCategories": ["IMAGING"],
+  "disclaimer": "Revisão clínica obrigatória.",
+  "complementaryExams": [
+    {
+      "type": "IMAGING",
+      "name": "Tomografia de tórax",
+      "result": {"report": "Sem nódulos pulmonares novos."}
+    }
+  ]
+}

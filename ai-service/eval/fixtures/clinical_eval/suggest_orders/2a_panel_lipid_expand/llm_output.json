@@ -1,0 +1,9 @@
+{
+  "clinical_exam_requests": [
+    {"display_name": "Colesterol total", "request_source": "explicit", "rationale": null},
+    {"display_name": "HDL", "request_source": "explicit", "rationale": null},
+    {"display_name": "LDL", "request_source": "explicit", "rationale": null},
+    {"display_name": "Triglicerídeos", "request_source": "explicit", "rationale": null}
+  ],
+  "rejection_report": []
+}

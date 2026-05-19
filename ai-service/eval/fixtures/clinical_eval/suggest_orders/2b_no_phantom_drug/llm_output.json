@@ -1,0 +1,9 @@
+{
+  "clinical_prescription_lines": [],
+  "rejection_report": [
+    {
+      "domain": "rx_generate",
+      "reason": "Sem medicamento em uso ou conduta para prescrever Omeprazol inventado."
+    }
+  ]
+}

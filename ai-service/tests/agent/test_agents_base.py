@@ -45,6 +45,15 @@ from src.routes.nurse import nurse_assist
 from src.models.schemas import CheckInMessageRequest, NurseAssistRequest
 
 
+def _turn_context_cache(structured_context: str = "ctx", clinical_context=None):
+    return context_builder.cache_for_turn(
+        structured_context,
+        clinical_context=clinical_context if clinical_context is not None else {},
+        conversation_history=[],
+        agent_state={},
+    )
+
+
 def _minimal_clinical_context():
     return {
         "patient": {
@@ -506,13 +515,69 @@ async def test_orchestrator_llm_no_snapshots_skips_deterministic_fallback(monkey
     )
 
     assert result["clinical_disposition"] == REMOTE_NURSING
-    assert "não foi executada" in (result.get("clinical_disposition_reason") or "").lower()
+    assert "não foi invocado" in (result.get("clinical_disposition_reason") or "").lower()
     assert result.get("clinical_rules_findings") == []
     trace = result.get("pipeline_trace") or {}
     assert trace.get("triage_skipped") is True
     assert trace.get("triage_source") == "skipped_no_snapshots"
     span_names = [s.get("name") for s in trace.get("spans", [])]
     assert "triage_fallback_last_resort" not in span_names
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_symptom_subagent_invoked_layer1_without_triage_tool(
+    monkeypatch,
+):
+    """Orquestrador chama subagente de sintomas; subagente não chama executar_triagem_seguranca."""
+    from src.agent.subagents.base_subagent import SubAgentResult
+
+    async def _fake_symptom_run(self, **kwargs):
+        return SubAgentResult(
+            agent_name="symptom_agent",
+            response="Relato de febre analisado sem invocar tool de triagem.",
+            tool_calls=[],
+            iterations=1,
+        )
+
+    monkeypatch.setattr(SymptomAgent, "run", _fake_symptom_run)
+
+    async def _fake_run_agentic_loop(*args, **kwargs):
+        tool_executor = kwargs.get("tool_executor")
+        if tool_executor:
+            await tool_executor("consultar_agente_sintomas", {"foco": "febre"})
+        return {
+            "response": "Orientação sobre febre.",
+            "tool_calls": [{"name": "consultar_agente_sintomas", "input": {}}],
+            "iterations": 1,
+            "provider": "anthropic",
+            "model": "claude-test",
+        }
+
+    monkeypatch.setattr(llm_provider, "run_agentic_loop", _fake_run_agentic_loop)
+    monkeypatch.setattr(llm_provider, "has_any_llm_key", lambda cfg=None: True)
+    monkeypatch.setattr(llm_provider, "has_anthropic_key", lambda cfg=None: True)
+    monkeypatch.setattr(
+        "src.agent.orchestrator.protocol_engine.evaluate",
+        lambda **kwargs: [],
+    )
+
+    result = await orchestrator.process(
+        {
+            "message": "estou com febre 38 graus desde ontem",
+            "patient_id": "p1",
+            "tenant_id": "t1",
+            "clinical_context": _minimal_clinical_context(),
+            "protocol": None,
+            "conversation_history": [],
+            "agent_state": {},
+            "agent_config": {"use_llm_symptom_analysis": False},
+        }
+    )
+
+    trace = result.get("pipeline_trace") or {}
+    assert trace.get("triage_skipped") is False
+    assert trace.get("triage_source") == "symptom_subagent_invoked"
+    assert "consultar_agente_sintomas" in (trace.get("subagents_called") or [])
 
 
 @pytest.mark.asyncio
@@ -838,7 +903,7 @@ async def test_orchestrator_multi_agent_pipeline_returns_provider_meta(monkeypat
 
     response, tool_calls, llm_meta, span_detail = await orchestrator._run_multi_agent_pipeline(
         message="oi",
-        structured_context="ctx",
+        turn_context_cache=_turn_context_cache("ctx"),
         conversation_history=[],
         agent_config={},
         trace=None,
@@ -904,7 +969,7 @@ async def test_oncology_knowledge_tool_calls_retrieve_with_mock(monkeypatch):
     ctx = _minimal_clinical_context()
     _, _, _, _ = await orchestrator._run_multi_agent_pipeline(
         message="oi",
-        structured_context="estruturado",
+        turn_context_cache=_turn_context_cache("estruturado", ctx),
         conversation_history=[],
         agent_config={},
         trace=None,
@@ -1027,7 +1092,7 @@ async def test_secretary_availability_tool_executes_same_turn_and_mutation_stays
 
     response, tool_calls, _, _ = await orchestrator._run_multi_agent_pipeline(
         message="Quais horários tem para consulta?",
-        structured_context="ctx",
+        turn_context_cache=_turn_context_cache("ctx"),
         conversation_history=[],
         agent_config={},
         tenant_id="tenant-1",
@@ -1110,7 +1175,7 @@ async def test_secretary_availability_tool_backend_error_returns_controlled_json
 
     response, tool_calls, _, _ = await orchestrator._run_multi_agent_pipeline(
         message="Tem vaga amanhã?",
-        structured_context="ctx",
+        turn_context_cache=_turn_context_cache("ctx"),
         conversation_history=[],
         agent_config={},
         tenant_id="tenant-1",
@@ -1179,7 +1244,7 @@ async def test_secretary_multiple_availability_calls_keep_closest_slot(monkeypat
 
     _, tool_calls, _, _ = await orchestrator._run_multi_agent_pipeline(
         message="Qual profissional tem a vaga mais próxima?",
-        structured_context="ctx",
+        turn_context_cache=_turn_context_cache("ctx"),
         conversation_history=[],
         agent_config={},
         tenant_id="tenant-1",

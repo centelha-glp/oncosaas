@@ -1,0 +1,7 @@
+{
+  "description": "Atualização de etapa de navegação",
+  "expect": {
+    "parse_ok": true,
+    "degraded": false
+  }
+}

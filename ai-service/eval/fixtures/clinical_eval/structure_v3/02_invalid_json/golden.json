@@ -1,0 +1,9 @@
+{
+  "description": "Texto não-JSON → parse_ok false, listas vazias",
+  "expect": {
+    "parse_ok": false,
+    "degraded": true,
+    "clinical_exam_display_names": [],
+    "medication_names": []
+  }
+}

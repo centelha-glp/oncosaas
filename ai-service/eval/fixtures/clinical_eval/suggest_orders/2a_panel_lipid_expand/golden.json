@@ -1,0 +1,11 @@
+{
+  "description": "Perfil lipídico explícito expandido em 4 linhas",
+  "expect": {
+    "clinical_exam_display_names": [
+      "Colesterol total",
+      "HDL",
+      "LDL",
+      "Triglicerídeos"
+    ]
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "description": "Não repetir creatinina quando recente no snapshot",
+  "expect": {
+    "clinical_exam_requests_min": 0
+  }
+}

@@ -1,0 +1,1 @@
+Resposta livre do modelo sem JSON estruturado — cenário de regressão parse_ok=false.

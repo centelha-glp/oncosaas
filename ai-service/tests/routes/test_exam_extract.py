@@ -38,6 +38,7 @@ _MOCK_RESULT = {
     "detectedCategories": ["LAB"],
     "disclaimer": "Validar com o original.",
     "markdownFromStructuredParse": True,
+    "extractionSource": "llm",
 }
 
 
@@ -89,8 +90,11 @@ def test_exam_extract_400_sem_tenant_header():
 
 
 @patch.object(llm_provider, "has_any_llm_key", return_value=False)
-def test_exam_extract_200_sem_chaves_llm_resposta_estruturada_mock(mock_has_keys):
-    """Sem OPENAI/ANTHROPIC: deve 200 com JSON válido e markdownFromStructuredParse=true."""
+@patch("src.agent.llm_provider.allow_ai_mock_responses", return_value=True)
+def test_exam_extract_200_sem_chaves_llm_resposta_estruturada_mock(
+    _allow_mock, mock_has_keys
+):
+    """Sem OPENAI/ANTHROPIC em dev: mock com extractionSource=mock."""
     r = client.post(
         "/api/v1/exam-extract",
         headers=_headers(),
@@ -99,8 +103,21 @@ def test_exam_extract_200_sem_chaves_llm_resposta_estruturada_mock(mock_has_keys
     assert r.status_code == 200, r.text
     data = r.json()
     assert data.get("markdownFromStructuredParse") is True
+    assert data.get("extractionSource") == "mock"
     assert data.get("detectedCategories") == ["OTHER"]
     assert "creatinina" in data["markdownSummary"].lower()
+    mock_has_keys.assert_called()
+
+
+@patch.object(llm_provider, "has_any_llm_key", return_value=False)
+@patch("src.agent.llm_provider.allow_ai_mock_responses", return_value=False)
+def test_exam_extract_503_sem_chaves_llm_mock_desabilitado(_allow_mock, mock_has_keys):
+    r = client.post(
+        "/api/v1/exam-extract",
+        headers=_headers(),
+        json={"plainText": "Creatinina 1,2 mg/dL", "files": []},
+    )
+    assert r.status_code == 503
     mock_has_keys.assert_called()
 
 
@@ -288,6 +305,34 @@ def test_parse_exam_extract_json_complementary_exams_snake():
     assert ce[0]["result"]["performedAt"] == "2025-06-01"
     assert ce[0]["result"]["valueNumeric"] == 12.1
     assert ce[0]["result"]["unit"] == "g/dL"
+
+
+@patch(
+    "src.routes.exam_extract.llm_provider.generate_exam_extract_structured",
+    new_callable=AsyncMock,
+)
+def test_exam_extract_reports_skipped_complementary_items(mock_llm: AsyncMock):
+    mock_llm.return_value = {
+        **_MOCK_RESULT,
+        "complementaryExams": [
+            {
+                "type": "LABORATORY",
+                "name": "Hemoglobina",
+                "result": {"valueNumeric": 12.0, "unit": "g/dL"},
+            },
+            {"type": "INVALID", "name": "Exame inválido"},
+        ],
+    }
+    r = client.post(
+        "/api/v1/exam-extract",
+        headers=_headers(),
+        json={"plainText": "Hb 12", "files": []},
+    )
+    assert r.status_code == 200
+    data = r.json()
+    assert data["skippedCount"] == 1
+    assert len(data["skippedItems"]) == 1
+    assert len(data["complementaryExams"]) == 1
 
 
 @patch(

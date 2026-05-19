@@ -1,0 +1,9 @@
+{
+  "description": "Laudo laboratorial sintético em texto plano estruturado",
+  "expect": {
+    "parse_ok": true,
+    "markdown_contains": ["Hemoglobina", "Creatinina"],
+    "detected_categories": ["LAB"],
+    "skipped_count": 0
+  }
+}

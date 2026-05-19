@@ -1,0 +1,32 @@
+{
+  "clinical_exam_requests": [],
+  "medications": [
+    {
+      "name": "Omeprazol",
+      "dosage": "20 mg",
+      "frequency": "1x/dia",
+      "category": "PROTON_PUMP_INHIBITOR"
+    }
+  ],
+  "comorbidities": [],
+  "patient_patch": {},
+  "journey_patch": {},
+  "diagnoses": [],
+  "treatments": [
+    {"treatment_type": "CHEMOTHERAPY", "treatment_name": "Paclitaxel semanal"},
+    {"treatment_type": "NOT_VALID"}
+  ],
+  "navigation_step_updates": [],
+  "complementary_exams": [],
+  "observations": [],
+  "performance_status_history": [{"ecog_score": 2}],
+  "clinical_prescription_lines": [
+    {
+      "medication_name": "Omeprazol 20mg",
+      "dosage": "20 mg",
+      "frequency": "1x/dia"
+    }
+  ],
+  "questionnaire_responses": [],
+  "rejection_report": []
+}
