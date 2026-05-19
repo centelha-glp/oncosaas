@@ -1,3 +1,4 @@
+import asyncio
 import inspect
 import json
 import math
@@ -13,6 +14,7 @@ from dotenv import dotenv_values
 
 from src.agent.exam_audio_whisper_vocab import build_exam_whisper_prompt
 from src.config.llm_defaults import DEFAULT_OPENAI_CHAT_MODEL, merge_agent_llm_config
+from src.config.mock_policy import allow_ai_mock_responses
 
 """
 Multi-LLM provider abstraction.
@@ -652,6 +654,7 @@ class LLMProvider:
                 "ANTHROPIC_API_KEY para extração real. Valide sempre com o documento clínico original."
             ),
             "markdownFromStructuredParse": True,
+            "extractionSource": "mock",
         }
 
     async def generate_exam_extract_structured(
@@ -674,8 +677,13 @@ class LLMProvider:
         has_a = self.has_anthropic_key(raw_cfg)
         cfg = merge_agent_llm_config(raw_cfg, has_anthropic_key=has_a)
         if not self.has_any_llm_key(cfg):
+            if not allow_ai_mock_responses():
+                logger.warning(
+                    "exam_extract: no LLM API keys and mock disabled in this environment"
+                )
+                raise ExamExtractStructuredParseError(had_model_text=False)
             logger.info(
-                "exam_extract: no LLM API keys; returning structured mock (markdownFromStructuredParse=true)"
+                "exam_extract: no LLM API keys; returning structured mock (extractionSource=mock)"
             )
             return self._mock_exam_extract_structured(
                 user_text_instruction=user_text_instruction
@@ -789,6 +797,7 @@ class LLMProvider:
         parsed = self._parse_exam_extract_json(text_out)
         if parsed:
             parsed["markdownFromStructuredParse"] = True
+            parsed["extractionSource"] = "llm"
             return parsed
 
         tw = (text_out or "").strip()
@@ -896,22 +905,27 @@ class LLMProvider:
             return out_r if out_r else None
 
         coerced_items: List[Dict[str, Any]] = []
+        parser_skipped = 0
         raw_ce = obj.get("complementary_exams")
         if raw_ce is None:
             raw_ce = obj.get("complementaryExams")
         if isinstance(raw_ce, list):
             for it in raw_ce:
                 if not isinstance(it, dict):
+                    parser_skipped += 1
                     continue
                 typ = it.get("type")
                 name = it.get("name")
                 if not isinstance(typ, str) or not isinstance(name, str):
+                    parser_skipped += 1
                     continue
                 t_up = typ.strip().upper()
                 if t_up not in allowed_types:
+                    parser_skipped += 1
                     continue
                 ntrim = name.strip()
                 if not ntrim or len(ntrim) > 400:
+                    parser_skipped += 1
                     continue
                 code = it.get("code")
                 loinc = it.get("loinc_code")
@@ -938,6 +952,8 @@ class LLMProvider:
         }
         if coerced_items:
             out["complementaryExams"] = coerced_items
+        if parser_skipped > 0:
+            out["parserSkippedCount"] = parser_skipped
         return out
 
     def _anthropic_block_to_assistant_param(self, block: Any) -> Optional[Dict[str, Any]]:
@@ -1237,6 +1253,7 @@ class LLMProvider:
                 ],
             })
 
+            openai_tool_blocks = []
             for tc in msg.tool_calls:
                 name = tc.function.name
                 try:
@@ -1244,22 +1261,66 @@ class LLMProvider:
                     inp = json.loads(raw) if isinstance(raw, str) else raw
                 except json.JSONDecodeError:
                     inp = {}
-                all_tool_calls.append({"name": name, "input": inp, "id": tc.id})
+                openai_tool_blocks.append(
+                    {"id": tc.id, "name": name, "input": inp}
+                )
 
-                if tool_executor:
-                    try:
-                        result_str = await tool_executor(name, inp)
-                    except Exception as e:
-                        logger.error("tool_executor error for %s: %s", name, e)
-                        result_str = json.dumps({"error": str(e)})
+            if openai_tool_blocks:
+                if tool_executor and len(openai_tool_blocks) > 1:
+
+                    async def _openai_one(block: Dict[str, Any]) -> tuple:
+                        name = block["name"]
+                        inp = block["input"]
+                        all_tool_calls.append(
+                            {"name": name, "input": inp, "id": block["id"]}
+                        )
+                        try:
+                            result_str = await tool_executor(name, inp)
+                        except Exception as e:
+                            logger.error("tool_executor error for %s: %s", name, e)
+                            result_str = json.dumps({"error": str(e)})
+                        return block["id"], result_str
+
+                    pairs = await asyncio.gather(
+                        *[_openai_one(b) for b in openai_tool_blocks]
+                    )
+                    for block in openai_tool_blocks:
+                        result_str = next(
+                            rs for bid, rs in pairs if bid == block["id"]
+                        )
+                        openai_messages.append({
+                            "role": "tool",
+                            "tool_call_id": block["id"],
+                            "content": result_str
+                            if isinstance(result_str, str)
+                            else json.dumps(result_str),
+                        })
                 else:
-                    result_str = json.dumps({"status": "queued", "tool": name})
-
-                openai_messages.append({
-                    "role": "tool",
-                    "tool_call_id": tc.id,
-                    "content": result_str if isinstance(result_str, str) else json.dumps(result_str),
-                })
+                    for block in openai_tool_blocks:
+                        name = block["name"]
+                        inp = block["input"]
+                        all_tool_calls.append(
+                            {"name": name, "input": inp, "id": block["id"]}
+                        )
+                        if tool_executor:
+                            try:
+                                result_str = await tool_executor(name, inp)
+                            except Exception as e:
+                                logger.error(
+                                    "tool_executor error for %s: %s", name, e
+                                )
+                                result_str = json.dumps({"error": str(e)})
+                        else:
+                            result_str = json.dumps(
+                                {"status": "queued", "tool": name}
+                            )
+                        openai_messages.append({
+                            "role": "tool",
+                            "tool_call_id": block["id"],
+                            "content": result_str
+                            if isinstance(result_str, str)
+                            else json.dumps(result_str),
+                        })
 
         if usage_events is not None and (total_in or total_out):
             _append_usage_event(
@@ -1283,6 +1344,46 @@ class LLMProvider:
             "iterations": iterations,
             "usage": usage_summary,
         }
+
+    async def _run_tool_batch(
+        self,
+        tool_use_blocks: List[Any],
+        tool_executor: Optional[Any],
+        all_tool_calls: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """Executa tools do mesmo turno em paralelo; preserva ordem dos tool_results."""
+
+        async def _one(tu: Any) -> tuple:
+            tc = {"name": tu.name, "input": tu.input, "id": tu.id}
+            if tool_executor:
+                try:
+                    result_str = await tool_executor(tu.name, tu.input)
+                except Exception as e:
+                    logger.error("tool_executor error for %s: %s", tu.name, e)
+                    result_str = json.dumps({"error": str(e)})
+            else:
+                result_str = json.dumps({"status": "queued", "tool": tu.name})
+            return tu.id, tc, result_str
+
+        if tool_executor and len(tool_use_blocks) > 1:
+            pairs = await asyncio.gather(*[_one(tu) for tu in tool_use_blocks])
+        else:
+            pairs = [await _one(tu) for tu in tool_use_blocks]
+
+        by_id = {tool_id: (tc, result_str) for tool_id, tc, result_str in pairs}
+        for tu in tool_use_blocks:
+            tc, _ = by_id[tu.id]
+            all_tool_calls.append(tc)
+
+        tool_results: List[Dict[str, Any]] = []
+        for tu in tool_use_blocks:
+            _, result_str = by_id[tu.id]
+            tool_results.append({
+                "type": "tool_result",
+                "tool_use_id": tu.id,
+                "content": result_str if isinstance(result_str, str) else json.dumps(result_str),
+            })
+        return tool_results
 
     async def run_agentic_loop(
         self,
@@ -1374,23 +1475,11 @@ class LLMProvider:
                         break
                     working_messages.append({"role": "assistant", "content": assistant_content})
 
-                    tool_results = []
-                    for tu in tool_use_blocks:
-                        tc = {"name": tu.name, "input": tu.input, "id": tu.id}
-                        all_tool_calls.append(tc)
-                        if tool_executor:
-                            try:
-                                result_str = await tool_executor(tu.name, tu.input)
-                            except Exception as e:
-                                logger.error("tool_executor error for %s: %s", tu.name, e)
-                                result_str = json.dumps({"error": str(e)})
-                        else:
-                            result_str = json.dumps({"status": "queued", "tool": tu.name})
-                        tool_results.append({
-                            "type": "tool_result",
-                            "tool_use_id": tu.id,
-                            "content": result_str if isinstance(result_str, str) else json.dumps(result_str),
-                        })
+                    tool_results = await self._run_tool_batch(
+                        tool_use_blocks,
+                        tool_executor,
+                        all_tool_calls,
+                    )
                     working_messages.append({"role": "user", "content": tool_results})
 
                 if usage_events is not None and (total_in or total_out):

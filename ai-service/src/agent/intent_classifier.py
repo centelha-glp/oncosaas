@@ -1,5 +1,10 @@
 """
-Intent Classifier for the Oncology Navigation Agent.
+Intent Classifier for the Oncology Navigation Agent (DEPRECATED no hot path).
+
+`AgentOrchestrator.process()` não invoca este módulo. Mantido para testes e
+telemetria eventual. O roteamento principal é feito pelo orquestrador Haiku via
+`run_agentic_loop` e tools `consultar_agente_*`.
+
 Classifies patient messages before the main pipeline to enable
 differentiated handling (fast greeting responses, emergency escalation, etc.).
 Classification uses the LLM when API keys are configured; otherwise returns a
