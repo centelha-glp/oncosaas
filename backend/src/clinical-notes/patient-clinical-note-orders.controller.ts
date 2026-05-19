@@ -7,6 +7,7 @@ import {
   HttpStatus,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   UseGuards,
 } from '@nestjs/common';
@@ -20,6 +21,8 @@ import { ClinicalSubrole, UserRole } from '@generated/prisma/client';
 import { ClinicalNoteOrdersService } from './clinical-note-orders.service';
 import { CreateClinicalExamRequestDto } from './dto/create-clinical-exam-request.dto';
 import { CreateClinicalPrescriptionLineDto } from './dto/create-clinical-prescription-line.dto';
+import { UpdateClinicalPrescriptionLineDto } from './dto/update-clinical-prescription-line.dto';
+import { SuggestClinicalOrdersFromEvolutionDto } from './dto/suggest-clinical-orders-from-evolution.dto';
 
 const ORDERS_ROLES = [
   UserRole.NURSE,
@@ -43,6 +46,23 @@ export class PatientClinicalNoteOrdersController {
       role: user.role as UserRole,
       clinicalSubrole: user.clinicalSubrole as ClinicalSubrole | null | undefined,
     };
+  }
+
+  @Post('suggest-from-evolution')
+  @Roles(...ORDERS_ROLES)
+  suggestOrdersFromEvolution(
+    @Param('patientId', ParseUUIDPipe) patientId: string,
+    @Param('clinicalNoteId', ParseUUIDPipe) clinicalNoteId: string,
+    @Body() dto: SuggestClinicalOrdersFromEvolutionDto,
+    @CurrentUser() user: CurrentUserType
+  ) {
+    return this.ordersService.suggestOrdersFromEvolution(
+      patientId,
+      clinicalNoteId,
+      user.tenantId,
+      this.actor(user),
+      dto.contentMarkdown
+    );
   }
 
   @Get('exam-requests')
@@ -119,6 +139,25 @@ export class PatientClinicalNoteOrdersController {
     return this.ordersService.createPrescriptionLine(
       patientId,
       clinicalNoteId,
+      user.tenantId,
+      this.actor(user),
+      dto
+    );
+  }
+
+  @Patch('prescription-lines/:lineId')
+  @Roles(...ORDERS_ROLES)
+  updatePrescriptionLine(
+    @Param('patientId', ParseUUIDPipe) patientId: string,
+    @Param('clinicalNoteId', ParseUUIDPipe) clinicalNoteId: string,
+    @Param('lineId', ParseUUIDPipe) lineId: string,
+    @Body() dto: UpdateClinicalPrescriptionLineDto,
+    @CurrentUser() user: CurrentUserType
+  ) {
+    return this.ordersService.updatePrescriptionLine(
+      patientId,
+      clinicalNoteId,
+      lineId,
       user.tenantId,
       this.actor(user),
       dto

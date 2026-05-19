@@ -14,6 +14,12 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { ClinicalNotesService } from '../clinical-notes/clinical-notes.service';
 import type { ClinicalNoteActor } from '../clinical-notes/clinical-notes.service';
+import { EvolutionStructuringService } from './evolution-structuring.service';
+import {
+  buildClinicalExtractionProposalSummary,
+  type ClinicalExtractionProposalSummary,
+} from './clinical-note-extraction-proposal.util';
+import type { AiClinicalEvolutionStructureResponse } from './clinical-note-extraction.types';
 import {
   LEDGER_OP_CREATE_CANCER_DIAGNOSIS,
   LEDGER_OP_CREATE_CLINICAL_EXAM_REQUEST,
@@ -38,10 +44,22 @@ export type ExtractionStatusDto = {
   status: string;
   appliedAt: string | null;
   canUndoUntil: string | null;
+  canApprove: boolean;
+  canReject: boolean;
   undoWindowDays: number;
   rejectionReport: unknown;
   appliedPayloadHash: string | null;
   errorMessage: string | null;
+  proposalSummary: ClinicalExtractionProposalSummary | null;
+};
+
+export type PendingClinicalExtractionDto = {
+  runId: string;
+  clinicalNoteId: string;
+  latestVersionNumber: number;
+  sectionsContentHash: string;
+  createdAt: string;
+  proposalSummary: ClinicalExtractionProposalSummary;
 };
 
 @Injectable()
@@ -49,7 +67,8 @@ export class ClinicalNoteExtractionService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
-    private readonly clinicalNotesService: ClinicalNotesService
+    private readonly clinicalNotesService: ClinicalNotesService,
+    private readonly evolutionStructuringService: EvolutionStructuringService
   ) {}
 
   private undoWindowMs(): number {
@@ -88,10 +107,13 @@ export class ClinicalNoteExtractionService {
           status: 'PENDING',
           appliedAt: null,
           canUndoUntil: null,
+          canApprove: false,
+          canReject: false,
           undoWindowDays: undoDays,
           rejectionReport: null,
           appliedPayloadHash: null,
           errorMessage: null,
+          proposalSummary: null,
         };
       }
       return {
@@ -99,10 +121,13 @@ export class ClinicalNoteExtractionService {
         status: 'NONE',
         appliedAt: null,
         canUndoUntil: null,
+        canApprove: false,
+        canReject: false,
         undoWindowDays: undoDays,
         rejectionReport: null,
         appliedPayloadHash: null,
         errorMessage: null,
+        proposalSummary: null,
       };
     }
 
@@ -111,17 +136,164 @@ export class ClinicalNoteExtractionService {
       run.status === ClinicalNoteExtractionRunStatus.APPLIED && appliedAt
         ? new Date(appliedAt.getTime() + windowMs).toISOString()
         : null;
+    const isAwaiting =
+      run.status === ClinicalNoteExtractionRunStatus.AWAITING_REVIEW;
+    const proposalSummary = isAwaiting
+      ? buildClinicalExtractionProposalSummary(
+          run.proposedPayload as AiClinicalEvolutionStructureResponse | null
+        )
+      : null;
 
     return {
       runId: run.id,
       status: run.status,
       appliedAt: appliedAt ? appliedAt.toISOString() : null,
       canUndoUntil,
+      canApprove: isAwaiting,
+      canReject: isAwaiting,
       undoWindowDays: undoDays,
       rejectionReport: run.rejectionReport ?? null,
       appliedPayloadHash: run.appliedPayloadHash,
       errorMessage: run.errorMessage,
+      proposalSummary,
     };
+  }
+
+  async listPendingExtractions(
+    patientId: string,
+    tenantId: string
+  ): Promise<PendingClinicalExtractionDto[]> {
+    const patient = await this.prisma.patient.findFirst({
+      where: { id: patientId, tenantId },
+      select: { id: true },
+    });
+    if (!patient) {
+      throw new NotFoundException(`Patient ${patientId} not found`);
+    }
+
+    const runs = await this.prisma.clinicalNoteExtractionRun.findMany({
+      where: {
+        tenantId,
+        patientId,
+        status: ClinicalNoteExtractionRunStatus.AWAITING_REVIEW,
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    });
+
+    return runs
+      .map((run) => {
+        const proposalSummary = buildClinicalExtractionProposalSummary(
+          run.proposedPayload as AiClinicalEvolutionStructureResponse | null
+        );
+        if (!proposalSummary) {
+          return null;
+        }
+        return {
+          runId: run.id,
+          clinicalNoteId: run.clinicalNoteId,
+          latestVersionNumber: run.latestVersionNumber,
+          sectionsContentHash: run.sectionsContentHash,
+          createdAt: run.createdAt.toISOString(),
+          proposalSummary,
+        };
+      })
+      .filter((r): r is PendingClinicalExtractionDto => r !== null);
+  }
+
+  private async assertCanReviewExtraction(
+    clinicalNoteId: string,
+    tenantId: string,
+    actor: ClinicalNoteActor
+  ): Promise<void> {
+    const note = await this.prisma.clinicalNote.findFirst({
+      where: { id: clinicalNoteId, tenantId },
+      select: { noteType: true },
+    });
+    if (!note) {
+      throw new NotFoundException(`Clinical note ${clinicalNoteId} not found`);
+    }
+    if (
+      !this.clinicalNotesService.canCreateOrSignNoteType(
+        actor.role as UserRole,
+        actor.clinicalSubrole as ClinicalSubrole | null | undefined,
+        note.noteType
+      )
+    ) {
+      throw new ForbiddenException(
+        'Sem permissão para revisar esta extração estruturada'
+      );
+    }
+  }
+
+  async approveExtraction(
+    clinicalNoteId: string,
+    tenantId: string,
+    actor: ClinicalNoteActor
+  ): Promise<ExtractionStatusDto> {
+    await this.assertCanReviewExtraction(clinicalNoteId, tenantId, actor);
+
+    const run = await this.prisma.clinicalNoteExtractionRun.findFirst({
+      where: {
+        clinicalNoteId,
+        tenantId,
+        status: ClinicalNoteExtractionRunStatus.AWAITING_REVIEW,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!run) {
+      throw new BadRequestException(
+        'Não há proposta de extração aguardando aprovação'
+      );
+    }
+
+    await this.evolutionStructuringService.applyApprovedExtraction(
+      run.id,
+      tenantId,
+      actor.id
+    );
+
+    return this.getExtractionStatus(clinicalNoteId, tenantId);
+  }
+
+  async rejectExtraction(
+    clinicalNoteId: string,
+    tenantId: string,
+    actor: ClinicalNoteActor,
+    reason?: string
+  ): Promise<ExtractionStatusDto> {
+    await this.assertCanReviewExtraction(clinicalNoteId, tenantId, actor);
+
+    const run = await this.prisma.clinicalNoteExtractionRun.findFirst({
+      where: {
+        clinicalNoteId,
+        tenantId,
+        status: ClinicalNoteExtractionRunStatus.AWAITING_REVIEW,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!run) {
+      throw new BadRequestException(
+        'Não há proposta de extração aguardando revisão'
+      );
+    }
+
+    const trimmedReason = reason?.trim().slice(0, 500);
+
+    await this.prisma.clinicalNoteExtractionRun.update({
+      where: { id: run.id, tenantId },
+      data: {
+        status: ClinicalNoteExtractionRunStatus.REJECTED,
+        reviewedAt: new Date(),
+        reviewedByUserId: actor.id,
+        proposedPayload: Prisma.JsonNull,
+        errorMessage: trimmedReason
+          ? `Rejeitada pelo profissional: ${trimmedReason}`
+          : 'Rejeitada pelo profissional.',
+      },
+    });
+
+    return this.getExtractionStatus(clinicalNoteId, tenantId);
   }
 
   async undoExtraction(

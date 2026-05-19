@@ -910,6 +910,27 @@ export class OncologyNavigationService {
       return { step, sent: false };
     }
 
+    if (
+      !opts.skipIfAlreadySent &&
+      step.appointmentConfirmationStatus !==
+        AppointmentConfirmationStatus.NOT_APPLICABLE
+    ) {
+      const statusMessages: Partial<
+        Record<AppointmentConfirmationStatus, string>
+      > = {
+        [AppointmentConfirmationStatus.CONFIRMED]:
+          'A consulta já foi confirmada pelo paciente; não é possível reenviar a solicitação de confirmação.',
+        [AppointmentConfirmationStatus.DECLINED]:
+          'O paciente já recusou a confirmação desta consulta; não é possível reenviar a solicitação.',
+        [AppointmentConfirmationStatus.AWAITING_RESPONSE]:
+          'A confirmação já foi enviada e aguarda resposta do paciente; não é possível reenviar neste estado.',
+      };
+      const message = statusMessages[step.appointmentConfirmationStatus];
+      if (message) {
+        throw new BadRequestException(message);
+      }
+    }
+
     await this.cancelPendingConsultationScheduledActionsForNavigationStep(
       tenantId,
       step.id

@@ -722,6 +722,107 @@ export class ClinicalNotesService {
     return this.toMutationResponse(row);
   }
 
+  /**
+   * Re-enfileira estruturação pós-assinatura para runs FAILED (tenant-safe).
+   */
+  async retryStructureExtraction(
+    clinicalNoteId: string,
+    tenantId: string,
+    actor: ClinicalNoteActor
+  ): Promise<{ enqueued: true; runId: string }> {
+    const note = await this.prisma.clinicalNote.findFirst({
+      where: { id: clinicalNoteId, tenantId },
+      include: {
+        versions: { orderBy: { versionNumber: 'desc' }, take: 1 },
+      },
+    });
+    if (!note) {
+      throw new NotFoundException(`Clinical note ${clinicalNoteId} not found`);
+    }
+    if (note.status !== ClinicalNoteStatus.SIGNED) {
+      throw new BadRequestException(
+        'Reprocessar estruturação só está disponível para evoluções assinadas'
+      );
+    }
+    if (!this.canCreateOrSignNoteType(actor.role, actor.clinicalSubrole, note.noteType)) {
+      throw new ForbiddenException('Sem permissão para reprocessar extração desta nota');
+    }
+
+    const v = note.versions[0];
+    if (!v) {
+      throw new BadRequestException('Nota sem versão assinada para estruturar');
+    }
+
+    const run = await this.prisma.clinicalNoteExtractionRun.findFirst({
+      where: {
+        clinicalNoteId: note.id,
+        sectionsContentHash: v.sectionsContentHash,
+        tenantId,
+      },
+    });
+    if (!run) {
+      throw new BadRequestException(
+        'Não há execução de extração para reprocessar nesta versão'
+      );
+    }
+    if (run.status === ClinicalNoteExtractionRunStatus.APPLIED) {
+      throw new BadRequestException('Extração já aplicada; use desfazer se necessário');
+    }
+    if (run.status === ClinicalNoteExtractionRunStatus.AWAITING_REVIEW) {
+      throw new BadRequestException(
+        'Extração aguarda revisão; aprove ou rejeite antes de reprocessar'
+      );
+    }
+    if (run.status !== ClinicalNoteExtractionRunStatus.FAILED) {
+      throw new BadRequestException(
+        'Reprocessamento disponível apenas quando a extração falhou'
+      );
+    }
+
+    await this.prisma.clinicalNoteExtractionRun.update({
+      where: { id: run.id, tenantId },
+      data: {
+        status: ClinicalNoteExtractionRunStatus.PENDING,
+        errorMessage: null,
+      },
+    });
+
+    const payload: ClinicalNoteExtractionJobPayload = {
+      tenantId,
+      patientId: note.patientId,
+      clinicalNoteId: note.id,
+      signedByUserId: note.signedById ?? actor.id,
+      latestVersionNumber: v.versionNumber,
+      sectionsContentHash: v.sectionsContentHash,
+    };
+
+    try {
+      await this.clinicalNoteExtractionQueue.add(
+        'structure-after-sign',
+        payload,
+        {
+          removeOnComplete: true,
+          attempts: 3,
+          backoff: { type: 'exponential', delay: 5000 },
+        }
+      );
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      await this.prisma.clinicalNoteExtractionRun.update({
+        where: { id: run.id, tenantId },
+        data: {
+          status: ClinicalNoteExtractionRunStatus.FAILED,
+          errorMessage: `EXTRACTION_ENQUEUE_FAILED: ${msg.slice(0, 1800)}`,
+        },
+      });
+      throw new BadRequestException(
+        'Não foi possível reenfileirar a estruturação. Tente novamente.'
+      );
+    }
+
+    return { enqueued: true, runId: run.id };
+  }
+
   async addendum(
     signedNoteId: string,
     dto: AddendumClinicalNoteDto,

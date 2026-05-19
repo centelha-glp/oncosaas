@@ -32,6 +32,8 @@ export class ThrottleGuard implements CanActivate {
   private readonly webhookLimit = 200;
   /** Hidratação de sessão (várias montagens / Strict Mode); maior que o default para evitar 429 em rajadas legítimas. */
   private readonly profileLimit = 400;
+  /** Sugestão assistida de pedidos a partir da evolução em rascunho (LLM). */
+  private readonly suggestOrdersFromEvolutionLimit = 8;
 
   constructor(private readonly redisService: RedisService) {
     // Limpeza periódica do fallback in-memory
@@ -138,6 +140,9 @@ export class ThrottleGuard implements CanActivate {
     }
     if (path.includes('/auth/profile')) {
       return this.profileLimit;
+    }
+    if (path.includes('/clinical-orders/suggest-from-evolution')) {
+      return this.suggestOrdersFromEvolutionLimit;
     }
     return this.defaultLimit;
   }

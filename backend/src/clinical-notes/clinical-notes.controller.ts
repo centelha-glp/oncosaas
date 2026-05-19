@@ -19,6 +19,7 @@ import type { CurrentUser as CurrentUserType } from '../auth/decorators/current-
 import { UserRole } from '@generated/prisma/client';
 import { ClinicalNotesService } from './clinical-notes.service';
 import { ClinicalNoteExtractionService } from '../clinical-note-extraction/clinical-note-extraction.service';
+import { RejectClinicalExtractionDto } from './dto/reject-clinical-extraction.dto';
 import {
   UpdateClinicalNoteDto,
   AddendumClinicalNoteDto,
@@ -110,6 +111,68 @@ export class ClinicalNotesController {
     @CurrentUser() user: CurrentUserType
   ) {
     return this.clinicalNoteExtractionService.undoExtraction(
+      id,
+      user.tenantId,
+      this.actor(user)
+    );
+  }
+
+  @Post(':id/extraction-approve')
+  @Roles(
+    UserRole.NURSE,
+    UserRole.NURSE_CHIEF,
+    UserRole.DOCTOR,
+    UserRole.ONCOLOGIST,
+    UserRole.COORDINATOR,
+    UserRole.ADMIN
+  )
+  approveExtraction(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: CurrentUserType
+  ) {
+    return this.clinicalNoteExtractionService.approveExtraction(
+      id,
+      user.tenantId,
+      this.actor(user)
+    );
+  }
+
+  @Post(':id/extraction-reject')
+  @Roles(
+    UserRole.NURSE,
+    UserRole.NURSE_CHIEF,
+    UserRole.DOCTOR,
+    UserRole.ONCOLOGIST,
+    UserRole.COORDINATOR,
+    UserRole.ADMIN
+  )
+  rejectExtraction(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: RejectClinicalExtractionDto,
+    @CurrentUser() user: CurrentUserType
+  ) {
+    return this.clinicalNoteExtractionService.rejectExtraction(
+      id,
+      user.tenantId,
+      this.actor(user),
+      dto.reason
+    );
+  }
+
+  @Post(':id/extraction-retry')
+  @Roles(
+    UserRole.NURSE,
+    UserRole.NURSE_CHIEF,
+    UserRole.DOCTOR,
+    UserRole.ONCOLOGIST,
+    UserRole.COORDINATOR,
+    UserRole.ADMIN
+  )
+  retryStructureExtraction(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: CurrentUserType
+  ) {
+    return this.clinicalNotesService.retryStructureExtraction(
       id,
       user.tenantId,
       this.actor(user)

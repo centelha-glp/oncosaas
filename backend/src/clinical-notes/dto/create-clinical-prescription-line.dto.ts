@@ -1,4 +1,4 @@
-import { IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 
 export class CreateClinicalPrescriptionLineDto {
   @IsString()
@@ -16,28 +16,33 @@ export class CreateClinicalPrescriptionLineDto {
   @MaxLength(128)
   presentationCatalogCode?: string;
 
-  @IsOptional()
   @IsString()
-  @MaxLength(128)
-  dosage?: string;
+  @IsNotEmpty()
+  @MaxLength(32)
+  quantity: string;
 
-  @IsOptional()
   @IsString()
+  @IsNotEmpty()
   @MaxLength(128)
-  frequency?: string;
+  dosage: string;
 
-  @IsOptional()
   @IsString()
+  @IsNotEmpty()
+  @MaxLength(128)
+  frequency: string;
+
+  @IsString()
+  @IsNotEmpty()
   @MaxLength(64)
-  route?: string;
+  route: string;
 
-  @IsOptional()
   @IsString()
+  @IsNotEmpty()
   @MaxLength(128)
-  duration?: string;
+  duration: string;
 
   @IsOptional()
   @IsString()
   @MaxLength(500)
-  indication?: string;
+  observation?: string;
 }

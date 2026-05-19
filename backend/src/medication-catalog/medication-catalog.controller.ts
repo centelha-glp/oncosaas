@@ -34,6 +34,23 @@ export class MedicationCatalogController {
     return this.medicationCatalogService.listRoutes();
   }
 
+  @Get('entries')
+  @Roles(
+    UserRole.ADMIN,
+    UserRole.ONCOLOGIST,
+    UserRole.DOCTOR,
+    UserRole.NURSE_CHIEF,
+    UserRole.NURSE,
+    UserRole.COORDINATOR
+  )
+  searchEntries(
+    @Query('q') q?: string,
+    @Query('limit', new DefaultValuePipe(80), ParseIntPipe) limit?: number
+  ) {
+    const safeLimit = Math.min(Math.max(limit ?? 80, 1), 200);
+    return this.medicationCatalogService.searchEntries({ q, limit: safeLimit });
+  }
+
   @Get()
   @Roles(
     UserRole.ADMIN,

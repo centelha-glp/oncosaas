@@ -67,7 +67,7 @@ export const MEDICATION_CATALOG_SEED_ROWS: MedicationCatalogSeedDrug[] = [
   {
     code: 'ASPIRIN_LOW',
     genericName: 'Ácido acetilsalicílico',
-    displayName: 'AAS (antiagregante)',
+    displayName: 'AAS',
     category: MedicationCategory.ANTIPLATELET,
     allowedRoutes: VO_ONLY,
     presentations: [
