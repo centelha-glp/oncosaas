@@ -10,6 +10,9 @@ describe('PatientClinicalNotesController', () => {
   const sectionSuggestionService = {
     getSectionSuggestions: jest.fn(),
   };
+  const clinicalNoteExtractionService = {
+    listPendingExtractions: jest.fn(),
+  };
 
   const user = {
     id: 'user-1',
@@ -29,7 +32,8 @@ describe('PatientClinicalNotesController', () => {
     it('deve lançar BadRequestException quando navigationStepId for inválido', async () => {
       const controller = new PatientClinicalNotesController(
         clinicalNotesService as any,
-        sectionSuggestionService as any
+        sectionSuggestionService as any,
+        clinicalNoteExtractionService as any
       );
 
       expect(() =>
@@ -41,7 +45,8 @@ describe('PatientClinicalNotesController', () => {
     it('deve tratar navigationStepId vazio como undefined (sem filtro)', async () => {
       const controller = new PatientClinicalNotesController(
         clinicalNotesService as any,
-        sectionSuggestionService as any
+        sectionSuggestionService as any,
+        clinicalNoteExtractionService as any
       );
       clinicalNotesService.findAllForPatient.mockResolvedValueOnce({ data: [], total: 0 });
 
@@ -59,7 +64,8 @@ describe('PatientClinicalNotesController', () => {
     it('deve repassar navigationStepId válido como filtro para o service', async () => {
       const controller = new PatientClinicalNotesController(
         clinicalNotesService as any,
-        sectionSuggestionService as any
+        sectionSuggestionService as any,
+        clinicalNoteExtractionService as any
       );
       clinicalNotesService.findAllForPatient.mockResolvedValueOnce({ data: [], total: 0 });
       const stepId = '11111111-1111-4111-8111-111111111111';
@@ -80,7 +86,8 @@ describe('PatientClinicalNotesController', () => {
     it('deve repassar tenantId, actor e noteType ao service', async () => {
       const controller = new PatientClinicalNotesController(
         clinicalNotesService as any,
-        sectionSuggestionService as any
+        sectionSuggestionService as any,
+        clinicalNoteExtractionService as any
       );
       clinicalNotesService.bootstrapEvolutionNavigationStep.mockResolvedValueOnce({
         id: 'step-new',

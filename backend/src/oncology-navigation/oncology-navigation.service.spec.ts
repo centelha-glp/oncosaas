@@ -1832,6 +1832,134 @@ describe('OncologyNavigationService', () => {
     });
   });
 
+  describe('sendConsultationConfirmation', () => {
+    const stepId = 'step-confirm-1';
+    const expectedDate = new Date('2026-06-22T15:00:00.000Z');
+
+    const baseConsultationStep = {
+      id: stepId,
+      tenantId: TENANT,
+      patientId: PATIENT_ID,
+      stepKey: 'specialist_consultation',
+      stepName: 'Consulta especializada',
+      expectedDate,
+      status: NavigationStepStatus.PENDING,
+      scheduledProfessionalId: PROFESSIONAL_ID,
+    };
+
+    beforeEach(() => {
+      mockPrisma.conversation.findFirst.mockResolvedValue(null);
+      mockPrisma.navigationStep.update.mockImplementation(
+        async ({ data }) =>
+          ({
+            ...baseConsultationStep,
+            appointmentConfirmationStatus: data.appointmentConfirmationStatus,
+          }) as never
+      );
+    });
+
+    it('throws BadRequestException when status is CONFIRMED and does not update DB', async () => {
+      mockPrisma.navigationStep.findFirst.mockResolvedValue({
+        ...baseConsultationStep,
+        appointmentConfirmationStatus:
+          AppointmentConfirmationStatus.CONFIRMED,
+      } as never);
+
+      await expect(
+        service.sendConsultationConfirmation(stepId, TENANT)
+      ).rejects.toThrow(
+        new BadRequestException(
+          'A consulta já foi confirmada pelo paciente; não é possível reenviar a solicitação de confirmação.'
+        )
+      );
+
+      expect(mockChannelGateway.sendMessage).not.toHaveBeenCalled();
+      expect(mockPrisma.navigationStep.update).not.toHaveBeenCalled();
+    });
+
+    it('throws BadRequestException when status is DECLINED and does not update DB', async () => {
+      mockPrisma.navigationStep.findFirst.mockResolvedValue({
+        ...baseConsultationStep,
+        appointmentConfirmationStatus: AppointmentConfirmationStatus.DECLINED,
+      } as never);
+
+      await expect(
+        service.sendConsultationConfirmation(stepId, TENANT)
+      ).rejects.toThrow(
+        new BadRequestException(
+          'O paciente já recusou a confirmação desta consulta; não é possível reenviar a solicitação.'
+        )
+      );
+
+      expect(mockChannelGateway.sendMessage).not.toHaveBeenCalled();
+      expect(mockPrisma.navigationStep.update).not.toHaveBeenCalled();
+    });
+
+    it('throws BadRequestException when status is AWAITING_RESPONSE (manual re-send blocked)', async () => {
+      mockPrisma.navigationStep.findFirst.mockResolvedValue({
+        ...baseConsultationStep,
+        appointmentConfirmationStatus:
+          AppointmentConfirmationStatus.AWAITING_RESPONSE,
+      } as never);
+
+      await expect(
+        service.sendConsultationConfirmation(stepId, TENANT)
+      ).rejects.toThrow(
+        new BadRequestException(
+          'A confirmação já foi enviada e aguarda resposta do paciente; não é possível reenviar neste estado.'
+        )
+      );
+
+      expect(mockChannelGateway.sendMessage).not.toHaveBeenCalled();
+      expect(mockPrisma.navigationStep.update).not.toHaveBeenCalled();
+    });
+
+    it('returns sent:false without update when skipIfAlreadySent and status is AWAITING_RESPONSE', async () => {
+      const awaitingStep = {
+        ...baseConsultationStep,
+        appointmentConfirmationStatus:
+          AppointmentConfirmationStatus.AWAITING_RESPONSE,
+      };
+      mockPrisma.navigationStep.findFirst.mockResolvedValue(
+        awaitingStep as never
+      );
+
+      const result = await service.sendConsultationConfirmation(stepId, TENANT, {
+        skipIfAlreadySent: true,
+      });
+
+      expect(result).toEqual({ step: awaitingStep, sent: false });
+      expect(mockChannelGateway.sendMessage).not.toHaveBeenCalled();
+      expect(mockPrisma.navigationStep.update).not.toHaveBeenCalled();
+    });
+
+    it('sends confirmation and sets AWAITING_RESPONSE when status is NOT_APPLICABLE', async () => {
+      mockPrisma.navigationStep.findFirst.mockResolvedValue({
+        ...baseConsultationStep,
+        appointmentConfirmationStatus:
+          AppointmentConfirmationStatus.NOT_APPLICABLE,
+      } as never);
+
+      const result = await service.sendConsultationConfirmation(stepId, TENANT);
+
+      expect(mockPrisma.navigationStep.findFirst).toHaveBeenCalledWith({
+        where: { id: stepId, tenantId: TENANT },
+      });
+      expect(mockChannelGateway.sendMessage).toHaveBeenCalled();
+      expect(mockPrisma.navigationStep.update).toHaveBeenCalledWith({
+        where: { id: stepId, tenantId: TENANT },
+        data: {
+          appointmentConfirmationStatus:
+            AppointmentConfirmationStatus.AWAITING_RESPONSE,
+        },
+      });
+      expect(result.sent).toBe(true);
+      expect(result.step.appointmentConfirmationStatus).toBe(
+        AppointmentConfirmationStatus.AWAITING_RESPONSE
+      );
+    });
+  });
+
   describe('createConsultationAppointment', () => {
     const baseDto = {
       patientId: PATIENT_ID,

@@ -24,6 +24,31 @@ describe('MedicationCatalogService', () => {
     );
   });
 
+  describe('searchEntries', () => {
+    it('returns flat entries from presentations', async () => {
+      mockPrisma.medicationCatalogPresentation.findMany.mockResolvedValue([
+        {
+          code: 'OMEPRAZOLE_20MG_CP',
+          label: 'Omeprazol 20 mg',
+          strength: '20 mg',
+          form: 'comprimido',
+          drug: {
+            code: 'OMEPRAZOLE',
+            displayName: 'Omeprazol',
+            allowedRoutes: ['VO'],
+          },
+        },
+      ]);
+      mockPrisma.medicationCatalogDrug.findMany.mockResolvedValue([]);
+
+      const result = await service.searchEntries({ q: 'ome', limit: 80 });
+
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0].label).toContain('Omeprazol');
+      expect(result.items[0].presentationCode).toBe('OMEPRAZOLE_20MG_CP');
+    });
+  });
+
   describe('search', () => {
     it('returns paginated drugs', async () => {
       mockPrisma.medicationCatalogDrug.findMany.mockResolvedValue([

@@ -3,6 +3,7 @@ import { ClinicalNoteStatus, ClinicalNoteType, UserRole } from '@generated/prism
 import { ClinicalNoteOrdersService } from './clinical-note-orders.service';
 import { ClinicalNotesService } from './clinical-notes.service';
 import { MedicationCatalogService } from '../medication-catalog/medication-catalog.service';
+import { EvolutionStructuringService } from '../clinical-note-extraction/evolution-structuring.service';
 import { PrismaService } from '../prisma/prisma.service';
 
 describe('ClinicalNoteOrdersService', () => {
@@ -20,6 +21,7 @@ describe('ClinicalNoteOrdersService', () => {
     clinicalPrescriptionLine: {
       findMany: jest.fn(),
       create: jest.fn(),
+      update: jest.fn(),
       findFirst: jest.fn(),
       delete: jest.fn(),
       count: jest.fn(),
@@ -31,6 +33,9 @@ describe('ClinicalNoteOrdersService', () => {
   const mockMedicationCatalog = {
     findDrugByCode: jest.fn(),
     findPresentationByCode: jest.fn(),
+  };
+  const mockEvolutionStructuring = {
+    previewOrdersFromMarkdown: jest.fn(),
   };
 
   const actor = {
@@ -44,8 +49,67 @@ describe('ClinicalNoteOrdersService', () => {
     service = new ClinicalNoteOrdersService(
       mockPrisma as unknown as PrismaService,
       mockClinicalNotes as unknown as ClinicalNotesService,
-      mockMedicationCatalog as unknown as MedicationCatalogService
+      mockMedicationCatalog as unknown as MedicationCatalogService,
+      mockEvolutionStructuring as unknown as EvolutionStructuringService
     );
+  });
+
+  describe('suggestOrdersFromEvolution', () => {
+    it('rejects when note is not DRAFT', async () => {
+      mockPrisma.clinicalNote.findFirst.mockResolvedValue({
+        id: 'note-1',
+        status: ClinicalNoteStatus.SIGNED,
+        noteType: ClinicalNoteType.MEDICAL,
+        patientId: 'pat-1',
+      });
+
+      await expect(
+        service.suggestOrdersFromEvolution(
+          'pat-1',
+          'note-1',
+          'tenant-1',
+          actor,
+          '# Evolução'
+        )
+      ).rejects.toThrow(BadRequestException);
+
+      expect(mockEvolutionStructuring.previewOrdersFromMarkdown).not.toHaveBeenCalled();
+    });
+
+    it('calls ai preview for DRAFT note with tenant scope', async () => {
+      mockPrisma.clinicalNote.findFirst.mockResolvedValue({
+        id: 'note-1',
+        status: ClinicalNoteStatus.DRAFT,
+        noteType: ClinicalNoteType.MEDICAL,
+        patientId: 'pat-1',
+      });
+      mockClinicalNotes.canCreateOrSignNoteType.mockReturnValue(true);
+      mockEvolutionStructuring.previewOrdersFromMarkdown.mockResolvedValue({
+        clinical_exam_requests: [{ display_name: 'Hemograma' }],
+        clinical_prescription_lines: [],
+      });
+
+      const result = await service.suggestOrdersFromEvolution(
+        'pat-1',
+        'note-1',
+        'tenant-1',
+        actor,
+        '  # Evolução  '
+      );
+
+      expect(mockPrisma.clinicalNote.findFirst).toHaveBeenCalledWith({
+        where: { id: 'note-1', tenantId: 'tenant-1', patientId: 'pat-1' },
+        select: expect.any(Object),
+      });
+      expect(mockEvolutionStructuring.previewOrdersFromMarkdown).toHaveBeenCalledWith({
+        tenantId: 'tenant-1',
+        patientId: 'pat-1',
+        clinicalNoteId: 'note-1',
+        noteType: ClinicalNoteType.MEDICAL,
+        contentMarkdown: '# Evolução',
+      });
+      expect(result.clinical_exam_requests).toHaveLength(1);
+    });
   });
 
   describe('createExamRequest', () => {
@@ -132,7 +196,14 @@ describe('ClinicalNoteOrdersService', () => {
           'note-1',
           'tenant-1',
           actor,
-          { medicationName: 'X' }
+          {
+            medicationName: 'X',
+            quantity: '1',
+            dosage: 'cp',
+            frequency: '1x/dia',
+            route: 'VO',
+            duration: '7 dias',
+          }
         )
       ).rejects.toThrow(BadRequestException);
     });
@@ -158,9 +229,66 @@ describe('ClinicalNoteOrdersService', () => {
         service.createPrescriptionLine('pat-1', 'note-1', 'tenant-1', actor, {
           medicationName: 'x',
           catalogKey: 'WARFARIN',
+          quantity: '1',
+          dosage: 'comprimido',
+          frequency: '12/12 h',
           route: 'IV',
+          duration: '7 dias',
         })
       ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('updatePrescriptionLine', () => {
+    it('updates line with structured fields', async () => {
+      mockPrisma.clinicalNote.findFirst.mockResolvedValue({
+        id: 'note-1',
+        status: ClinicalNoteStatus.DRAFT,
+        noteType: ClinicalNoteType.MEDICAL,
+        patientId: 'pat-1',
+      });
+      mockPrisma.clinicalNoteVersion.findFirst.mockResolvedValue({
+        versionNumber: 2,
+      });
+      mockClinicalNotes.canCreateOrSignNoteType.mockReturnValue(true);
+      mockPrisma.clinicalPrescriptionLine.findFirst.mockResolvedValue({
+        id: 'line-1',
+      });
+      mockPrisma.clinicalPrescriptionLine.update.mockResolvedValue({
+        id: 'line-1',
+        clinicalNoteVersionNumber: 2,
+        medicationName: 'Omeprazol',
+        catalogKey: null,
+        presentationCatalogCode: null,
+        quantity: '1',
+        dosage: 'comprimido',
+        frequency: '1x/dia',
+        route: 'VO',
+        duration: '7 dias',
+        indication: null,
+        prescribedBy: { id: actor.id, name: 'Dr.' },
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      const result = await service.updatePrescriptionLine(
+        'pat-1',
+        'note-1',
+        'line-1',
+        'tenant-1',
+        actor,
+        {
+          medicationName: 'Omeprazol',
+          quantity: '1',
+          dosage: 'comprimido',
+          frequency: '1x/dia',
+          route: 'VO',
+          duration: '7 dias',
+        }
+      );
+
+      expect(result.observation).toBeNull();
+      expect(result.quantity).toBe('1');
     });
   });
 
