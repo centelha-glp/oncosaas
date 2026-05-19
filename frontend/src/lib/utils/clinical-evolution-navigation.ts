@@ -1,6 +1,17 @@
+import type { ClinicalNoteType } from '@/lib/api/clinical-notes';
 import type { NavigationStep } from '@/lib/api/oncology-navigation';
 import { baseNavigationStepKey } from '@/lib/utils/navigation-step-ux-hints';
 import { JOURNEY_STAGE_ORDER, type JourneyStage } from '@/lib/utils/journey-stage';
+
+/** Tipo de evolução do prontuário para etapas de consulta na agenda. */
+export function clinicalNoteTypeForNavigationStepKey(
+  stepKey: string
+): ClinicalNoteType | null {
+  const base = baseNavigationStepKey(stepKey);
+  if (base === 'specialist_consultation') return 'MEDICAL';
+  if (base === 'navigation_consultation') return 'NURSING';
+  return null;
+}
 
 /**
  * Etapas compatíveis com um tipo de evolução (chave canónica alinhada ao backend).

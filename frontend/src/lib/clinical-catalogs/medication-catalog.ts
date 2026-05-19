@@ -11,7 +11,7 @@ export const MEDICATION_CATALOG: Record<string, MedicationCatalogEntry> = {
   RIVAROXABAN: { label: 'Rivaroxabana', category: 'ANTICOAGULANT' },
   APIXABAN: { label: 'Apixabana', category: 'ANTICOAGULANT' },
   ENOXAPARIN: { label: 'Enoxaparina', category: 'ANTICOAGULANT' },
-  ASPIRIN_LOW: { label: 'AAS (antiagregante)', category: 'ANTIPLATELET' },
+  ASPIRIN_LOW: { label: 'AAS', category: 'ANTIPLATELET' },
   CLOPIDOGREL: { label: 'Clopidogrel', category: 'ANTIPLATELET' },
   PREDNISONE: { label: 'Prednisona', category: 'CORTICOSTEROID' },
   DEXAMETHASONE: { label: 'Dexametasona', category: 'CORTICOSTEROID' },

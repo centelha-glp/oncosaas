@@ -209,6 +209,71 @@ export function useClinicalNoteExtractionStatus(
   });
 }
 
+export function usePendingClinicalExtractions(patientId: string) {
+  return useQuery({
+    queryKey: ['clinical-notes', patientId, 'pending-extractions'],
+    queryFn: () => clinicalNotesApi.listPendingExtractions(patientId),
+    staleTime: 10_000,
+  });
+}
+
+export function useApproveClinicalNoteExtraction(patientId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (noteId: string) => clinicalNotesApi.approveExtraction(noteId),
+    onSuccess: (_, noteId) => {
+      queryClient.invalidateQueries({ queryKey: ['clinical-notes', patientId] });
+      queryClient.invalidateQueries({
+        queryKey: ['clinical-notes', 'detail', noteId],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ['clinical-notes', 'detail', noteId, 'extraction-status'],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ['clinical-notes', patientId, 'pending-extractions'],
+      });
+    },
+  });
+}
+
+export function useRejectClinicalNoteExtraction(patientId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { noteId: string; reason?: string }) =>
+      clinicalNotesApi.rejectExtraction(args.noteId, {
+        reason: args.reason,
+      }),
+    onSuccess: (_, { noteId }) => {
+      queryClient.invalidateQueries({ queryKey: ['clinical-notes', patientId] });
+      queryClient.invalidateQueries({
+        queryKey: ['clinical-notes', 'detail', noteId],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ['clinical-notes', 'detail', noteId, 'extraction-status'],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ['clinical-notes', patientId, 'pending-extractions'],
+      });
+    },
+  });
+}
+
+export function useRetryClinicalNoteExtraction(patientId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (noteId: string) => clinicalNotesApi.retryStructureExtraction(noteId),
+    onSuccess: (_, noteId) => {
+      queryClient.invalidateQueries({ queryKey: ['clinical-notes', patientId] });
+      queryClient.invalidateQueries({
+        queryKey: ['clinical-notes', 'detail', noteId],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ['clinical-notes', 'detail', noteId, 'extraction-status'],
+      });
+    },
+  });
+}
+
 export function useUndoClinicalNoteExtraction(patientId: string) {
   const queryClient = useQueryClient();
   return useMutation({

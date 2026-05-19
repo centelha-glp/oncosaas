@@ -16,7 +16,9 @@ import {
   clinicalNoteOrdersApi,
   type ClinicalExamRequestRow,
   type ClinicalPrescriptionLineRow,
+  type SuggestClinicalOrdersFromEvolutionResponse,
 } from '@/lib/api/clinical-note-orders';
+import { ApiClientError } from '@/lib/api/client';
 import { tissGuidesApi } from '@/lib/api/tiss-guides';
 import type { ClinicalNoteType } from '@/lib/api/clinical-notes';
 import { toast } from 'sonner';
@@ -25,10 +27,21 @@ import { ExamCatalogCombobox } from '@/components/shared/exam-catalog-combobox';
 import { useDebounce } from '@/lib/utils/use-debounce';
 import { useExamCatalogComboboxOptions } from '@/hooks/use-exam-catalog-combobox-options';
 import type { ExamCatalogSelection } from '@/hooks/use-exam-catalog-combobox-options';
-import { buildExamRequestPayload } from '@/lib/utils/clinical-orders-payload';
+import {
+  buildExamRequestPayload,
+  examRequestPayloadFromSuggestion,
+  prescriptionLineBodyFromSuggestion,
+} from '@/lib/utils/clinical-orders-payload';
+import { ClinicalOrdersSuggestDialog } from '@/components/patients/clinical-orders-suggest-dialog';
+import { Sparkles } from 'lucide-react';
 import { PrescriptionLineForm } from '@/components/patients/prescription-line-form';
 import { PrescriptionHistoryPanel } from '@/components/patients/prescription-history-panel';
-import type { PrescriptionDraftFromHistory } from '@/lib/utils/clinical-orders-payload';
+import {
+  prescriptionDraftFromLineRow,
+  type PrescriptionDraftFromHistory,
+} from '@/lib/utils/clinical-orders-payload';
+import { buildPrescriptionPosology } from '@/lib/utils/prescription-posology';
+import type { PrescriptionLineFormValues } from '@/components/patients/prescription-line-form';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -133,6 +146,7 @@ export function ClinicalNoteOrdersPanel(props: {
   canManagePrescriptions: boolean;
   variant: 'exams' | 'prescription';
   professionalName?: string;
+  draftMarkdown?: string;
 }) {
   const {
     patientId,
@@ -144,6 +158,7 @@ export function ClinicalNoteOrdersPanel(props: {
     canManagePrescriptions,
     variant,
     professionalName,
+    draftMarkdown = '',
   } = props;
 
   const queryClient = useQueryClient();
@@ -219,19 +234,11 @@ export function ClinicalNoteOrdersPanel(props: {
   });
 
   const [rxDraft, setRxDraft] = useState<PrescriptionDraftFromHistory | null>(null);
+  const [editingRxId, setEditingRxId] = useState<string | null>(null);
   const rxDraftQueueRef = useRef<PrescriptionDraftFromHistory[]>([]);
 
   const addRx = useMutation({
-    mutationFn: (body: {
-      medicationName: string;
-      catalogKey?: string;
-      presentationCatalogCode?: string;
-      dosage?: string;
-      frequency?: string;
-      route?: string;
-      duration?: string;
-      indication?: string;
-    }) =>
+    mutationFn: (body: PrescriptionLineFormValues) =>
       clinicalNoteOrdersApi.createPrescriptionLine(patientId, clinicalNoteId, body),
     onSuccess: () => {
       invalidate();
@@ -246,6 +253,35 @@ export function ClinicalNoteOrdersPanel(props: {
     },
   });
 
+  const updateRx = useMutation({
+    mutationFn: ({
+      lineId,
+      body,
+    }: {
+      lineId: string;
+      body: PrescriptionLineFormValues;
+    }) =>
+      clinicalNoteOrdersApi.updatePrescriptionLine(
+        patientId,
+        clinicalNoteId,
+        lineId,
+        body
+      ),
+    onSuccess: () => {
+      setEditingRxId(null);
+      setRxDraft(null);
+      invalidate();
+      toast.success('Prescrição atualizada.');
+    },
+    onError: (e: unknown) => {
+      const msg =
+        e && typeof e === 'object' && 'message' in e
+          ? String((e as { message?: string }).message)
+          : 'Não foi possível atualizar o medicamento.';
+      toast.error(msg);
+    },
+  });
+
   const delRx = useMutation({
     mutationFn: (id: string) =>
       clinicalNoteOrdersApi.deletePrescriptionLine(
@@ -254,14 +290,116 @@ export function ClinicalNoteOrdersPanel(props: {
         id
       ),
     onSuccess: () => {
+      if (editingRxId) {
+        setEditingRxId(null);
+        setRxDraft(null);
+      }
       invalidate();
       toast.success('Item removido da prescrição.');
     },
     onError: () => toast.error('Não foi possível remover o item.'),
   });
 
+  function posologyForRow(r: ClinicalPrescriptionLineRow): string {
+    return buildPrescriptionPosology({
+      route: r.route ?? 'VO',
+      quantity: r.quantity ?? '1',
+      dosage: r.dosage ?? '',
+      frequency: r.frequency ?? '',
+      duration: r.duration ?? '',
+    });
+  }
+
   const canEditExams = noteStatus !== 'VOIDED' && canManageExamRequests;
   const canEditRx = noteStatus !== 'VOIDED' && canManagePrescriptions;
+  const canSuggestWithAi =
+    noteStatus === 'DRAFT' &&
+    (variant === 'exams' ? canManageExamRequests : canManagePrescriptions);
+
+  const [suggestOpen, setSuggestOpen] = useState(false);
+  const [suggestionResult, setSuggestionResult] =
+    useState<SuggestClinicalOrdersFromEvolutionResponse | null>(null);
+
+  const suggestFromEvolution = useMutation({
+    mutationFn: () => {
+      const md = draftMarkdown.trim();
+      if (!md) {
+        throw new Error('Escreva a evolução antes de pedir sugestões à IA.');
+      }
+      return clinicalNoteOrdersApi.suggestOrdersFromEvolution(
+        patientId,
+        clinicalNoteId,
+        md.slice(0, 28000)
+      );
+    },
+    onSuccess: (data) => {
+      setSuggestionResult(data);
+      setSuggestOpen(true);
+      const examCount = data.clinical_exam_requests?.length ?? 0;
+      const rxCount = data.clinical_prescription_lines?.length ?? 0;
+      if (examCount === 0 && rxCount === 0) {
+        toast.message('Nenhum pedido sugerido para esta evolução.');
+      }
+    },
+    onError: (e: unknown) => {
+      if (e instanceof ApiClientError && e.statusCode === 429) {
+        toast.error(
+          'Limite de sugestões atingido. Aguarde um minuto e tente novamente.'
+        );
+        return;
+      }
+      const msg =
+        e instanceof Error
+          ? e.message
+          : e && typeof e === 'object' && 'message' in e
+            ? String((e as { message?: string }).message)
+            : 'Não foi possível obter sugestões da IA.';
+      toast.error(msg);
+    },
+  });
+
+  const applySuggestions = useMutation({
+    mutationFn: async (selected: {
+      exams: SuggestClinicalOrdersFromEvolutionResponse['clinical_exam_requests'];
+      prescriptions: SuggestClinicalOrdersFromEvolutionResponse['clinical_prescription_lines'];
+    }) => {
+      for (const exam of selected.exams) {
+        await clinicalNoteOrdersApi.createExamRequest(
+          patientId,
+          clinicalNoteId,
+          examRequestPayloadFromSuggestion(exam)
+        );
+      }
+      if (noteType === 'MEDICAL') {
+        for (const line of selected.prescriptions) {
+          await clinicalNoteOrdersApi.createPrescriptionLine(
+            patientId,
+            clinicalNoteId,
+            prescriptionLineBodyFromSuggestion(line)
+          );
+        }
+      }
+    },
+    onSuccess: (_, selected) => {
+      const n =
+        selected.exams.length +
+        (noteType === 'MEDICAL' ? selected.prescriptions.length : 0);
+      invalidate();
+      setSuggestOpen(false);
+      setSuggestionResult(null);
+      toast.success(
+        n === 1 ? '1 item registrado.' : `${n} itens registrados.`
+      );
+    },
+    onError: (e: unknown) => {
+      invalidate();
+      const msg =
+        e && typeof e === 'object' && 'message' in e
+          ? String((e as { message?: string }).message)
+          : 'Não foi possível aplicar todas as sugestões.';
+      toast.error(msg);
+    },
+  });
 
   const safePatientName = patientName?.trim() ? patientName.trim() : 'Paciente';
   const safeProfessionalName =
@@ -434,10 +572,14 @@ export function ClinicalNoteOrdersPanel(props: {
       (rxQuery.data as ClinicalPrescriptionLineRow[] | undefined) ?? [];
     const tableRows = rows
       .map((r) => {
-        const sig = [r.dosage, r.frequency, r.route].filter(Boolean).join(' · ');
+        const posology = escapeHtml(posologyForRow(r));
+        const obs = r.observation?.trim();
+        const obsHtml = obs
+          ? `<div class="muted" style="margin-top:4px;font-size:11px;">Obs.: ${escapeHtml(obs)}</div>`
+          : '';
         return `<tr>
           <td>${escapeHtml(r.medicationName)}</td>
-          <td class="muted">${escapeHtml(sig || '—')}</td>
+          <td>${posology}${obsHtml}</td>
         </tr>`;
       })
       .join('');
@@ -479,6 +621,24 @@ export function ClinicalNoteOrdersPanel(props: {
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h4 className="text-sm font-medium">Solicitações de exames</h4>
             <div className="flex flex-wrap items-center gap-2">
+              {canSuggestWithAi && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={
+                    !enabled ||
+                    suggestFromEvolution.isPending ||
+                    applySuggestions.isPending
+                  }
+                  onClick={() => suggestFromEvolution.mutate()}
+                >
+                  <Sparkles className="h-3.5 w-3.5 mr-1.5" aria-hidden />
+                  {suggestFromEvolution.isPending
+                    ? 'Analisando evolução…'
+                    : 'Sugerir com IA'}
+                </Button>
+              )}
               <Button
                 type="button"
                 variant="secondary"
@@ -599,6 +759,25 @@ export function ClinicalNoteOrdersPanel(props: {
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h4 className="text-sm font-medium">Receita (linhas)</h4>
             <div className="flex flex-wrap gap-2 items-end">
+              {canSuggestWithAi && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="self-end"
+                  disabled={
+                    !enabled ||
+                    suggestFromEvolution.isPending ||
+                    applySuggestions.isPending
+                  }
+                  onClick={() => suggestFromEvolution.mutate()}
+                >
+                  <Sparkles className="h-3.5 w-3.5 mr-1.5" aria-hidden />
+                  {suggestFromEvolution.isPending
+                    ? 'Analisando evolução…'
+                    : 'Sugerir com IA'}
+                </Button>
+              )}
               <div className="space-y-1">
                 <Label htmlFor="rx-copies">Nº de vias</Label>
                 <Input
@@ -651,22 +830,40 @@ export function ClinicalNoteOrdersPanel(props: {
                       ({formatVersionHint(r)})
                     </span>
                     <span className="text-xs text-muted-foreground block">
-                      {[r.dosage, r.frequency, r.route]
-                        .filter(Boolean)
-                        .join(' · ') || '—'}
+                      {posologyForRow(r)}
                     </span>
+                    {r.observation?.trim() && (
+                      <span className="text-xs text-muted-foreground block">
+                        Obs.: {r.observation.trim()}
+                      </span>
+                    )}
                   </div>
                   {canEditRx && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="shrink-0 text-destructive"
-                      disabled={delRx.isPending}
-                      onClick={() => delRx.mutate(r.id)}
-                    >
-                      Remover
-                    </Button>
+                    <div className="flex shrink-0 gap-1">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        disabled={delRx.isPending || updateRx.isPending}
+                        onClick={() => {
+                          rxDraftQueueRef.current = [];
+                          setEditingRxId(r.id);
+                          setRxDraft(prescriptionDraftFromLineRow(r));
+                        }}
+                      >
+                        Editar
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="text-destructive"
+                        disabled={delRx.isPending}
+                        onClick={() => delRx.mutate(r.id)}
+                      >
+                        Remover
+                      </Button>
+                    </div>
                   )}
                 </li>
               )
@@ -677,9 +874,13 @@ export function ClinicalNoteOrdersPanel(props: {
               <PrescriptionHistoryPanel
                 patientId={patientId}
                 currentClinicalNoteId={clinicalNoteId}
-                onReuse={(draft) => setRxDraft(draft)}
+                onReuse={(draft) => {
+                  setEditingRxId(null);
+                  setRxDraft(draft);
+                }}
                 onReuseAllFromNote={(drafts) => {
                   if (drafts.length === 0) return;
+                  setEditingRxId(null);
                   const [first, ...rest] = drafts;
                   rxDraftQueueRef.current = rest;
                   setRxDraft(first);
@@ -688,12 +889,32 @@ export function ClinicalNoteOrdersPanel(props: {
                   );
                 }}
               />
+              {editingRxId && rxDraft && (
+                <p className="text-xs text-muted-foreground rounded-md border border-dashed px-2 py-1.5">
+                  Editando: <span className="font-medium">{rxDraft.medicationName}</span>
+                </p>
+              )}
               <PrescriptionLineForm
                 disabled={!canEditRx}
-                pending={addRx.isPending}
+                pending={addRx.isPending || updateRx.isPending}
                 draft={rxDraft}
                 onDraftConsumed={() => setRxDraft(null)}
+                submitLabel={
+                  editingRxId ? 'Salvar alterações' : 'Adicionar à prescrição'
+                }
+                onCancel={
+                  editingRxId
+                    ? () => {
+                        setEditingRxId(null);
+                        setRxDraft(null);
+                      }
+                    : undefined
+                }
                 onSubmit={(values) => {
+                  if (editingRxId) {
+                    updateRx.mutate({ lineId: editingRxId, body: values });
+                    return;
+                  }
                   addRx.mutate(values, {
                     onSuccess: () => {
                       const queue = rxDraftQueueRef.current;
@@ -710,6 +931,28 @@ export function ClinicalNoteOrdersPanel(props: {
           )}
         </section>
       )}
+
+      <ClinicalOrdersSuggestDialog
+        open={suggestOpen}
+        onOpenChange={(open) => {
+          setSuggestOpen(open);
+          if (!open) setSuggestionResult(null);
+        }}
+        noteType={noteType}
+        suggestion={suggestionResult}
+        existingExamNames={
+          (examsQuery.data as ClinicalExamRequestRow[] | undefined)?.map(
+            (r) => r.displayName
+          ) ?? []
+        }
+        existingMedicationNames={
+          (rxQuery.data as ClinicalPrescriptionLineRow[] | undefined)?.map(
+            (r) => r.medicationName
+          ) ?? []
+        }
+        applying={applySuggestions.isPending}
+        onApply={(selected) => applySuggestions.mutate(selected)}
+      />
 
       <Dialog open={tissOpen} onOpenChange={setTissOpen}>
         <DialogContent className="max-w-2xl">

@@ -12,17 +12,67 @@ export type ClinicalExamRequestRow = {
   updatedAt: string;
 };
 
+export type PrescriptionLineBody = {
+  medicationName: string;
+  catalogKey?: string;
+  presentationCatalogCode?: string;
+  quantity: string;
+  dosage: string;
+  frequency: string;
+  route: string;
+  duration: string;
+  observation?: string;
+};
+
+export type ClinicalExamRequestSuggestion = {
+  display_name: string;
+  code?: string | null;
+  loinc_code?: string | null;
+  request_source?: 'explicit' | 'contextual';
+  rationale?: string | null;
+};
+
+export type ClinicalPrescriptionLineSuggestion = {
+  medication_name: string;
+  catalog_key?: string | null;
+  dosage?: string | null;
+  frequency?: string | null;
+  route?: string | null;
+  duration?: string | null;
+  indication?: string | null;
+  prescription_intent?: 'NEW' | 'DOSE_CHANGE' | 'SUSPEND';
+};
+
+export type ClinicalOrdersRejectionItem = {
+  domain: string;
+  reason: string;
+  field?: string | null;
+};
+
+export type SuggestClinicalOrdersFromEvolutionResponse = {
+  pipeline_schema_version?: string;
+  suggestion_schema_version?: string;
+  clinical_exam_requests: ClinicalExamRequestSuggestion[];
+  clinical_prescription_lines: ClinicalPrescriptionLineSuggestion[];
+  exam_context?: Record<string, unknown>;
+  prescription_context?: Record<string, unknown>;
+  rejection_report?: ClinicalOrdersRejectionItem[] | null;
+};
+
 export type ClinicalPrescriptionLineRow = {
   id: string;
   clinicalNoteVersionNumber: number;
   medicationName: string;
   catalogKey: string | null;
   presentationCatalogCode: string | null;
+  quantity: string;
   dosage: string | null;
   frequency: string | null;
   route: string | null;
   duration: string | null;
-  indication: string | null;
+  observation: string | null;
+  /** @deprecated use observation */
+  indication?: string | null;
   prescribedBy: { id: string; name: string };
   createdAt: string;
   updatedAt: string;
@@ -76,19 +126,22 @@ export const clinicalNoteOrdersApi = {
   createPrescriptionLine(
     patientId: string,
     clinicalNoteId: string,
-    body: {
-      medicationName: string;
-      catalogKey?: string;
-      presentationCatalogCode?: string;
-      dosage?: string;
-      frequency?: string;
-      route?: string;
-      duration?: string;
-      indication?: string;
-    }
+    body: PrescriptionLineBody
   ): Promise<ClinicalPrescriptionLineRow> {
     return apiClient.post<ClinicalPrescriptionLineRow>(
       `/patients/${patientId}/clinical-notes/${clinicalNoteId}/clinical-orders/prescription-lines`,
+      body
+    );
+  },
+
+  updatePrescriptionLine(
+    patientId: string,
+    clinicalNoteId: string,
+    lineId: string,
+    body: PrescriptionLineBody
+  ): Promise<ClinicalPrescriptionLineRow> {
+    return apiClient.patch<ClinicalPrescriptionLineRow>(
+      `/patients/${patientId}/clinical-notes/${clinicalNoteId}/clinical-orders/prescription-lines/${lineId}`,
       body
     );
   },
@@ -102,6 +155,17 @@ export const clinicalNoteOrdersApi = {
       `/patients/${patientId}/clinical-notes/${clinicalNoteId}/clinical-orders/prescription-lines/${lineId}`
     );
   },
+
+  suggestOrdersFromEvolution(
+    patientId: string,
+    clinicalNoteId: string,
+    contentMarkdown: string
+  ): Promise<SuggestClinicalOrdersFromEvolutionResponse> {
+    return apiClient.post<SuggestClinicalOrdersFromEvolutionResponse>(
+      `/patients/${patientId}/clinical-notes/${clinicalNoteId}/clinical-orders/suggest-from-evolution`,
+      { contentMarkdown }
+    );
+  },
 };
 
 export type PrescriptionHistoryRow = {
@@ -111,11 +175,13 @@ export type PrescriptionHistoryRow = {
   medicationName: string;
   catalogKey: string | null;
   presentationCatalogCode: string | null;
+  quantity?: string | null;
   dosage: string | null;
   frequency: string | null;
   route: string | null;
   duration: string | null;
-  indication: string | null;
+  observation?: string | null;
+  indication?: string | null;
   createdAt: string;
   prescribedBy: { id: string; name: string };
   clinicalNote: {

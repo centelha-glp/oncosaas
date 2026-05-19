@@ -11,6 +11,7 @@ import {
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { Badge } from '@/components/ui/badge';
+import { patientChartEvolutionHref } from '@/lib/utils/consultationAgenda';
 
 function statusLabel(status: ClinicalNoteListItem['status']): string {
   if (status === 'SIGNED') return 'Assinada';
@@ -83,7 +84,7 @@ export function NavigationStepLinkedEvolutions({
         <p className="text-xs text-muted-foreground rounded border border-dashed border-border bg-background/80 px-2 py-2">
           Nenhuma evolução vinculada a esta etapa ainda. Abra o{' '}
           <Link
-            href={`/patients/${patientId}?tab=chart`}
+            href={patientChartEvolutionHref(patientId, navigationStepId)}
             className="font-medium text-primary underline underline-offset-2"
           >
             Prontuário do paciente
@@ -111,7 +112,7 @@ export function NavigationStepLinkedEvolutions({
               </span>
               {!compact && (
                 <Link
-                  href={`/patients/${patientId}?tab=chart`}
+                  href={patientChartEvolutionHref(patientId, navigationStepId)}
                   className="ml-auto text-xs font-medium text-primary underline underline-offset-2"
                 >
                   Abrir prontuário

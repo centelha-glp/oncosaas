@@ -21,6 +21,7 @@ import {
 import { useExamIngestSessionPoll } from '@/hooks/use-exam-ingest-session-poll';
 import { ApiClientError } from '@/lib/api/client';
 import { EXAM_INGEST_CLIENT_ACCEPT } from '@/lib/exam-ingest-file-accept';
+import { skippedComplementaryExamsToastMessage } from '@/lib/utils/exam-ingest-skipped-message';
 import { cn } from '@/lib/utils';
 
 const ALLOWED_MIME_BASE = new Set<string>([
@@ -183,6 +184,12 @@ export function PatientExamIngestAssist({
           sessionId: opts.sessionId,
           files: opts.files?.length ? opts.files : undefined,
         });
+        if (res.extractionSource === 'mock') {
+          toast.error(
+            'Extração em modo simulado (desenvolvimento) não pode ser usada como laudo real. Configure as chaves de IA ou use outro ambiente.'
+          );
+          return;
+        }
         if (
           res.markdownFromStructuredParse !== true ||
           !res.markdownSummary?.trim()
@@ -204,6 +211,12 @@ export function PatientExamIngestAssist({
         void queryClient.invalidateQueries({
           queryKey: ['patient-summary', patientId],
         });
+        const skippedMsg = skippedComplementaryExamsToastMessage(
+          res.skippedCount ?? 0
+        );
+        if (skippedMsg) {
+          toast.warning(skippedMsg);
+        }
         toast.success('Extração incorporada ao rascunho');
         setSession(null);
         setQrOpen(false);

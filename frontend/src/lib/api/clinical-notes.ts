@@ -131,16 +131,45 @@ export interface ClinicalNoteMutationResponse {
   updatedAt: string;
 }
 
+/** Resumo da proposta (sem texto clínico completo). */
+export interface ClinicalExtractionProposalSummary {
+  clinicalExamRequests: number;
+  medications: number;
+  comorbidities: number;
+  patientPatchFieldCount: number;
+  journeyPatchFieldCount: number;
+  diagnoses: number;
+  treatments: number;
+  navigationStepUpdates: number;
+  complementaryExams: number;
+  observations: number;
+  performanceStatusHistory: number;
+  clinicalPrescriptionLines: number;
+  questionnaireResponses: number;
+}
+
 /** Estado da extração estruturada pós-assinatura (backend). */
 export interface ClinicalNoteExtractionStatus {
   runId: string | null;
   status: string;
   appliedAt: string | null;
   canUndoUntil: string | null;
+  canApprove: boolean;
+  canReject: boolean;
   undoWindowDays: number;
   rejectionReport: unknown;
   appliedPayloadHash: string | null;
   errorMessage: string | null;
+  proposalSummary: ClinicalExtractionProposalSummary | null;
+}
+
+export interface PendingClinicalExtraction {
+  runId: string;
+  clinicalNoteId: string;
+  latestVersionNumber: number;
+  sectionsContentHash: string;
+  createdAt: string;
+  proposalSummary: ClinicalExtractionProposalSummary;
 }
 
 export interface PaginatedClinicalNotes {
@@ -226,6 +255,40 @@ export const clinicalNotesApi = {
     return apiClient.post<{ ok: true }>(
       `/clinical-notes/${noteId}/extraction-undo`,
       {}
+    );
+  },
+
+  approveExtraction(noteId: string): Promise<ClinicalNoteExtractionStatus> {
+    return apiClient.post<ClinicalNoteExtractionStatus>(
+      `/clinical-notes/${noteId}/extraction-approve`,
+      {}
+    );
+  },
+
+  rejectExtraction(
+    noteId: string,
+    body?: { reason?: string }
+  ): Promise<ClinicalNoteExtractionStatus> {
+    return apiClient.post<ClinicalNoteExtractionStatus>(
+      `/clinical-notes/${noteId}/extraction-reject`,
+      body ?? {}
+    );
+  },
+
+  retryStructureExtraction(
+    noteId: string
+  ): Promise<{ enqueued: true; runId: string }> {
+    return apiClient.post<{ enqueued: true; runId: string }>(
+      `/clinical-notes/${noteId}/extraction-retry`,
+      {}
+    );
+  },
+
+  listPendingExtractions(
+    patientId: string
+  ): Promise<PendingClinicalExtraction[]> {
+    return apiClient.get<PendingClinicalExtraction[]>(
+      `/patients/${patientId}/clinical-notes/pending-extractions`
     );
   },
 

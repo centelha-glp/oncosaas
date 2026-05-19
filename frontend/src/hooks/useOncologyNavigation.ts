@@ -1,4 +1,9 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import {
+  useQuery,
+  useMutation,
+  useQueryClient,
+  type QueryClient,
+} from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
   oncologyNavigationApi,
@@ -11,6 +16,20 @@ import {
   type UpsertConsultationAgendaConfigPayload,
 } from '@/lib/api/oncology-navigation';
 import { STALE_TIME_PATIENT_NAVIGATION_MS } from '@/lib/query-stale-times';
+
+/** Invalida todas as queries da agenda após mutações de consulta/confirmação. */
+export function invalidateConsultationAgendaQueries(queryClient: QueryClient): void {
+  void queryClient.invalidateQueries({ queryKey: ['consultation-agenda'] });
+  void queryClient.invalidateQueries({
+    queryKey: ['consultation-agenda-day-overview'],
+  });
+  void queryClient.invalidateQueries({
+    queryKey: ['consultation-available-slots'],
+  });
+  void queryClient.invalidateQueries({
+    queryKey: ['consultation-agenda-metrics'],
+  });
+}
 
 export const useConsultationAgenda = (
   params: ConsultationAgendaQuery,
@@ -109,7 +128,7 @@ export const useInitializeNavigationSteps = () => {
         queryKey: ['navigation-steps', variables.patientId],
       });
       queryClient.invalidateQueries({ queryKey: ['patient', variables.patientId] });
-      queryClient.invalidateQueries({ queryKey: ['consultation-agenda'] });
+      invalidateConsultationAgendaQueries(queryClient);
       toast.success('Etapas de navegação inicializadas!');
     },
     onError: (error: Error) => {
@@ -128,8 +147,7 @@ export const useCreateConsultationAppointment = () => {
     mutationFn: (data: CreateConsultationAppointmentDto) =>
       oncologyNavigationApi.createConsultationAppointment(data),
     onSuccess: (step) => {
-      queryClient.invalidateQueries({ queryKey: ['consultation-agenda'] });
-      queryClient.invalidateQueries({ queryKey: ['consultation-agenda-day-overview'] });
+      invalidateConsultationAgendaQueries(queryClient);
       queryClient.invalidateQueries({ queryKey: ['navigation-steps'] });
       queryClient.invalidateQueries({ queryKey: ['patient', step.patientId] });
       toast.success('Consulta registrada na agenda.');
@@ -155,7 +173,7 @@ export const useSendConsultationConfirmation = () => {
     }) =>
       oncologyNavigationApi.sendConsultationConfirmation(stepId, { message }),
     onSuccess: ({ step }) => {
-      queryClient.invalidateQueries({ queryKey: ['consultation-agenda'] });
+      invalidateConsultationAgendaQueries(queryClient);
       queryClient.invalidateQueries({ queryKey: ['navigation-steps'] });
       queryClient.invalidateQueries({ queryKey: ['patient', step.patientId] });
       toast.success('Mensagem de confirmação enviada ao paciente.');
@@ -163,6 +181,46 @@ export const useSendConsultationConfirmation = () => {
     onError: (error: Error) => {
       toast.error('Falha ao enviar confirmação.', {
         description: error.message || 'Verifique canal, opt-in e telefone.',
+      });
+    },
+  });
+};
+
+export const usePatchConsultationCheckIn = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (stepId: string) =>
+      oncologyNavigationApi.patchConsultationCheckIn(stepId),
+    onSuccess: (step) => {
+      invalidateConsultationAgendaQueries(queryClient);
+      queryClient.invalidateQueries({ queryKey: ['navigation-steps'] });
+      queryClient.invalidateQueries({ queryKey: ['patient', step.patientId] });
+      toast.success('Check-in registrado na recepção.');
+    },
+    onError: (error: Error) => {
+      toast.error('Não foi possível registrar o check-in.', {
+        description: error.message || 'Tente novamente.',
+      });
+    },
+  });
+};
+
+export const usePatchConsultationStart = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (stepId: string) =>
+      oncologyNavigationApi.patchConsultationStart(stepId),
+    onSuccess: (step) => {
+      invalidateConsultationAgendaQueries(queryClient);
+      queryClient.invalidateQueries({ queryKey: ['navigation-steps'] });
+      queryClient.invalidateQueries({ queryKey: ['patient', step.patientId] });
+      toast.success('Consulta iniciada.');
+    },
+    onError: (error: Error) => {
+      toast.error('Não foi possível iniciar a consulta.', {
+        description: error.message || 'Tente novamente.',
       });
     },
   });
@@ -182,8 +240,7 @@ export const useUpdateNavigationStep = () => {
     onSuccess: (updatedStep) => {
       queryClient.invalidateQueries({ queryKey: ['navigation-steps'] });
       queryClient.invalidateQueries({ queryKey: ['patient', updatedStep.patientId] });
-      queryClient.invalidateQueries({ queryKey: ['consultation-agenda'] });
-      queryClient.invalidateQueries({ queryKey: ['consultation-agenda-day-overview'] });
+      invalidateConsultationAgendaQueries(queryClient);
     },
     onError: (error: Error) => {
       console.error('Erro ao atualizar etapa:', error);
@@ -203,7 +260,7 @@ export const useInitializeAllPatients = () => {
       queryClient.invalidateQueries({ queryKey: ['patients'] });
       queryClient.invalidateQueries({ queryKey: ['patient'] });
       queryClient.invalidateQueries({ queryKey: ['navigation-steps'] });
-      queryClient.invalidateQueries({ queryKey: ['consultation-agenda'] });
+      invalidateConsultationAgendaQueries(queryClient);
       toast.success('Etapas inicializadas para todos os pacientes!');
       return result;
     },
@@ -225,8 +282,7 @@ export const useDeleteNavigationStep = () => {
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['navigation-steps'] });
       queryClient.invalidateQueries({ queryKey: ['patient', variables.patientId] });
-      queryClient.invalidateQueries({ queryKey: ['consultation-agenda'] });
-      queryClient.invalidateQueries({ queryKey: ['consultation-agenda-day-overview'] });
+      invalidateConsultationAgendaQueries(queryClient);
     },
     onError: (error: Error) => {
       toast.error('Falha ao excluir etapa.', {
@@ -245,7 +301,7 @@ export const useUploadStepFile = () => {
     onSuccess: (updatedStep) => {
       queryClient.invalidateQueries({ queryKey: ['navigation-steps'] });
       queryClient.invalidateQueries({ queryKey: ['patient', updatedStep.patientId] });
-      queryClient.invalidateQueries({ queryKey: ['consultation-agenda'] });
+      invalidateConsultationAgendaQueries(queryClient);
       toast.success('Arquivo enviado com sucesso!');
     },
     onError: (error: Error) => {
