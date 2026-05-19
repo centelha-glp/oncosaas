@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { NavigationStep } from '@/lib/api/oncology-navigation';
 import {
+  clinicalNoteTypeForNavigationStepKey,
   filterNavigationStepsByEvolutionBaseKey,
   sortNavigationStepsForEvolutionPick,
 } from '@/lib/utils/clinical-evolution-navigation';
@@ -75,5 +76,20 @@ describe('sortNavigationStepsForEvolutionPick', () => {
     ];
     const sorted = sortNavigationStepsForEvolutionPick(rows, 'SCREENING');
     expect(sorted.map((s) => s.id)).toEqual(['first', 'second']);
+  });
+});
+
+describe('clinicalNoteTypeForNavigationStepKey', () => {
+  it('mapeia consultas da agenda para tipo de evolução', () => {
+    expect(clinicalNoteTypeForNavigationStepKey('specialist_consultation')).toBe(
+      'MEDICAL'
+    );
+    expect(clinicalNoteTypeForNavigationStepKey('specialist_consultation-2')).toBe(
+      'MEDICAL'
+    );
+    expect(clinicalNoteTypeForNavigationStepKey('navigation_consultation')).toBe(
+      'NURSING'
+    );
+    expect(clinicalNoteTypeForNavigationStepKey('colonoscopy')).toBeNull();
   });
 });
