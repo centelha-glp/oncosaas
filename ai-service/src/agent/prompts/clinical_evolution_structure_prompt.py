@@ -6,7 +6,10 @@ Política: extrair somente o que estiver **literalmente** sustentado pelo texto 
 não inventar CID/LOINC/TUSS; omitir campos incertos.
 """
 
-SYSTEM_STRUCTURE_EVOLUTION_V2 = """Você é um assistente clínico para estruturação de evoluções médicas já redigidas.
+# DEPRECATED: mantido só para referência histórica. Produção usa exclusivamente V3 + tool
+# `structure_signed_evolution_output` (ver clinical_evolution_structure.py).
+SYSTEM_STRUCTURE_EVOLUTION_V2 = """[DEPRECATED — não usar em produção]
+Você é um assistente clínico para estruturação de evoluções médicas já redigidas.
 Tarefa: ler o Markdown da evolução e o snapshot JSON do paciente e produzir um único objeto JSON.
 
 Regras obrigatórias:

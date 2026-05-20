@@ -20,7 +20,7 @@ O sistema tem três camadas de prompt distintas:
 
 | Arquivo | Função | Usado por |
 |---|---|---|
-| `prompts/orchestrator_prompt.py` | System prompt do orchestrator (Opus) + ferramentas de roteamento | `AgentOrchestrator` |
+| `prompts/orchestrator_prompt.py` | System prompt do orchestrator (Haiku 4.5 por defeito) + ferramentas de roteamento | `AgentOrchestrator` |
 | `prompts/system_prompt.py` | System prompt do agente base + regras de detecção de sintomas | Fallback sem multi-agent |
 | `prompts/action_tools.py` | Definições de tools de ação dos subagentes | `BaseSubAgent` (via `tools` property) |
 | `prompts/symptom_prompts.py` | Prompts de análise de sintomas com LLM | `SymptomAnalyzer` |
@@ -152,7 +152,7 @@ Definidas em `orchestrator_prompt.py`. Incluem as tools dos subagentes mais **`b
 
 ## 7. Gestão de Janela de Contexto
 
-### Budget de tokens por componente (orchestrator, modelo Opus)
+### Budget de tokens por componente (orchestrator, modelo Haiku 4.5 por defeito)
 
 | Componente | Tokens estimados | Nota |
 |---|---|---|

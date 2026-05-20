@@ -90,6 +90,24 @@ describe('useConsultationAgenda', () => {
     expect(oncologyNavigationApi.getConsultationAgenda).not.toHaveBeenCalled();
   });
 
+  it('envia q na busca por paciente quando informado', async () => {
+    vi.mocked(oncologyNavigationApi.getConsultationAgenda).mockResolvedValue(
+      emptyPage
+    );
+
+    const { Wrapper } = makeWrapper();
+    const params = { ...baseParams, q: 'maria' };
+    const { result } = renderHook(() => useConsultationAgenda(params), {
+      wrapper: Wrapper,
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(oncologyNavigationApi.getConsultationAgenda).toHaveBeenCalledWith(
+      params
+    );
+  });
+
   it('expõe isError quando a API falha', async () => {
     vi.mocked(oncologyNavigationApi.getConsultationAgenda).mockRejectedValue(
       new Error('falha de rede')

@@ -19,12 +19,12 @@ Rules extraídas do código real em `ai-service/src/agent/`. Qualquer alteraçã
 O sistema segue uma hierarquia de dois níveis:
 
 ```
-AgentOrchestrator (Claude Opus 4.6 — adaptive thinking)
+AgentOrchestrator (Claude Haiku 4.5 — padrão em `llm_defaults.py`)
     │
-    ├── SymptomAgent         (Claude Sonnet 4.6)
-    ├── NavigationAgent      (Claude Sonnet 4.6)
-    ├── QuestionnaireAgent   (Claude Sonnet 4.6)
-    └── EmotionalSupportAgent (Claude Sonnet 4.6)
+    ├── SymptomAgent         (mesmo subagent_model, tipicamente Haiku 4.5)
+    ├── NavigationAgent
+    ├── QuestionnaireAgent
+    └── EmotionalSupportAgent
 ```
 
 O orchestrator **roteia** — recebe a mensagem, chama subagentes via tool use (`consultar_agente_*`), coleta suas análises e sintetiza a resposta final ao paciente.
@@ -42,11 +42,12 @@ Ordem conceptual atual (`orchestrator.py`):
 ```
 Sem chaves LLM → triagem síncrona única → build com Layer1 real → fallback texto
 Com chaves LLM → build (sem Layer1/sintomas forçados no primeiro bloco) → run_agentic_loop
-  → merge snapshots triagem OU contrato “skipped” explícito (sem motor determinístico automático)
+  → Layer 1 ao invocar `consultar_agente_sintomas` (antes do subagente) + merge snapshots
+  → se subagente de sintomas não foi chamado: contrato “skipped” explícito (sem heurística pós-loop)
   → protocol_engine → compile actions → pós-main questionário (ER_IMMEDIATE)
 ```
 
-**Nunca** trate a resposta textual do Opus como substituto da Layer 1 para ações que dependem de `clinical_rules_engine` sem snapshots ou sem ramo sem LLM.
+**Nunca** trate a resposta textual do orquestrador LLM como substituto da Layer 1 para ações que dependem de `clinical_rules_engine` sem snapshots ou sem ramo sem LLM.
 
 ---
 
@@ -68,19 +69,18 @@ async def process(self, request: Dict[str, Any]) -> Dict[str, Any]:
 O orchestrator usa configurações distintas para si e para os subagentes:
 
 ```python
-# Config do orchestrator — Opus com adaptive thinking
+# Config do orchestrator — Haiku 4.5 (llm_defaults.py); adaptive thinking inativo com Haiku
 orch_config = {
-    **agent_config,
-    "llm_model": "claude-opus-4-6",
-    "max_tokens": 16000,
-    "use_thinking": True,
-    "thinking_budget": 8000,
+    **merged,
+    "llm_model": merged.get("orchestrator_model"),  # tipicamente claude-haiku-4-5
+    "use_adaptive_thinking": True,
+    "max_tokens": 4096,
 }
 
-# Config dos subagentes — Sonnet mais leve
+# Config dos subagentes — mesmo family, max_tokens menor
 subagent_config = {
-    **agent_config,
-    "llm_model": agent_config.get("subagent_model", "claude-sonnet-4-6"),
+    **merged,
+    "llm_model": merged.get("subagent_model"),
     "max_tokens": 1024,
 }
 ```

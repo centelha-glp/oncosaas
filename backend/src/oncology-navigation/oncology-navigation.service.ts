@@ -348,6 +348,7 @@ export class OncologyNavigationService {
       to: string;
       scope?: ConsultationAgendaScope;
       professionalId?: string;
+      q?: string;
       page?: number;
       limit?: number;
     }
@@ -389,12 +390,25 @@ export class OncologyNavigationService {
       ? { scheduledProfessionalId: params.professionalId }
       : {};
 
+    const patientNameQuery = params.q?.trim();
+    const patientNameFilter = patientNameQuery
+      ? {
+          patient: {
+            name: {
+              contains: patientNameQuery,
+              mode: 'insensitive' as const,
+            },
+          },
+        }
+      : {};
+
     const where: Prisma.NavigationStepWhereInput = {
       tenantId,
       status: { not: NavigationStepStatus.CANCELLED },
       ...stepKeyFilter,
       ...dateFilter,
       ...professionalFilter,
+      ...patientNameFilter,
     };
 
     const [total, rows] = await this.prisma.$transaction([
@@ -894,6 +908,27 @@ export class OncologyNavigationService {
         `Skipped scheduled consultation confirmation for step ${stepId} (status=${step.appointmentConfirmationStatus})`
       );
       return { step, sent: false };
+    }
+
+    if (
+      !opts.skipIfAlreadySent &&
+      step.appointmentConfirmationStatus !==
+        AppointmentConfirmationStatus.NOT_APPLICABLE
+    ) {
+      const statusMessages: Partial<
+        Record<AppointmentConfirmationStatus, string>
+      > = {
+        [AppointmentConfirmationStatus.CONFIRMED]:
+          'A consulta já foi confirmada pelo paciente; não é possível reenviar a solicitação de confirmação.',
+        [AppointmentConfirmationStatus.DECLINED]:
+          'O paciente já recusou a confirmação desta consulta; não é possível reenviar a solicitação.',
+        [AppointmentConfirmationStatus.AWAITING_RESPONSE]:
+          'A confirmação já foi enviada e aguarda resposta do paciente; não é possível reenviar neste estado.',
+      };
+      const message = statusMessages[step.appointmentConfirmationStatus];
+      if (message) {
+        throw new BadRequestException(message);
+      }
     }
 
     await this.cancelPendingConsultationScheduledActionsForNavigationStep(

@@ -1,0 +1,32 @@
+{
+  "clinical_exam_requests": [
+    {"display_name": "Hemograma completo", "code": null, "loinc_code": null}
+  ],
+  "medications": [
+    {
+      "name": "Metformina",
+      "dosage": "850 mg",
+      "frequency": "12/12h",
+      "category": "ANTIDIABETIC"
+    }
+  ],
+  "comorbidities": [
+    {
+      "name": "Diabetes mellitus tipo 2",
+      "type": "DIABETES_TYPE_2",
+      "severity": "MODERATE",
+      "controlled": true
+    }
+  ],
+  "patient_patch": {"occupation": "Aposentado"},
+  "journey_patch": {},
+  "diagnoses": [],
+  "treatments": [],
+  "navigation_step_updates": [],
+  "complementary_exams": [],
+  "observations": [],
+  "performance_status_history": [],
+  "clinical_prescription_lines": [],
+  "questionnaire_responses": [],
+  "rejection_report": []
+}

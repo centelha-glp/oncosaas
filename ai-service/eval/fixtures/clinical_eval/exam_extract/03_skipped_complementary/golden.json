@@ -1,0 +1,9 @@
+{
+  "description": "Um exame complementar válido e um inválido — skippedCount=1",
+  "expect": {
+    "parse_ok": true,
+    "complementary_exam_names": ["Hemoglobina"],
+    "skipped_count": 1,
+    "markdown_contains": ["Hemoglobina"]
+  }
+}

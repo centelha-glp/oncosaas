@@ -8,7 +8,8 @@ from datetime import datetime, timezone
 from src.config.llm_defaults import merge_agent_llm_config
 
 from .llm_provider import llm_provider
-from .context_builder import context_builder
+from .context_builder import TurnContextCache, context_builder
+from .patient_guardrails import check_patient_input, check_patient_output
 from .symptom_analyzer import symptom_analyzer
 from .protocol_engine import protocol_engine
 from .questionnaire_engine import questionnaire_engine
@@ -150,10 +151,9 @@ def _skipped_llm_branch_triage_contract() -> tuple:
     clinical_rules_result = ClinicalRulesResult(
         disposition=REMOTE_NURSING,
         reasoning=(
-            "Triagem determinística (Layer 1) não foi executada neste turno: a ferramenta "
-            "`executar_triagem_seguranca` não foi invocada e este ramo não aplica substituto "
-            "síncrono automático após o ciclo LLM. A resposta e o protocolo seguem sem disposição "
-            "derivada das regras R01–R23 para esta mensagem."
+            "Triagem determinística (Layer 1) não foi executada neste turno: o subagente de "
+            "sintomas (`consultar_agente_sintomas`) não foi invocado. A resposta e o protocolo "
+            "seguem sem disposição derivada das regras R01–R23 para esta mensagem."
         ),
         findings=[],
         requires_immediate_action=False,
@@ -314,6 +314,26 @@ class AgentOrchestrator:
     ) -> Dict[str, Any]:
         """Inner implementation of process(), called with an active trace."""
 
+        input_guard = check_patient_input(message)
+        if input_guard.triggered:
+            trace.guardrail_input_triggered = True
+            trace.guardrail_rule_id = input_guard.rule_id
+            symptom_analysis, clinical_rules_result = _skipped_llm_branch_triage_contract()
+            trace.triage_source = "skipped_no_snapshots"
+            trace.triage_skipped = True
+            new_state = self._update_state(agent_state, symptom_analysis, message)
+            safe = input_guard.safe_text or llm_provider._fallback_response()
+            return {
+                "response": safe,
+                "actions": [],
+                "symptom_analysis": symptom_analysis,
+                "clinical_disposition": clinical_rules_result.disposition,
+                "clinical_disposition_reason": clinical_rules_result.reasoning,
+                "clinical_rules_findings": [],
+                "new_state": new_state,
+                "decisions": [],
+            }
+
         # Estado no início do turno — usado para fase pós-main de questionário (sem fast-path de coleta).
         had_active_questionnaire = bool(agent_state.get("active_questionnaire"))
 
@@ -376,7 +396,9 @@ class AgentOrchestrator:
                 total_chars=len(structured_context or ""),
                 truncated=trace.rag_context_output.get("truncated", False),
             )
-            response_text = llm_provider._fallback_response()
+            response_text = self._apply_output_guardrail(
+                trace, llm_provider._fallback_response()
+            )
         else:
             span_structured = tracer.start_span(trace, "structured_context_build")
             structured_context = context_builder.build(
@@ -395,6 +417,12 @@ class AgentOrchestrator:
                 truncated=trace.rag_context_output.get("truncated", False),
             )
 
+            turn_context_cache = context_builder.cache_for_turn(
+                structured_context,
+                clinical_context=clinical_context,
+                conversation_history=conversation_history,
+                agent_state=agent_state,
+            )
             trace.main_multi_agent_llm_used = True
             span_llm = tracer.start_span(trace, "multi_agent_pipeline")
             llm_start = time.monotonic()
@@ -402,7 +430,7 @@ class AgentOrchestrator:
             response_text, all_tool_calls, llm_meta, orch_span_detail = (
                 await self._run_multi_agent_pipeline(
                     message=message,
-                    structured_context=structured_context,
+                    turn_context_cache=turn_context_cache,
                     conversation_history=conversation_history,
                     agent_config=agent_config,
                     patient_id=patient_id,
@@ -441,9 +469,15 @@ class AgentOrchestrator:
                 )
 
             merged = _merge_triage_snapshots(symptom_triage_snapshots)
+            symptom_subagent_called = "consultar_agente_sintomas" in (
+                trace.subagents_called or []
+            )
             if merged:
                 symptom_analysis, clinical_rules_result = merged
-                trace.triage_source = "tool_merge"
+                if symptom_subagent_called:
+                    trace.triage_source = "symptom_subagent_invoked"
+                else:
+                    trace.triage_source = "tool_merge"
                 trace.triage_skipped = False
             else:
                 # Contrato explícito: sem motor determinístico síncrono neste ramo (ver _skipped_llm_branch_triage_contract).
@@ -507,6 +541,8 @@ class AgentOrchestrator:
                 else q_block
             )
 
+        response_text = self._apply_output_guardrail(trace, response_text)
+
         # 9. Compile rule-based actions, then merge with LLM-driven actions
         rule_actions, rule_decisions = self._compile_actions(
             symptom_analysis=symptom_analysis,
@@ -567,9 +603,12 @@ class AgentOrchestrator:
             )
             merged_actions = self._merge_actions(actions, q_out["actions"])
             trace.actions_generated = [a.get("type", "UNKNOWN") for a in merged_actions]
-            merged_patient_response = _merge_primary_and_pipeline_patient_text(
-                q_out["response"],
-                response_text,
+            merged_patient_response = self._apply_output_guardrail(
+                trace,
+                _merge_primary_and_pipeline_patient_text(
+                    q_out["response"],
+                    response_text,
+                ),
             )
             return {
                 "response": merged_patient_response,
@@ -586,7 +625,7 @@ class AgentOrchestrator:
             }
 
         return {
-            "response": response_text,
+            "response": self._apply_output_guardrail(trace, response_text),
             "actions": actions,
             "symptom_analysis": symptom_analysis,
             "clinical_disposition": clinical_rules_result.disposition,
@@ -598,6 +637,15 @@ class AgentOrchestrator:
             "new_state": new_state,
             "decisions": decisions,
         }
+
+    @staticmethod
+    def _apply_output_guardrail(trace, text: str) -> str:
+        output_guard = check_patient_output(text)
+        if output_guard.triggered:
+            trace.guardrail_output_triggered = True
+            trace.guardrail_rule_id = output_guard.rule_id
+            return output_guard.safe_text or text
+        return text
 
     async def _process_questionnaire_answer(
         self, request: Dict[str, Any], *, has_llm_keys: bool
@@ -718,10 +766,9 @@ class AgentOrchestrator:
         Sintomas (Layer 0) + regras determinísticas (Layer 1).
 
         Usado: (1) modo sem chaves LLM — triagem síncrona única por turno;
-        (2) execução síncrona dentro do `tool_executor` do SymptomAgent (`trace_spans=False`)
-            quando o modelo invoca `executar_triagem_seguranca`.
-        No ramo com LLM, se a tool não for chamada no turno, **não** há fallback síncrono aqui —
-        o contrato explícito é aplicado em `_process_with_trace` (ver `_skipped_llm_branch_triage_contract`).
+        (2) ao invocar `consultar_agente_sintomas` no `routing_tool_executor` (antes do subagente);
+        (3) reforço idempotente via `executar_triagem_seguranca` no SymptomAgent (`trace_spans=False`).
+        Sem invocação do subagente de sintomas no turno, o ramo LLM não aplica triagem síncrona pós-loop.
         """
         cancer_type = clinical_context.get("patient", {}).get("cancerType")
         use_llm_analysis = agent_config.get("use_llm_symptom_analysis", True) and has_llm_keys
@@ -835,7 +882,7 @@ class AgentOrchestrator:
     async def _run_multi_agent_pipeline(
         self,
         message: str,
-        structured_context: str,
+        turn_context_cache: TurnContextCache,
         conversation_history: List[Dict[str, str]],
         agent_config: Dict[str, Any],
         patient_id: str = "",
@@ -848,7 +895,7 @@ class AgentOrchestrator:
     ) -> tuple:
         """
         Run the multi-agent pipeline:
-        1. Orchestrator LLM (Opus + adaptive thinking) routes to specialized subagents
+        1. Orchestrator LLM (Haiku 4.5 por defeito) routes to specialized subagents
         2. Subagents analyze their domain and call their tools
         3. Orchestrator generates the final patient-facing response
 
@@ -858,6 +905,7 @@ class AgentOrchestrator:
             - all_tool_calls: List[Dict]
             - llm_meta: Dict[str, str] with provider/model
         """
+        structured_context = turn_context_cache.structured_context
         merged = merge_agent_llm_config(
             agent_config,
             has_anthropic_key=llm_provider.has_anthropic_key(agent_config or {}),
@@ -887,21 +935,12 @@ class AgentOrchestrator:
         successful_sync_availability: Dict[str, Dict[str, Any]] = {}
         conv_messages = conversation_history + [{"role": "user", "content": message}]
 
-        # Contexto textual por subagente: slices em `context_builder.build_slice` (Opus mantém `structured_context` completo).
-        subagent_context_by_routing_tool: Dict[str, str] = {
-            tool: context_builder.build_slice(
-                role,
-                clinical_context=clinical_context or {},
-                conversation_history=conv_messages,
-                agent_state=agent_state,
-            )
-            for tool, role in (
-                ("consultar_agente_navegacao", "navigation"),
-                ("consultar_agente_sintomas", "symptom"),
-                ("consultar_agente_questionario", "questionnaire"),
-                ("consultar_agente_suporte_emocional", "emotional_support"),
-                ("consultar_agente_secretaria", "scheduling_secretary"),
-            )
+        _ROUTING_TOOL_SLICE_ROLE: Dict[str, str] = {
+            "consultar_agente_navegacao": "navigation",
+            "consultar_agente_sintomas": "symptom",
+            "consultar_agente_questionario": "questionnaire",
+            "consultar_agente_suporte_emocional": "emotional_support",
+            "consultar_agente_secretaria": "scheduling_secretary",
         }
 
         orchestrator_system = build_orchestrator_prompt(structured_context)
@@ -989,20 +1028,27 @@ class AgentOrchestrator:
                         {"status": "queued", "tool": sub_tool_name},
                         ensure_ascii=False,
                     )
-                sa, cr = await self._apply_deterministic_triage(
-                    trace=trace,
-                    message=message,
-                    clinical_context=clinical_context,
-                    agent_config=subagent_config,
-                    has_llm_keys=exec_symptom_llm,
-                    trace_spans=False,
-                )
-                triage_sink.append(
-                    {
-                        "symptom_analysis": copy.deepcopy(sa),
-                        "clinical_rules": _clinical_rules_to_payload(cr),
-                    }
-                )
+                idempotent_reuse = False
+                if triage_sink:
+                    snap = triage_sink[-1]
+                    cr = _clinical_rules_from_payload(snap.get("clinical_rules") or {})
+                    sa = snap.get("symptom_analysis") or {}
+                    idempotent_reuse = True
+                else:
+                    sa, cr = await self._apply_deterministic_triage(
+                        trace=trace,
+                        message=message,
+                        clinical_context=clinical_context,
+                        agent_config=subagent_config,
+                        has_llm_keys=exec_symptom_llm,
+                        trace_spans=False,
+                    )
+                    triage_sink.append(
+                        {
+                            "symptom_analysis": copy.deepcopy(sa),
+                            "clinical_rules": _clinical_rules_to_payload(cr),
+                        }
+                    )
                 return json.dumps(
                     {
                         "status": "ok",
@@ -1010,6 +1056,7 @@ class AgentOrchestrator:
                         "disposition": cr.disposition,
                         "reasoning": (cr.reasoning or "")[:600],
                         "symptom_count": len(sa.get("detectedSymptoms") or []),
+                        "idempotent_reuse": idempotent_reuse,
                     },
                     ensure_ascii=False,
                 )
@@ -1103,10 +1150,28 @@ class AgentOrchestrator:
                         ensure_ascii=False,
                     )
 
+            if tool_name == "consultar_agente_sintomas":
+                sa_pre, cr_pre = await self._apply_deterministic_triage(
+                    trace=trace,
+                    message=message,
+                    clinical_context=clinical_context,
+                    agent_config=subagent_config,
+                    has_llm_keys=exec_symptom_llm,
+                    trace_spans=False,
+                )
+                triage_sink.append(
+                    {
+                        "symptom_analysis": copy.deepcopy(sa_pre),
+                        "clinical_rules": _clinical_rules_to_payload(cr_pre),
+                    }
+                )
+
             sub_ev: List[Dict[str, Any]] = []
-            sub_ctx = subagent_context_by_routing_tool.get(
-                tool_name,
-                structured_context,
+            slice_role = _ROUTING_TOOL_SLICE_ROLE.get(tool_name)
+            sub_ctx = (
+                turn_context_cache.slice(slice_role)  # type: ignore[arg-type]
+                if slice_role
+                else structured_context
             )
             result = await agent.run(
                 context=sub_ctx,

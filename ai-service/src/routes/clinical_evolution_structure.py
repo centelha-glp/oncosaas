@@ -1,8 +1,12 @@
 """
 POST /api/v1/clinical-evolution/structure — estruturação pós-assinatura (Nest → ai-service).
 
-Com chaves LLM: uma chamada `generate` + JSON parse + validação Pydantic (núcleo) + campos estendidos como JSON.
-Sem chaves: retorna estrutura vazia (determinístico); o backend continua aplicável com heurísticas futuras.
+Contrato degradado (HTTP 200, corpo JSON):
+- `llm_available`, `parse_ok`, `degraded` — o NestJS marca o run como FAILED quando `degraded` é true.
+- `rejection_report` descreve a causa (sem stack).
+
+Sem chaves LLM ou falha total do provedor: HTTP 503 (não devolve sucesso vazio).
+JSON inválido / tool ausente: HTTP 200 com `degraded=true`, `parse_ok=false`.
 """
 
 from __future__ import annotations
@@ -12,9 +16,14 @@ import logging
 import re
 from typing import Any, Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from ..agent.clinical_evolution_structure_domains import (
+    validate_extended_domains,
+)
+from ..agent.clinical_evolution_structure_tools import STRUCTURE_EVOLUTION_TOOLS
+from ..agent.clinical_evolution_truncation import prepare_structure_inputs
 from ..agent.llm_provider import llm_provider
 from ..agent.prompts.clinical_evolution_structure_prompt import SYSTEM_STRUCTURE_EVOLUTION_V3
 from ..config.llm_defaults import merge_agent_llm_config
@@ -24,6 +33,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/clinical-evolution", tags=["clinical-evolution"])
 
 EXTRACTION_SCHEMA_VERSION = "2026-05-15-v3"
+STRUCTURE_TOOL_NAME = "structure_signed_evolution_output"
 
 
 class StructureEvolutionRequest(BaseModel):
@@ -79,6 +89,18 @@ class RejectionItem(BaseModel):
 
 class StructureEvolutionResponse(BaseModel):
     extraction_schema_version: str = EXTRACTION_SCHEMA_VERSION
+    llm_available: bool = Field(
+        default=True,
+        description="False quando não havia chaves LLM utilizáveis (só em respostas degradadas legadas).",
+    )
+    parse_ok: bool = Field(
+        default=True,
+        description="False quando o texto do modelo não foi JSON estruturado válido.",
+    )
+    degraded: bool = Field(
+        default=False,
+        description="True quando o Nest não deve aplicar APPLIED (falha ou indisponibilidade).",
+    )
     clinical_exam_requests: list[ExamRequestOut] = Field(default_factory=list)
     medications: list[MedicationOut] = Field(default_factory=list)
     comorbidities: list[ComorbidityOut] = Field(default_factory=list)
@@ -93,6 +115,24 @@ class StructureEvolutionResponse(BaseModel):
     clinical_prescription_lines: list[dict[str, Any]] = Field(default_factory=list)
     questionnaire_responses: list[dict[str, Any]] = Field(default_factory=list)
     rejection_report: list[RejectionItem] = Field(default_factory=list)
+
+
+def _degraded_structure_response(
+    *,
+    reason: str,
+    llm_available: bool,
+    parse_ok: bool,
+) -> StructureEvolutionResponse:
+    """Resposta explícita de falha — listas vazias, sem simular extração bem-sucedida."""
+    return StructureEvolutionResponse(
+        extraction_schema_version=EXTRACTION_SCHEMA_VERSION,
+        llm_available=llm_available,
+        parse_ok=parse_ok,
+        degraded=True,
+        rejection_report=[
+            RejectionItem(domain="llm", reason=reason, field=None),
+        ],
+    )
 
 
 def _parse_structure_json(raw: str) -> Optional[dict[str, Any]]:
@@ -115,6 +155,24 @@ def _parse_structure_json(raw: str) -> Optional[dict[str, Any]]:
     return obj if isinstance(obj, dict) else None
 
 
+def _parse_tool_structure_result(result: dict[str, Any]) -> Optional[dict[str, Any]]:
+    tool_calls = result.get("tool_calls") or []
+    for tc in tool_calls:
+        fn = tc.get("function") or {}
+        if fn.get("name") != STRUCTURE_TOOL_NAME:
+            continue
+        args_raw = fn.get("arguments", "{}")
+        try:
+            args = json.loads(args_raw) if isinstance(args_raw, str) else args_raw
+        except json.JSONDecodeError:
+            return None
+        return args if isinstance(args, dict) else None
+    content = (result.get("content") or result.get("response") or "").strip()
+    if content:
+        return _parse_structure_json(content)
+    return None
+
+
 def _safe_list(items: Any) -> list[Any]:
     return items if isinstance(items, list) else []
 
@@ -123,17 +181,10 @@ def _safe_dict(obj: Any) -> dict[str, Any]:
     return obj if isinstance(obj, dict) else {}
 
 
-def _dict_items(raw_list: list[Any], domain: str, max_items: int = 200) -> list[dict[str, Any]]:
-    out: list[dict[str, Any]] = []
-    for i, row in enumerate(raw_list[:max_items]):
-        if isinstance(row, dict):
-            out.append(row)
-        else:
-            logger.debug("structure_evolution: skip non-dict %s idx=%s", domain, i)
-    return out
-
-
 def _build_response_from_parsed(parsed: dict[str, Any]) -> StructureEvolutionResponse:
+    validated, rej_models = validate_extended_domains(parsed, [])
+    parsed = validated
+
     exams_raw = _safe_list(parsed.get("clinical_exam_requests"))
     meds_raw = _safe_list(parsed.get("medications"))
     com_raw = _safe_list(parsed.get("comorbidities"))
@@ -181,63 +232,58 @@ def _build_response_from_parsed(parsed: dict[str, Any]) -> StructureEvolutionRes
                 rej_out.append(RejectionItem.model_validate(row))
             except Exception:
                 continue
+    for r in rej_models:
+        rej_out.append(RejectionItem.model_validate(r.model_dump()))
 
     journey = _safe_dict(parsed.get("journey_patch"))
 
     return StructureEvolutionResponse(
         extraction_schema_version=EXTRACTION_SCHEMA_VERSION,
+        llm_available=True,
+        parse_ok=True,
+        degraded=False,
         clinical_exam_requests=exams,
         medications=meds,
         comorbidities=coms,
         patient_patch=patch,
         journey_patch=journey,
-        diagnoses=_dict_items(_safe_list(parsed.get("diagnoses")), "diagnoses"),
-        treatments=_dict_items(_safe_list(parsed.get("treatments")), "treatments"),
-        navigation_step_updates=_dict_items(
-            _safe_list(parsed.get("navigation_step_updates")), "navigation_step_updates"
-        ),
-        complementary_exams=_dict_items(
-            _safe_list(parsed.get("complementary_exams")), "complementary_exams"
-        ),
-        observations=_dict_items(_safe_list(parsed.get("observations")), "observations"),
-        performance_status_history=_dict_items(
-            _safe_list(parsed.get("performance_status_history")),
-            "performance_status_history",
-        ),
-        clinical_prescription_lines=_dict_items(
-            _safe_list(parsed.get("clinical_prescription_lines")),
-            "clinical_prescription_lines",
-        ),
-        questionnaire_responses=_dict_items(
-            _safe_list(parsed.get("questionnaire_responses")), "questionnaire_responses"
-        ),
+        diagnoses=list(parsed.get("diagnoses") or []),
+        treatments=list(parsed.get("treatments") or []),
+        navigation_step_updates=list(parsed.get("navigation_step_updates") or []),
+        complementary_exams=list(parsed.get("complementary_exams") or []),
+        observations=list(parsed.get("observations") or []),
+        performance_status_history=list(parsed.get("performance_status_history") or []),
+        clinical_prescription_lines=list(parsed.get("clinical_prescription_lines") or []),
+        questionnaire_responses=list(parsed.get("questionnaire_responses") or []),
         rejection_report=rej_out,
     )
 
 
 @router.post("/structure", response_model=StructureEvolutionResponse)
 async def structure_signed_evolution(body: StructureEvolutionRequest) -> StructureEvolutionResponse:
-    empty = StructureEvolutionResponse()
-
     raw_cfg: dict[str, Any] = {}
     has_a = llm_provider.has_anthropic_key(raw_cfg)
     cfg = merge_agent_llm_config(raw_cfg, has_anthropic_key=has_a)
 
     if not llm_provider.has_any_llm_key(cfg):
         logger.info(
-            "clinical-evolution/structure: sem chaves LLM — resposta vazia tenant=%s note=%s len_md=%s",
+            "clinical-evolution/structure: sem chaves LLM — 503 tenant=%s note=%s len_md=%s",
             body.tenant_id[:8] if body.tenant_id else "",
             body.clinical_note_id[:8] if body.clinical_note_id else "",
             len(body.content_markdown or ""),
         )
-        return empty
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Estruturação indisponível: configure OPENAI_API_KEY e/ou "
+                "ANTHROPIC_API_KEY no ai-service."
+            ),
+        )
 
-    snap_json = json.dumps(body.patient_snapshot or {}, ensure_ascii=False)
-    if len(snap_json) > 14_000:
-        snap_json = snap_json[:14_000] + "…"
-    md = body.content_markdown or ""
-    if len(md) > 28_000:
-        md = md[:28_000] + "\n…"
+    snap_json, md = prepare_structure_inputs(
+        patient_snapshot=body.patient_snapshot or {},
+        content_markdown=body.content_markdown or "",
+    )
 
     user_content = (
         f"### Snapshot do paciente (JSON)\n{snap_json}\n\n"
@@ -245,29 +291,37 @@ async def structure_signed_evolution(body: StructureEvolutionRequest) -> Structu
         f"### Evolução (Markdown)\n{md}"
     )
 
+    system_prompt = (
+        f"{SYSTEM_STRUCTURE_EVOLUTION_V3}\n\n"
+        "Invoque obrigatoriamente a ferramenta "
+        f"'{STRUCTURE_TOOL_NAME}' com o objeto JSON de extração."
+    )
+
     try:
-        raw_text = await llm_provider.generate(
-            SYSTEM_STRUCTURE_EVOLUTION_V3,
-            [{"role": "user", "content": user_content}],
-            cfg,
+        result = await llm_provider.generate_with_tools(
+            system_prompt=system_prompt,
+            messages=[{"role": "user", "content": user_content}],
+            tools=STRUCTURE_EVOLUTION_TOOLS,
+            config=cfg,
             usage_step="clinical_evolution_structure",
-            max_output_tokens=8192,
-            temperature=0.2,
         )
     except Exception as e:
         logger.warning("clinical-evolution/structure LLM falhou: %s", e)
-        return empty
+        raise HTTPException(
+            status_code=503,
+            detail="Estruturação indisponível: falha ao contactar o modelo de linguagem.",
+        ) from e
 
-    parsed = _parse_structure_json(raw_text)
+    parsed = _parse_tool_structure_result(result)
     if not parsed:
         logger.warning(
-            "clinical-evolution/structure: JSON inválido ou vazio após LLM note=%s",
+            "clinical-evolution/structure: structured output inválido ou ausente note=%s",
             body.clinical_note_id[:8] if body.clinical_note_id else "",
         )
-        out = empty.model_copy()
-        out.rejection_report = [
-            RejectionItem(domain="llm", reason="Resposta não foi JSON estruturado válido.", field=None)
-        ]
-        return out
+        return _degraded_structure_response(
+            reason="Resposta não foi JSON estruturado válido.",
+            llm_available=True,
+            parse_ok=False,
+        )
 
     return _build_response_from_parsed(parsed)

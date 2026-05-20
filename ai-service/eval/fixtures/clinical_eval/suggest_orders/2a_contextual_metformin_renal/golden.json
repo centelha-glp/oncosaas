@@ -1,0 +1,7 @@
+{
+  "description": "Contextuais renais sem pedido explícito na evolução",
+  "expect": {
+    "clinical_exam_display_names_contains": ["Creatinina", "Ureia"],
+    "clinical_exam_requests_min": 2
+  }
+}

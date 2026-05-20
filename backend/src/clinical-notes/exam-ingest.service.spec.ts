@@ -336,6 +336,33 @@ describe('ExamIngestService', () => {
     ).rejects.toBeInstanceOf(BadGatewayException);
   });
 
+  it('extract rejeita extractionSource mock em ambiente de produção', async () => {
+    const prev = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    delete process.env.AI_ALLOW_MOCK_RESPONSES;
+    prisma.patient.findFirst.mockResolvedValue({ id: 'p1' });
+    jest.spyOn(global, 'fetch').mockResolvedValue({
+      ok: true,
+      text: async () =>
+        JSON.stringify({
+          markdownSummary: '## Mock',
+          detectedCategories: ['LAB'],
+          disclaimer: 'd',
+          markdownFromStructuredParse: true,
+          extractionSource: 'mock',
+        }),
+    } as Response);
+
+    await expect(
+      service.extract('t1', 'u1', {
+        patientId: 'p1',
+        plainText: 'x',
+      })
+    ).rejects.toBeInstanceOf(ServiceUnavailableException);
+
+    process.env.NODE_ENV = prev;
+  });
+
   it('extract rejeita markdownSummary vazio mesmo com flag estruturada', async () => {
     prisma.patient.findFirst.mockResolvedValue({ id: 'p1' });
     jest.spyOn(global, 'fetch').mockResolvedValue({

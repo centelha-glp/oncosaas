@@ -1,0 +1,9 @@
+{
+  "description": "Painel laboratorial sintético",
+  "expect": {
+    "parse_ok": true,
+    "detected_categories": ["LAB"],
+    "markdown_contains": ["Hemoglobina", "Creatinina"],
+    "complementary_exam_names": ["Creatinina sérica"]
+  }
+}

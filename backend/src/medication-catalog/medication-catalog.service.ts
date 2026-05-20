@@ -2,6 +2,10 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { MEDICATION_CATALOG_ROUTES } from './medication-catalog.routes';
+import {
+  mapPresentationToEntry,
+  type MedicationCatalogEntryDto,
+} from './medication-catalog-entry.util';
 
 import type { MedicationCatalogSeedDrug } from '../../prisma/medication-catalog-seed-data';
 export type { MedicationCatalogSeedDrug };
@@ -12,6 +16,97 @@ export class MedicationCatalogService {
 
   listRoutes() {
     return { routes: MEDICATION_CATALOG_ROUTES };
+  }
+
+  async searchEntries(params: {
+    q?: string;
+    limit: number;
+  }): Promise<{ items: MedicationCatalogEntryDto[] }> {
+    const trimmed = params.q?.trim();
+    const presentationWhere: Prisma.MedicationCatalogPresentationWhereInput = {};
+    if (trimmed) {
+      presentationWhere.OR = [
+        { label: { contains: trimmed, mode: 'insensitive' } },
+        { code: { contains: trimmed, mode: 'insensitive' } },
+        { strength: { contains: trimmed, mode: 'insensitive' } },
+        { form: { contains: trimmed, mode: 'insensitive' } },
+        {
+          drug: {
+            displayName: { contains: trimmed, mode: 'insensitive' },
+          },
+        },
+        {
+          drug: {
+            genericName: { contains: trimmed, mode: 'insensitive' },
+          },
+        },
+        { drug: { code: { contains: trimmed, mode: 'insensitive' } } },
+      ];
+    }
+
+    const presentations =
+      await this.prisma.medicationCatalogPresentation.findMany({
+        where: presentationWhere,
+        take: params.limit,
+        orderBy: [{ drug: { displayName: 'asc' } }, { label: 'asc' }],
+        select: {
+          code: true,
+          label: true,
+          strength: true,
+          form: true,
+          drug: {
+            select: {
+              code: true,
+              displayName: true,
+              allowedRoutes: true,
+            },
+          },
+        },
+      });
+
+    const items = presentations.map((p) => mapPresentationToEntry(p));
+    const drugCodesWithPresentation = new Set(items.map((i) => i.drugCode));
+
+    if (items.length < params.limit) {
+      const drugWhere: Prisma.MedicationCatalogDrugWhereInput = {};
+      if (trimmed) {
+        drugWhere.OR = [
+          { displayName: { contains: trimmed, mode: 'insensitive' } },
+          { genericName: { contains: trimmed, mode: 'insensitive' } },
+          { code: { contains: trimmed, mode: 'insensitive' } },
+        ];
+      }
+      if (drugCodesWithPresentation.size > 0) {
+        drugWhere.code = { notIn: [...drugCodesWithPresentation] };
+      }
+
+      const drugsWithoutPresentation =
+        await this.prisma.medicationCatalogDrug.findMany({
+          where: drugWhere,
+          take: params.limit - items.length,
+          orderBy: [{ displayName: 'asc' }],
+          select: {
+            code: true,
+            displayName: true,
+            allowedRoutes: true,
+            _count: { select: { presentations: true } },
+          },
+        });
+
+      for (const drug of drugsWithoutPresentation) {
+        if (drug._count.presentations > 0) {continue;}
+        items.push({
+          drugCode: drug.code,
+          presentationCode: null,
+          label: drug.displayName,
+          displayName: drug.displayName,
+          strength: null,
+          allowedRoutes: drug.allowedRoutes,
+        });
+      }
+    }
+
+    return { items: items.slice(0, params.limit) };
   }
 
   async search(params: { q?: string; limit: number; offset: number }) {

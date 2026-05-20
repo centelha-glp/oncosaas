@@ -13,15 +13,52 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ClinicalNotesService, type ClinicalNoteActor } from './clinical-notes.service';
 import { CreateClinicalExamRequestDto } from './dto/create-clinical-exam-request.dto';
 import { CreateClinicalPrescriptionLineDto } from './dto/create-clinical-prescription-line.dto';
+import { UpdateClinicalPrescriptionLineDto } from './dto/update-clinical-prescription-line.dto';
 import { MedicationCatalogService } from '../medication-catalog/medication-catalog.service';
 import { isAllowedMedicationRoute } from '../medication-catalog/medication-catalog.routes';
+import { EvolutionStructuringService } from '../clinical-note-extraction/evolution-structuring.service';
+
+const prescriptionLineSelect = {
+  id: true,
+  clinicalNoteVersionNumber: true,
+  medicationName: true,
+  catalogKey: true,
+  presentationCatalogCode: true,
+  quantity: true,
+  dosage: true,
+  frequency: true,
+  route: true,
+  duration: true,
+  indication: true,
+  prescribedBy: { select: { id: true, name: true } },
+  createdAt: true,
+  updatedAt: true,
+} as const;
+
+function mapPrescriptionLineResponse<
+  T extends {
+    indication: string | null;
+    quantity: string | null;
+    dosage: string | null;
+    frequency: string | null;
+    route: string | null;
+    duration: string | null;
+  },
+>(row: T) {
+  return {
+    ...row,
+    quantity: row.quantity ?? '1',
+    observation: row.indication,
+  };
+}
 
 @Injectable()
 export class ClinicalNoteOrdersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly clinicalNotesService: ClinicalNotesService,
-    private readonly medicationCatalogService: MedicationCatalogService
+    private readonly medicationCatalogService: MedicationCatalogService,
+    private readonly evolutionStructuringService: EvolutionStructuringService
   ) {}
 
   private async resolveNoteForOrders(
@@ -75,6 +112,35 @@ export class ClinicalNoteOrdersService {
     ) {
       throw new ForbiddenException('Sem permissão para gerir pedidos nesta evolução');
     }
+  }
+
+  async suggestOrdersFromEvolution(
+    patientId: string,
+    clinicalNoteId: string,
+    tenantId: string,
+    actor: ClinicalNoteActor,
+    contentMarkdown: string
+  ) {
+    const note = await this.resolveNoteForOrders(
+      clinicalNoteId,
+      patientId,
+      tenantId
+    );
+    if (note.status !== ClinicalNoteStatus.DRAFT) {
+      throw new BadRequestException(
+        'Sugestões assistidas só estão disponíveis para evoluções em rascunho'
+      );
+    }
+    this.assertCanManageOrdersForNoteType(actor, note.noteType);
+
+    const trimmed = contentMarkdown.trim();
+    return this.evolutionStructuringService.previewOrdersFromMarkdown({
+      tenantId,
+      patientId,
+      clinicalNoteId,
+      noteType: note.noteType,
+      contentMarkdown: trimmed,
+    });
   }
 
   async listExamRequests(
@@ -183,25 +249,35 @@ export class ClinicalNoteOrdersService {
     if (!note) {
       throw new NotFoundException('Evolução não encontrada para este paciente');
     }
-    return this.prisma.clinicalPrescriptionLine.findMany({
+    const rows = await this.prisma.clinicalPrescriptionLine.findMany({
       where: { tenantId, clinicalNoteId },
       orderBy: { createdAt: 'asc' },
-      select: {
-        id: true,
-        clinicalNoteVersionNumber: true,
-        medicationName: true,
-        catalogKey: true,
-        presentationCatalogCode: true,
-        dosage: true,
-        frequency: true,
-        route: true,
-        duration: true,
-        indication: true,
-        prescribedBy: { select: { id: true, name: true } },
-        createdAt: true,
-        updatedAt: true,
-      },
+      select: prescriptionLineSelect,
     });
+    return rows.map(mapPrescriptionLineResponse);
+  }
+
+  private resolveStructuredPrescriptionFields(
+    dto: CreateClinicalPrescriptionLineDto
+  ) {
+    const quantity = dto.quantity?.trim();
+    const dosage = dto.dosage?.trim();
+    const frequency = dto.frequency?.trim();
+    const route = dto.route?.trim();
+    const duration = dto.duration?.trim();
+    if (!quantity || !dosage || !frequency || !route || !duration) {
+      throw new BadRequestException(
+        'Quantidade, dose, frequência, via e duração são obrigatórias'
+      );
+    }
+    return {
+      quantity,
+      dosage,
+      frequency,
+      route,
+      duration,
+      observation: dto.observation?.trim() || null,
+    };
   }
 
   private async resolvePrescriptionPayload(
@@ -288,8 +364,9 @@ export class ClinicalNoteOrdersService {
     this.assertCanManageOrdersForNoteType(actor, ClinicalNoteType.MEDICAL);
     const versionNumber = await this.latestVersionNumber(clinicalNoteId, tenantId);
     const resolved = await this.resolvePrescriptionPayload(dto);
+    const structured = this.resolveStructuredPrescriptionFields(dto);
 
-    return this.prisma.clinicalPrescriptionLine.create({
+    const created = await this.prisma.clinicalPrescriptionLine.create({
       data: {
         tenantId,
         patientId,
@@ -299,28 +376,66 @@ export class ClinicalNoteOrdersService {
         medicationName: resolved.medicationName,
         catalogKey: resolved.catalogKey,
         presentationCatalogCode: resolved.presentationCatalogCode,
-        dosage: dto.dosage?.trim() || null,
-        frequency: dto.frequency?.trim() || null,
-        route: resolved.route,
-        duration: dto.duration?.trim() || null,
-        indication: dto.indication?.trim() || null,
+        quantity: structured.quantity,
+        dosage: structured.dosage,
+        frequency: structured.frequency,
+        route: resolved.route ?? structured.route,
+        duration: structured.duration,
+        indication: structured.observation,
       },
-      select: {
-        id: true,
-        clinicalNoteVersionNumber: true,
-        medicationName: true,
-        catalogKey: true,
-        presentationCatalogCode: true,
-        dosage: true,
-        frequency: true,
-        route: true,
-        duration: true,
-        indication: true,
-        prescribedBy: { select: { id: true, name: true } },
-        createdAt: true,
-        updatedAt: true,
-      },
+      select: prescriptionLineSelect,
     });
+    return mapPrescriptionLineResponse(created);
+  }
+
+  async updatePrescriptionLine(
+    patientId: string,
+    clinicalNoteId: string,
+    lineId: string,
+    tenantId: string,
+    actor: ClinicalNoteActor,
+    dto: UpdateClinicalPrescriptionLineDto
+  ) {
+    const note = await this.resolveNoteForOrders(
+      clinicalNoteId,
+      patientId,
+      tenantId
+    );
+    if (note.noteType !== ClinicalNoteType.MEDICAL) {
+      throw new BadRequestException(
+        'Prescrições estruturadas só se aplicam à evolução médica'
+      );
+    }
+    this.assertCanManageOrdersForNoteType(actor, ClinicalNoteType.MEDICAL);
+    const existing = await this.prisma.clinicalPrescriptionLine.findFirst({
+      where: { id: lineId, tenantId, clinicalNoteId, patientId },
+      select: { id: true },
+    });
+    if (!existing) {
+      throw new NotFoundException('Linha de prescrição não encontrada');
+    }
+
+    const versionNumber = await this.latestVersionNumber(clinicalNoteId, tenantId);
+    const resolved = await this.resolvePrescriptionPayload(dto);
+    const structured = this.resolveStructuredPrescriptionFields(dto);
+
+    const updated = await this.prisma.clinicalPrescriptionLine.update({
+      where: { id: lineId, tenantId },
+      data: {
+        clinicalNoteVersionNumber: versionNumber,
+        medicationName: resolved.medicationName,
+        catalogKey: resolved.catalogKey,
+        presentationCatalogCode: resolved.presentationCatalogCode,
+        quantity: structured.quantity,
+        dosage: structured.dosage,
+        frequency: structured.frequency,
+        route: resolved.route ?? structured.route,
+        duration: structured.duration,
+        indication: structured.observation,
+      },
+      select: prescriptionLineSelect,
+    });
+    return mapPrescriptionLineResponse(updated);
   }
 
   async deletePrescriptionLine(
@@ -397,6 +512,7 @@ export class ClinicalNoteOrdersService {
           medicationName: true,
           catalogKey: true,
           presentationCatalogCode: true,
+          quantity: true,
           dosage: true,
           frequency: true,
           route: true,
@@ -417,6 +533,15 @@ export class ClinicalNoteOrdersService {
       this.prisma.clinicalPrescriptionLine.count({ where }),
     ]);
 
-    return { items, total, limit, offset };
+    return {
+      items: items.map((row) => ({
+        ...row,
+        quantity: row.quantity ?? '1',
+        observation: row.indication,
+      })),
+      total,
+      limit,
+      offset,
+    };
   }
 }

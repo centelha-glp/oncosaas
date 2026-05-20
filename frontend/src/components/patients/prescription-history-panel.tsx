@@ -9,6 +9,7 @@ import { prescriptionHistoryApi, type PrescriptionHistoryRow } from '@/lib/api/c
 import { useDebounce } from '@/lib/utils/use-debounce';
 import type { PrescriptionDraftFromHistory } from '@/lib/utils/clinical-orders-payload';
 import { prescriptionDraftFromHistoryRow } from '@/lib/utils/clinical-orders-payload';
+import { buildPrescriptionPosology } from '@/lib/utils/prescription-posology';
 
 type Props = {
   patientId: string;
@@ -86,9 +87,19 @@ export function PrescriptionHistoryPanel({
       )}
       <ul className="space-y-2 text-sm max-h-64 overflow-y-auto">
         {items.map((row) => {
-          const sig = [row.dosage, row.frequency, row.route, row.duration]
-            .filter(Boolean)
-            .join(' · ');
+          const posology =
+            row.route && row.dosage && row.frequency && row.duration
+              ? buildPrescriptionPosology({
+                  route: row.route,
+                  quantity: row.quantity ?? '1',
+                  dosage: row.dosage,
+                  frequency: row.frequency,
+                  duration: row.duration,
+                })
+              : [row.dosage, row.frequency, row.route, row.duration]
+                  .filter(Boolean)
+                  .join(' · ') || '—';
+          const observation = row.observation ?? row.indication;
           const isCurrentNote = row.clinicalNoteId === currentClinicalNoteId;
           return (
             <li
@@ -98,15 +109,15 @@ export function PrescriptionHistoryPanel({
               <div className="min-w-0 flex-1">
                 <span className="font-medium">{row.medicationName}</span>
                 <span className="text-xs text-muted-foreground block">
-                  {sig || '—'}
+                  {posology}
                 </span>
                 <span className="text-xs text-muted-foreground block">
                   {row.prescribedBy.name} · {formatNoteContext(row)}
                   {isCurrentNote ? ' · evolução atual' : ''}
                 </span>
-                {row.indication && (
+                {observation?.trim() && (
                   <span className="text-xs text-muted-foreground block">
-                    Indicação: {row.indication}
+                    Observação: {observation.trim()}
                   </span>
                 )}
               </div>

@@ -69,9 +69,12 @@ class AgentTrace:
         self.pipeline_path: str = "main"  # main | questionnaire | emergency | greeting
         self.intent: Optional[str] = None
         self.intent_confidence: Optional[float] = None
-        # triage_source: deterministic_no_llm | tool_merge | skipped_no_snapshots
+        # triage_source: deterministic_no_llm | symptom_subagent_invoked | tool_merge | skipped_no_snapshots
         self.triage_source: Optional[str] = None
         self.triage_skipped: bool = False
+        self.guardrail_input_triggered: bool = False
+        self.guardrail_output_triggered: bool = False
+        self.guardrail_rule_id: Optional[str] = None
         self.symptoms_detected: int = 0
         self.overall_severity: Optional[str] = None
         self.clinical_disposition: Optional[str] = None
@@ -126,6 +129,9 @@ class AgentTrace:
             "intent_confidence": self.intent_confidence,
             "triage_source": self.triage_source,
             "triage_skipped": self.triage_skipped,
+            "guardrail_input_triggered": self.guardrail_input_triggered,
+            "guardrail_output_triggered": self.guardrail_output_triggered,
+            "guardrail_rule_id": self.guardrail_rule_id,
             "symptoms_detected": self.symptoms_detected,
             "overall_severity": self.overall_severity,
             "clinical_disposition": self.clinical_disposition,

@@ -4,6 +4,7 @@ Builds formatted clinical context from patient data for the LLM system prompt.
 Integrates with the oncology knowledge RAG for evidence-based responses.
 """
 
+from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Any, Literal, Tuple
 import logging
 
@@ -24,6 +25,38 @@ SubAgentClinicalContextRole = Literal[
 _RECENT_DIALOGUE_MAX_MESSAGES = 5
 _RECENT_DIALOGUE_MAX_CHARS = 180
 _LAYER1_REASONING_MAX_CHARS = 600
+
+
+@dataclass
+class TurnContextCache:
+    """
+    Cache de contexto por request/turno (não cross-request).
+
+    `structured_context` é calculado uma vez; `slice()` reutiliza `build_slice` por role.
+    """
+
+    structured_context: str
+    _builder: "ClinicalContextBuilder"
+    _clinical_context: Dict[str, Any]
+    _conversation_history: List[Dict[str, str]]
+    _agent_state: Optional[Dict[str, Any]]
+    _slices: Dict[str, str] = field(default_factory=dict)
+
+    def slice(
+        self,
+        role: SubAgentClinicalContextRole,
+        **build_kwargs: Any,
+    ) -> str:
+        key = role if not build_kwargs else f"{role}:{hash(frozenset(build_kwargs.items()))}"
+        if key not in self._slices:
+            self._slices[key] = self._builder.build_slice(
+                role,
+                clinical_context=self._clinical_context,
+                conversation_history=self._conversation_history,
+                agent_state=self._agent_state,
+                **build_kwargs,
+            )
+        return self._slices[key]
 
 
 class ClinicalContextBuilder:
@@ -129,6 +162,23 @@ class ClinicalContextBuilder:
 
         return "\n\n".join(sections) if sections else "Contexto clínico não disponível."
 
+    def cache_for_turn(
+        self,
+        structured_context: str,
+        *,
+        clinical_context: Dict[str, Any],
+        conversation_history: Optional[List[Dict[str, str]]] = None,
+        agent_state: Optional[Dict[str, Any]] = None,
+    ) -> TurnContextCache:
+        """Monta cache lazy de slices para o turno atual."""
+        return TurnContextCache(
+            structured_context=structured_context,
+            _builder=self,
+            _clinical_context=clinical_context or {},
+            _conversation_history=list(conversation_history or []),
+            _agent_state=agent_state,
+        )
+
     def build_slice(
         self,
         role: SubAgentClinicalContextRole,
@@ -142,8 +192,8 @@ class ClinicalContextBuilder:
         """
         Contexto clínico reduzido por papel de subagente (mesmos `###` que `build()`).
 
-        O orquestrador principal continua a usar só `build()` completo. Slices evitam
-        enviar observações/protocolo/diálogo inteiro a subagentes que não precisam.
+        O orquestrador usa `TurnContextCache` por turno: `structured_context` de `build()`
+        e `slice(role)` lazy (não recomputa o mesmo role no mesmo request).
 
         Os parâmetros `protocol`, `symptom_analysis` e `layer1_clinical_rules` existem por
         simetria com `build()` e para evoluções futuras; nas combinações actuais podem

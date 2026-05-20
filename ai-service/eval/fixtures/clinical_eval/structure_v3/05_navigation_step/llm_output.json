@@ -1,0 +1,24 @@
+{
+  "clinical_exam_requests": [],
+  "medications": [],
+  "comorbidities": [],
+  "patient_patch": {},
+  "journey_patch": {},
+  "diagnoses": [],
+  "treatments": [],
+  "navigation_step_updates": [
+    {
+      "step_key": "consulta_oncologica",
+      "cancer_type": "bladder",
+      "journey_stage": "FOLLOW_UP",
+      "mark_completed": true,
+      "notes": "Consulta realizada conforme evolução."
+    }
+  ],
+  "complementary_exams": [],
+  "observations": [],
+  "performance_status_history": [],
+  "clinical_prescription_lines": [],
+  "questionnaire_responses": [],
+  "rejection_report": []
+}

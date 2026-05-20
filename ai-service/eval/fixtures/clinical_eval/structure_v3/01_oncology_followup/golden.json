@@ -1,0 +1,10 @@
+{
+  "description": "Evolução ambulatorial sintética — hemograma + metformina",
+  "expect": {
+    "parse_ok": true,
+    "degraded": false,
+    "clinical_exam_display_names": ["Hemograma completo"],
+    "medication_names": ["Metformina"],
+    "patient_patch_occupation": "Aposentado"
+  }
+}

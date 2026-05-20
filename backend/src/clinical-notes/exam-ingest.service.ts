@@ -25,26 +25,8 @@ import {
 import { applyComplementaryExamsFromAiItems } from '../clinical-note-extraction/apply-complementary-exams';
 import type { AiComplementaryExamItem } from '../clinical-note-extraction/clinical-note-extraction.types';
 import type { ConfirmComplementaryExamsDto } from './dto/exam-ingest.dto';
-
-/** Extrai `detail` de corpo JSON típico do FastAPI (mensagem segura ao cliente). */
-function parseAiServiceErrorDetail(raw: string): string | undefined {
-  const t = raw.trim();
-  if (!t) {return undefined;}
-  try {
-    const o = JSON.parse(t) as { detail?: unknown };
-    const d = o.detail;
-    if (typeof d === 'string' && d.trim()) {return d.trim();}
-    if (Array.isArray(d) && d.length > 0) {
-      const first = d[0] as { msg?: string };
-      if (first && typeof first.msg === 'string' && first.msg.trim()) {
-        return first.msg.trim();
-      }
-    }
-  } catch {
-    /* ignore */
-  }
-  return undefined;
-}
+import { isAiMockResponsesAllowed } from '../common/utils/ai-mock-policy.util';
+import { parseAiServiceErrorDetail } from '../common/utils/ai-service-error.util';
 
 function pickStr(
   o: Record<string, unknown>,
@@ -333,6 +315,8 @@ export class ExamIngestService {
     complementaryExamsSavedCount: number;
     complementaryExamResultSavedCount: number;
     complementaryExamIds: string[];
+    skippedCount: number;
+    skippedItems: Array<{ index: number; name?: string | null; reason: string }>;
   }> {
     const { patientId, plainText, sessionId, uploadedFiles } = opts;
     await this.assertPatientTenant(patientId, tenantId);
@@ -457,8 +441,15 @@ export class ExamIngestService {
         detectedCategories: string[];
         disclaimer: string;
         markdownFromStructuredParse?: boolean;
+        extractionSource?: string;
         complementaryExams?: unknown;
         complementary_exams?: unknown;
+        skippedCount?: number;
+        skippedItems?: Array<{
+          index: number;
+          name?: string | null;
+          reason: string;
+        }>;
       };
       let json: ExtractJson;
       try {
@@ -486,6 +477,18 @@ export class ExamIngestService {
         );
         throw new BadGatewayException(
           'Extração indisponível: resposta do serviço de IA não validada. Tente novamente.'
+        );
+      }
+
+      const extractionSource = (json.extractionSource ?? 'llm')
+        .trim()
+        .toLowerCase();
+      if (extractionSource === 'mock' && !isAiMockResponsesAllowed()) {
+        this.logger.warn(
+          `exam-extract rejected mock extractionSource tenant=${tenantId}`
+        );
+        throw new ServiceUnavailableException(
+          'Extração simulada não é permitida neste ambiente. Configure as chaves de IA no serviço de extração.'
         );
       }
 
@@ -540,6 +543,19 @@ export class ExamIngestService {
         await this.redis.del(this.sessionMetaKey(sessionId));
       }
 
+      const skippedItems = Array.isArray(json.skippedItems)
+        ? json.skippedItems.filter(
+            (row) =>
+              row &&
+              typeof row === 'object' &&
+              typeof (row as { reason?: string }).reason === 'string'
+          )
+        : [];
+      const skippedCount =
+        typeof json.skippedCount === 'number' && json.skippedCount >= 0
+          ? json.skippedCount
+          : skippedItems.length;
+
       return {
         markdownSummary: json.markdownSummary,
         detectedCategories: json.detectedCategories,
@@ -549,6 +565,12 @@ export class ExamIngestService {
         complementaryExamsSavedCount,
         complementaryExamResultSavedCount,
         complementaryExamIds,
+        skippedCount,
+        skippedItems: skippedItems as Array<{
+          index: number;
+          name?: string | null;
+          reason: string;
+        }>,
       };
     } finally {
       clearTimeout(t);

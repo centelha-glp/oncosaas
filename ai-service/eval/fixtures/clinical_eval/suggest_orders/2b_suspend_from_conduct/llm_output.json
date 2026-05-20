@@ -1,0 +1,10 @@
+{
+  "clinical_prescription_lines": [
+    {
+      "medication_name": "Dipirona",
+      "prescription_intent": "SUSPEND",
+      "indication": "Suspender conforme conduta da evolução."
+    }
+  ],
+  "rejection_report": []
+}

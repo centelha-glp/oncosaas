@@ -1,0 +1,8 @@
+{
+  "description": "Sem categorias explícitas → OTHER",
+  "expect": {
+    "parse_ok": true,
+    "detected_categories": ["OTHER"],
+    "markdown_contains": ["Achado incidental"]
+  }
+}

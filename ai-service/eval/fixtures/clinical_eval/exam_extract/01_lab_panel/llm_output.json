@@ -1,0 +1,17 @@
+{
+  "markdownSummary": "## Laboratorial\n\n| EXAME | RESULTADO |\n| --- | --- |\n| Hemoglobina | 12,1 g/dL |\n| Creatinina | 1,02 mg/dL |",
+  "detectedCategories": ["LAB"],
+  "disclaimer": "Conteúdo sintético para teste — validar com o documento original.",
+  "complementary_exams": [
+    {
+      "type": "LABORATORY",
+      "name": "Creatinina sérica",
+      "result": {
+        "valueNumeric": 1.02,
+        "unit": "mg/dL",
+        "referenceRange": "0,7–1,2",
+        "isAbnormal": false
+      }
+    }
+  ]
+}

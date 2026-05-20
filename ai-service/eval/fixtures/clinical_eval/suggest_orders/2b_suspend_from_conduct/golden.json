@@ -1,0 +1,6 @@
+{
+  "description": "Suspensão alinhada à conduta e med em uso",
+  "expect": {
+    "prescription_medication_names": ["Dipirona"]
+  }
+}

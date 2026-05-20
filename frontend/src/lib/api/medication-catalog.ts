@@ -21,7 +21,27 @@ export type MedicationCatalogRoute = {
   label: string;
 };
 
+export type MedicationCatalogEntry = {
+  drugCode: string;
+  presentationCode: string | null;
+  label: string;
+  displayName: string;
+  strength: string | null;
+  allowedRoutes: string[];
+};
+
 export const medicationCatalogApi = {
+  searchEntries(params: {
+    q?: string;
+    limit?: number;
+  }): Promise<{ items: MedicationCatalogEntry[] }> {
+    const searchParams = new URLSearchParams();
+    if (params.q?.trim()) searchParams.set('q', params.q.trim());
+    if (params.limit != null) searchParams.set('limit', String(params.limit));
+    const qs = searchParams.toString();
+    return apiClient.get(`/medication-catalog/entries${qs ? `?${qs}` : ''}`);
+  },
+
   search(params: {
     q?: string;
     limit?: number;

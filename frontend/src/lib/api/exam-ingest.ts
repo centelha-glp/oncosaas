@@ -37,10 +37,18 @@ export type ExamIngestExtractResponse = {
   disclaimer: string;
   /** Só incorporar na evolução quando true (JSON estruturado validado no ai-service). */
   markdownFromStructuredParse: boolean;
+  /** "llm" | "mock" — mock não deve ser aceite em produção. */
+  extractionSource?: 'llm' | 'mock' | string;
   collectionId?: string;
   complementaryExamsSavedCount: number;
   complementaryExamResultSavedCount: number;
   complementaryExamIds: string[];
+  skippedCount?: number;
+  skippedItems?: Array<{
+    index: number;
+    name?: string | null;
+    reason: string;
+  }>;
 };
 
 export const examIngestApi = {

@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import Link from 'next/link';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import { PatientDetail } from '@/lib/api/patients';
 import {
@@ -12,10 +13,12 @@ import {
   loadContentMarkdownFromPreviousEvolution,
   mergeMarkdownWithCadastroSuggestion,
   type ClinicalNoteType,
+  type ClinicalExtractionProposalSummary,
 } from '@/lib/api/clinical-notes';
 import type { NavigationStep } from '@/lib/api/oncology-navigation';
 import { usePatientNavigationSteps } from '@/hooks/useOncologyNavigation';
 import {
+  clinicalNoteTypeForNavigationStepKey,
   filterNavigationStepsByEvolutionBaseKey,
   sortNavigationStepsForEvolutionPick,
 } from '@/lib/utils/clinical-evolution-navigation';
@@ -26,6 +29,9 @@ import {
   useClinicalNoteMutations,
   useClinicalNoteExtractionStatus,
   useUndoClinicalNoteExtraction,
+  useRetryClinicalNoteExtraction,
+  useApproveClinicalNoteExtraction,
+  useRejectClinicalNoteExtraction,
 } from '@/hooks/use-clinical-notes';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -84,10 +90,14 @@ function extractionStatusLabel(
   switch (status) {
     case 'PENDING':
       return 'Em processamento';
+    case 'AWAITING_REVIEW':
+      return 'Aguardando sua aprovação';
     case 'APPLIED':
       return 'Aplicada';
     case 'FAILED':
       return 'Falhou';
+    case 'REJECTED':
+      return 'Rejeitada';
     case 'ROLLED_BACK':
       return 'Desfeita';
     case 'NONE':
@@ -97,10 +107,70 @@ function extractionStatusLabel(
   }
 }
 
+function proposalSummaryLines(
+  summary: ClinicalExtractionProposalSummary
+): string[] {
+  const lines: string[] = [];
+  if (summary.medications > 0) {
+    lines.push(
+      `${summary.medications} medicamento${summary.medications === 1 ? '' : 's'}`
+    );
+  }
+  if (summary.clinicalExamRequests > 0) {
+    lines.push(
+      `${summary.clinicalExamRequests} pedido${summary.clinicalExamRequests === 1 ? '' : 's'} de exame`
+    );
+  }
+  if (summary.comorbidities > 0) {
+    lines.push(
+      `${summary.comorbidities} comorbidade${summary.comorbidities === 1 ? '' : 's'}`
+    );
+  }
+  if (summary.patientPatchFieldCount > 0) {
+    lines.push(
+      `${summary.patientPatchFieldCount} campo${summary.patientPatchFieldCount === 1 ? '' : 's'} no cadastro`
+    );
+  }
+  if (summary.journeyPatchFieldCount > 0) {
+    lines.push(
+      `${summary.journeyPatchFieldCount} campo${summary.journeyPatchFieldCount === 1 ? '' : 's'} na jornada`
+    );
+  }
+  if (summary.complementaryExams > 0) {
+    lines.push(
+      `${summary.complementaryExams} exame${summary.complementaryExams === 1 ? '' : 's'} complementar${summary.complementaryExams === 1 ? '' : 'es'}`
+    );
+  }
+  if (summary.diagnoses > 0) {
+    lines.push(
+      `${summary.diagnoses} diagnóstico${summary.diagnoses === 1 ? '' : 's'}`
+    );
+  }
+  if (summary.treatments > 0) {
+    lines.push(
+      `${summary.treatments} tratamento${summary.treatments === 1 ? '' : 's'}`
+    );
+  }
+  if (summary.clinicalPrescriptionLines > 0) {
+    lines.push(
+      `${summary.clinicalPrescriptionLines} linha${summary.clinicalPrescriptionLines === 1 ? '' : 's'} de prescrição`
+    );
+  }
+  if (lines.length === 0) {
+    lines.push('Proposta sem itens estruturados detectados');
+  }
+  return lines;
+}
+
 export function PatientProntuarioTab({
   patient,
 }: PatientProntuarioTabProps): React.ReactElement {
   const queryClient = useQueryClient();
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const deepLinkNavigationStepId = searchParams.get('navigationStepId');
+  const deepLinkHandledRef = useRef<string | null>(null);
   const {
     data: list,
     isLoading,
@@ -108,7 +178,10 @@ export function PatientProntuarioTab({
     refetch,
     isFetching,
   } = useClinicalNotesList(patient.id);
-  const { data: navigationSteps = [] } = usePatientNavigationSteps(patient.id);
+  const {
+    data: navigationSteps = [],
+    isLoading: loadingNavigationSteps,
+  } = usePatientNavigationSteps(patient.id);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const {
     data: detail,
@@ -119,6 +192,9 @@ export function PatientProntuarioTab({
     patient.id
   );
   const undoExtraction = useUndoClinicalNoteExtraction(patient.id);
+  const retryExtraction = useRetryClinicalNoteExtraction(patient.id);
+  const approveExtraction = useApproveClinicalNoteExtraction(patient.id);
+  const rejectExtraction = useRejectClinicalNoteExtraction(patient.id);
   const { data: extractionStatus } = useClinicalNoteExtractionStatus(
     selectedId ?? undefined,
     Boolean(detail?.status === 'SIGNED')
@@ -330,6 +406,125 @@ export function PatientProntuarioTab({
       toast.error(msg);
     }
   };
+
+  const clearNavigationStepIdFromUrl = useCallback(() => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (!params.has('navigationStepId')) return;
+    params.delete('navigationStepId');
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  }, [pathname, router, searchParams]);
+
+  const openEvolutionForNavigationStep = useCallback(
+    async (stepId: string) => {
+      const step = navigationSteps.find((s) => s.id === stepId);
+      if (!step) {
+        toast.error('Etapa de navegação não encontrada para este paciente.');
+        return;
+      }
+      const noteType = clinicalNoteTypeForNavigationStepKey(step.stepKey);
+      if (!noteType) {
+        toast.error('Esta etapa não permite evolução pelo prontuário.');
+        return;
+      }
+      if (!canCreateClinicalNoteType(role, clinicalSubrole, noteType)) {
+        toast.info(
+          'Seu perfil não permite criar evolução para esta consulta. Selecione uma evolução existente na lista, se houver.'
+        );
+        const linked = (list?.data ?? []).filter(
+          (n) => n.navigationStepId === stepId
+        );
+        const draft = linked.find((n) => n.status === 'DRAFT');
+        const pick =
+          draft ??
+          [...linked].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+        if (pick) setSelectedId(pick.id);
+        return;
+      }
+
+      const linked = (list?.data ?? []).filter(
+        (n) => n.navigationStepId === stepId
+      );
+      const draft = linked.find((n) => n.status === 'DRAFT');
+      if (draft) {
+        setSelectedId(draft.id);
+        return;
+      }
+      const latest = [...linked].sort((a, b) =>
+        b.updatedAt.localeCompare(a.updatedAt)
+      )[0];
+      if (latest) {
+        setSelectedId(latest.id);
+        return;
+      }
+
+      setIsResolvingCreateTemplate(true);
+      try {
+        const base = await loadContentMarkdownFromPreviousEvolution(
+          noteType,
+          list?.data ?? []
+        );
+        let merged = base;
+        try {
+          const { contentMarkdown: suggestionMd } =
+            await clinicalNotesApi.getSectionSuggestions(patient.id, {
+              noteType,
+              navigationStepId: stepId,
+            });
+          merged = mergeMarkdownWithCadastroSuggestion(base, suggestionMd);
+        } catch {
+          /* cadastro opcional */
+        }
+        const res = await create.mutateAsync({
+          noteType,
+          contentMarkdown: merged,
+          navigationStepId: stepId,
+        });
+        setSelectedId(res.id);
+      } catch (err) {
+        const msg =
+          err instanceof ApiClientError
+            ? err.message
+            : err instanceof Error
+              ? err.message
+              : 'Não foi possível abrir a evolução desta consulta.';
+        toast.error(msg);
+      } finally {
+        setIsResolvingCreateTemplate(false);
+      }
+    },
+    [
+      clinicalSubrole,
+      create,
+      list?.data,
+      navigationSteps,
+      patient.id,
+      role,
+    ]
+  );
+
+  React.useEffect(() => {
+    if (!deepLinkNavigationStepId) return;
+    if (deepLinkHandledRef.current === deepLinkNavigationStepId) return;
+    if (isLoading || loadingNavigationSteps || isInitializing) return;
+    if (error) return;
+
+    const stepId = deepLinkNavigationStepId;
+    deepLinkHandledRef.current = stepId;
+
+    void (async () => {
+      await openEvolutionForNavigationStep(stepId);
+      clearNavigationStepIdFromUrl();
+    })();
+  }, [
+    clearNavigationStepIdFromUrl,
+    deepLinkNavigationStepId,
+    error,
+    isInitializing,
+    isLoading,
+    loadingNavigationSteps,
+    openEvolutionForNavigationStep,
+  ]);
 
   const handleCreateEvolution = async (noteType: ClinicalNoteType) => {
     setIsResolvingCreateTemplate(true);
@@ -691,11 +886,101 @@ export function PatientProntuarioTab({
                     </p>
                   )}
                   {detail.status === 'SIGNED' && extractionStatus && (
-                    <div className="flex flex-wrap items-center gap-2 mt-1">
-                      <Badge variant="secondary" className="text-xs font-normal">
+                    <div className="flex flex-col gap-1 mt-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                      <Badge
+                        variant={
+                          extractionStatus.status === 'FAILED'
+                            ? 'destructive'
+                            : extractionStatus.status === 'AWAITING_REVIEW'
+                              ? 'default'
+                              : 'secondary'
+                        }
+                        className="text-xs font-normal"
+                      >
                         Extração assistida:{' '}
                         {extractionStatusLabel(extractionStatus.status)}
                       </Badge>
+                      {extractionStatus.status === 'AWAITING_REVIEW' &&
+                        extractionStatus.proposalSummary &&
+                        detailPerms?.canSign && (
+                          <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-sm space-y-2 max-w-prose">
+                            <p className="font-medium text-foreground">
+                              Revise antes de gravar no prontuário
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              A IA estruturou a evolução assinada. Nada será
+                              salvo até você aprovar. Depois da aprovação, você
+                              ainda pode desfazer por até{' '}
+                              {extractionStatus.undoWindowDays} dias.
+                            </p>
+                            <ul className="text-xs list-disc pl-4 space-y-0.5">
+                              {proposalSummaryLines(
+                                extractionStatus.proposalSummary
+                              ).map((line) => (
+                                <li key={line}>{line}</li>
+                              ))}
+                            </ul>
+                            <div className="flex flex-wrap gap-2 pt-1">
+                              <Button
+                                type="button"
+                                size="sm"
+                                disabled={
+                                  approveExtraction.isPending ||
+                                  rejectExtraction.isPending
+                                }
+                                onClick={() => {
+                                  approveExtraction.mutate(detail.id, {
+                                    onSuccess: () => {
+                                      toast.success(
+                                        'Extração aprovada e aplicada ao prontuário.'
+                                      );
+                                    },
+                                    onError: (err) => {
+                                      const msg =
+                                        err instanceof ApiClientError
+                                          ? err.message
+                                          : 'Não foi possível aprovar.';
+                                      toast.error(msg);
+                                    },
+                                  });
+                                }}
+                              >
+                                Aprovar e aplicar
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                disabled={
+                                  approveExtraction.isPending ||
+                                  rejectExtraction.isPending
+                                }
+                                onClick={() => {
+                                  rejectExtraction.mutate(
+                                    { noteId: detail.id },
+                                    {
+                                      onSuccess: () => {
+                                        toast.success(
+                                          'Proposta rejeitada. Nenhuma alteração foi aplicada.'
+                                        );
+                                      },
+                                      onError: (err) => {
+                                        const msg =
+                                          err instanceof ApiClientError
+                                            ? err.message
+                                            : 'Não foi possível rejeitar.';
+                                        toast.error(msg);
+                                      },
+                                    }
+                                  );
+                                }}
+                              >
+                                Rejeitar
+                              </Button>
+                            </div>
+                          </div>
+                        )}
                       {extractionStatus.status === 'APPLIED' &&
                         extractionStatus.canUndoUntil &&
                         new Date(extractionStatus.canUndoUntil) > new Date() &&
@@ -722,6 +1007,47 @@ export function PatientProntuarioTab({
                           >
                             Desfazer extração
                           </Button>
+                        )}
+                      </div>
+                      {extractionStatus.status === 'FAILED' &&
+                        detailPerms?.canSign && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            disabled={retryExtraction.isPending}
+                            onClick={() => {
+                              retryExtraction.mutate(detail.id, {
+                                onSuccess: () => {
+                                  toast.success(
+                                    'Estruturação reenfileirada. Aguarde alguns instantes.'
+                                  );
+                                },
+                                onError: (err) => {
+                                  const msg =
+                                    err instanceof ApiClientError
+                                      ? err.message
+                                      : 'Não foi possível reprocessar.';
+                                  toast.error(msg);
+                                },
+                              });
+                            }}
+                          >
+                            Reprocessar estruturação
+                          </Button>
+                        )}
+                      {(extractionStatus.status === 'FAILED' ||
+                        extractionStatus.status === 'REJECTED') &&
+                        extractionStatus.errorMessage?.trim() && (
+                          <p
+                            className={`text-xs max-w-prose ${
+                              extractionStatus.status === 'FAILED'
+                                ? 'text-destructive'
+                                : 'text-muted-foreground'
+                            }`}
+                          >
+                            {extractionStatus.errorMessage.trim()}
+                          </p>
                         )}
                     </div>
                   )}
@@ -900,6 +1226,7 @@ export function PatientProntuarioTab({
                         clinicalNoteId={detail.id}
                         noteType={detail.noteType}
                         noteStatus={detail.status}
+                        draftMarkdown={draftMarkdown}
                         professionalName={
                           detail.signedBy?.name?.trim() ||
                           detail.createdBy?.name?.trim() ||
@@ -928,6 +1255,7 @@ export function PatientProntuarioTab({
                       clinicalNoteId={detail.id}
                       noteType={detail.noteType}
                       noteStatus={detail.status}
+                      draftMarkdown={draftMarkdown}
                       professionalName={
                         detail.signedBy?.name?.trim() ||
                         detail.createdBy?.name?.trim() ||

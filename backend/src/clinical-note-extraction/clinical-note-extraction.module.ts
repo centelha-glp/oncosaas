@@ -22,6 +22,7 @@ import { ClinicalNoteExtractionService } from './clinical-note-extraction.servic
   ],
   exports: [
     ClinicalNoteExtractionService,
+    EvolutionStructuringService,
     BullModule.registerQueue({ name: CLINICAL_NOTE_EXTRACTION_QUEUE }),
   ],
 })

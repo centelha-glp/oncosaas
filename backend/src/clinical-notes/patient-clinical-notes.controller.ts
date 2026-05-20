@@ -20,6 +20,7 @@ import type { CurrentUser as CurrentUserType } from '../auth/decorators/current-
 import { ClinicalNoteType, UserRole } from '@generated/prisma/client';
 import { ClinicalNotesService } from './clinical-notes.service';
 import { ClinicalNoteSectionSuggestionService } from './clinical-note-section-suggestion.service';
+import { ClinicalNoteExtractionService } from '../clinical-note-extraction/clinical-note-extraction.service';
 import { CreateClinicalNoteDto } from './dto/clinical-note-sections.dto';
 import { BootstrapEvolutionNavigationStepDto } from './dto/bootstrap-evolution-navigation-step.dto';
 
@@ -28,7 +29,8 @@ import { BootstrapEvolutionNavigationStepDto } from './dto/bootstrap-evolution-n
 export class PatientClinicalNotesController {
   constructor(
     private readonly clinicalNotesService: ClinicalNotesService,
-    private readonly sectionSuggestionService: ClinicalNoteSectionSuggestionService
+    private readonly sectionSuggestionService: ClinicalNoteSectionSuggestionService,
+    private readonly clinicalNoteExtractionService: ClinicalNoteExtractionService
   ) {}
 
   private actor(user: CurrentUserType) {
@@ -83,6 +85,25 @@ export class PatientClinicalNotesController {
       user.tenantId,
       this.actor(user),
       dto.noteType
+    );
+  }
+
+  @Get('pending-extractions')
+  @Roles(
+    UserRole.NURSE,
+    UserRole.NURSE_CHIEF,
+    UserRole.DOCTOR,
+    UserRole.ONCOLOGIST,
+    UserRole.COORDINATOR,
+    UserRole.ADMIN
+  )
+  listPendingExtractions(
+    @Param('patientId', ParseUUIDPipe) patientId: string,
+    @CurrentUser() user: CurrentUserType
+  ) {
+    return this.clinicalNoteExtractionService.listPendingExtractions(
+      patientId,
+      user.tenantId
     );
   }
 

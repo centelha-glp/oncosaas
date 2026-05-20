@@ -1,0 +1,9 @@
+{
+  "description": "Painel de imagem estruturado",
+  "expect": {
+    "parse_ok": true,
+    "detected_categories": ["IMAGING"],
+    "complementary_exam_names": ["Tomografia de tórax"],
+    "markdown_contains": ["Tomografia"]
+  }
+}

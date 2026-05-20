@@ -22,10 +22,11 @@ Você é um engenheiro de IA especializado em **desenvolvimento de agentes conve
 Mensagem (WhatsApp) → ChannelGateway → AgentService (NestJS)
   → buildClinicalContext, getActiveProtocol, getRecentHistory
   → POST /api/v1/agent/process (AI Service)
-    → Orchestrator: `trace.pipeline_path` = `main`; sem classificador de intent no fluxo principal
+    → Orchestrator: `trace.pipeline_path` = `main`; sem classificador de intent no fluxo principal (`intent_classifier` deprecated)
+    → Guardrails input/output: `patient_guardrails.py` (+ filtro leve no `agent.service.ts` antes de enviar ao paciente)
     → Sem LLM: triagem determinística síncrona (`symptom_analyzer` + Layer 1) → `context_builder` → texto fallback
-    → Com LLM: primeiro `context_builder` sem forçar sintomas/Layer1 → `run_agentic_loop` → merge snapshots
-         da tool `executar_triagem_seguranca` **ou** contrato explícito sem motor determinístico (sem fallback síncrono)
+    → Com LLM: `context_builder` → `run_agentic_loop` (Haiku 4.5) → Layer 1 ao chamar `consultar_agente_sintomas`
+         **ou** contrato explícito skipped se o subagente de sintomas não foi invocado (sem heurística pós-loop)
     → protocol_engine → `_compile_actions`, `_update_state` → response, actions, decisions, new_state
   → DecisionGateService (auto-approved vs needsApproval)
   → executeDecision (só auto-aprovadas) → updateState → sendMessage

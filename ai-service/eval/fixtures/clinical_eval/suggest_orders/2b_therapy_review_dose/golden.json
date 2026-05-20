@@ -1,0 +1,6 @@
+{
+  "description": "Linha de revisão de terapia com prefixo na indication",
+  "expect": {
+    "prescription_indication_prefix": "[Revisão de terapia]"
+  }
+}

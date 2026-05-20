@@ -11,6 +11,7 @@ import {
   ClinicalNoteStatus,
   ComorbiditySeverity,
   ComorbidityType,
+  ComplementaryExamType,
   HealthCoverageType,
   InterventionType,
   MedicationCategory,
@@ -21,6 +22,7 @@ import {
   getAiServiceConfig,
   getAiServiceHeadersWithTenant,
 } from '../common/utils/ai-service.util';
+import { parseAiServiceErrorDetail } from '../common/utils/ai-service-error.util';
 import { decryptSensitiveData } from '../whatsapp-connections/utils/encryption.util';
 import { decodeDecryptedClinicalNoteToMarkdown } from '../clinical-notes/clinical-note-legacy-content.util';
 import {
@@ -34,11 +36,14 @@ import {
 import type {
   AiClinicalEvolutionStructureResponse,
   AiPatientPatch,
+  AiSuggestClinicalOrdersResponse,
   ClinicalNoteExtractionJobPayload,
 } from './clinical-note-extraction.types';
 import { applyExtendedClinicalDomains } from './apply-extended-domains';
 
 const STRUCTURE_TIMEOUT_MS = 120_000;
+const SUGGEST_ORDERS_TIMEOUT_MS = 90_000;
+const LAB_RESULTS_EXAM_TAKE = 60;
 const MAX_DISPLAY_NAME_LEN = 400;
 const MAX_MED_COMORB_NAME_LEN = 500;
 
@@ -171,10 +176,79 @@ export class EvolutionStructuringService {
     return null;
   }
 
+  private async buildRecentLaboratoryResults(
+    tenantId: string,
+    patientId: string
+  ): Promise<Record<string, unknown>[]> {
+    const exams = await this.prisma.complementaryExam.findMany({
+      where: {
+        tenantId,
+        patientId,
+        type: ComplementaryExamType.LABORATORY,
+      },
+      orderBy: { updatedAt: 'desc' },
+      take: LAB_RESULTS_EXAM_TAKE,
+      select: {
+        name: true,
+        code: true,
+        loincCode: true,
+        unit: true,
+        referenceRange: true,
+        isCriticalMetric: true,
+        results: {
+          where: { deletedAt: null },
+          orderBy: { performedAt: 'desc' },
+          take: 1,
+          select: {
+            performedAt: true,
+            valueNumeric: true,
+            valueText: true,
+            unit: true,
+            referenceRange: true,
+            isAbnormal: true,
+            criticalHigh: true,
+            criticalLow: true,
+            components: true,
+          },
+        },
+      },
+    });
+
+    return exams
+      .filter((exam) => exam.results.length > 0)
+      .map((exam) => {
+        const latest = exam.results[0];
+        return {
+          name: exam.name,
+          code: exam.code,
+          loinc_code: exam.loincCode,
+          unit: exam.unit,
+          reference_range: exam.referenceRange,
+          is_critical_metric: exam.isCriticalMetric,
+          latest_result: {
+            performed_at: latest.performedAt.toISOString(),
+            value_numeric: latest.valueNumeric,
+            value_text: latest.valueText,
+            unit: latest.unit,
+            reference_range: latest.referenceRange,
+            is_abnormal: latest.isAbnormal,
+            critical_high: latest.criticalHigh,
+            critical_low: latest.criticalLow,
+            components: latest.components,
+          },
+        };
+      });
+  }
+
   private async buildPatientSnapshotForStructure(
     tenantId: string,
     patientId: string
   ): Promise<Record<string, unknown>> {
+    const recentLaboratoryResults = await this.buildRecentLaboratoryResults(
+      tenantId,
+      patientId
+    );
+
     const row = await this.prisma.patient.findFirst({
       where: { id: patientId, tenantId },
       select: {
@@ -236,7 +310,90 @@ export class EvolutionStructuringService {
         },
       },
     });
-    return (row ?? { id: patientId }) as Record<string, unknown>;
+    return {
+      ...((row ?? { id: patientId }) as Record<string, unknown>),
+      recentLaboratoryResults,
+    };
+  }
+
+  async previewOrdersFromMarkdown(args: {
+    tenantId: string;
+    patientId: string;
+    clinicalNoteId: string;
+    noteType: string;
+    contentMarkdown: string;
+  }): Promise<AiSuggestClinicalOrdersResponse> {
+    const { aiServiceUrl, headers: baseHeaders } = getAiServiceConfig(
+      this.configService
+    );
+    const headers = {
+      ...baseHeaders,
+      ...getAiServiceHeadersWithTenant(this.configService, args.tenantId),
+    };
+    const url = `${aiServiceUrl}/api/v1/clinical-evolution/suggest-orders`;
+
+    const patientSnapshot = await this.buildPatientSnapshotForStructure(
+      args.tenantId,
+      args.patientId
+    );
+
+    const body = {
+      tenant_id: args.tenantId,
+      patient_id: args.patientId,
+      clinical_note_id: args.clinicalNoteId,
+      note_type: args.noteType,
+      content_markdown: args.contentMarkdown,
+      patient_snapshot: patientSnapshot,
+    };
+
+    const controller = new AbortController();
+    const t = setTimeout(() => controller.abort(), SUGGEST_ORDERS_TIMEOUT_MS);
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+      const raw = await res.text();
+      if (!res.ok) {
+        if (res.status === 503) {
+          throw new ServiceUnavailableException(
+            parseAiServiceErrorDetail(raw) ??
+              'Estruturação indisponível: serviço de IA sem configuração ou indisponível.'
+          );
+        }
+        throw new BadGatewayException(
+          `ai-service status=${res.status} body=${raw.slice(0, 500)}`
+        );
+      }
+      let parsed: AiSuggestClinicalOrdersResponse;
+      try {
+        parsed = JSON.parse(raw) as AiSuggestClinicalOrdersResponse;
+      } catch {
+        throw new BadGatewayException('Resposta JSON inválida do ai-service');
+      }
+      if (!Array.isArray(parsed.clinical_exam_requests)) {
+        parsed.clinical_exam_requests = [];
+      }
+      if (!Array.isArray(parsed.clinical_prescription_lines)) {
+        parsed.clinical_prescription_lines = [];
+      }
+      if (!Array.isArray(parsed.rejection_report)) {
+        parsed.rejection_report = parsed.rejection_report ?? [];
+      }
+      return parsed;
+    } catch (e) {
+      const name = e instanceof Error ? e.name : '';
+      if (name === 'AbortError') {
+        throw new BadGatewayException(
+          'Timeout ao contactar o serviço de sugestão de pedidos.'
+        );
+      }
+      throw e;
+    } finally {
+      clearTimeout(t);
+    }
   }
 
   async runFromJob(payload: ClinicalNoteExtractionJobPayload): Promise<void> {
@@ -260,6 +417,15 @@ export class EvolutionStructuringService {
       return;
     }
     if (run?.status === ClinicalNoteExtractionRunStatus.ROLLED_BACK) {
+      return;
+    }
+    if (run?.status === ClinicalNoteExtractionRunStatus.AWAITING_REVIEW) {
+      this.logger.debug(
+        `Extraction already AWAITING_REVIEW note=${clinicalNoteId}`
+      );
+      return;
+    }
+    if (run?.status === ClinicalNoteExtractionRunStatus.REJECTED) {
       return;
     }
 
@@ -340,8 +506,7 @@ export class EvolutionStructuringService {
         contentMarkdown,
       });
     } catch (err) {
-      const msg =
-        err instanceof Error ? err.message.slice(0, 2000) : 'Erro desconhecido';
+      const msg = this.formatStructureFailureMessage(err);
       this.logger.warn(
         `AI structure failed note=${clinicalNoteId}: ${msg}`,
         err instanceof Error ? err.stack : undefined
@@ -351,6 +516,22 @@ export class EvolutionStructuringService {
         data: {
           status: ClinicalNoteExtractionRunStatus.FAILED,
           errorMessage: msg,
+        },
+      });
+      return;
+    }
+
+    if (this.isAiStructureDegraded(aiJson)) {
+      const msg = this.structureDegradedUserMessage(aiJson);
+      this.logger.warn(
+        `AI structure degraded note=${clinicalNoteId}: ${msg}`
+      );
+      await this.prisma.clinicalNoteExtractionRun.update({
+        where: { id: run.id, tenantId },
+        data: {
+          status: ClinicalNoteExtractionRunStatus.FAILED,
+          errorMessage: msg,
+          rejectionReport: aiJson.rejection_report ?? [],
         },
       });
       return;
@@ -401,6 +582,84 @@ export class EvolutionStructuringService {
     if (!Array.isArray(aiJson.questionnaire_responses)) {
       aiJson.questionnaire_responses = [];
     }
+
+    await this.prisma.clinicalNoteExtractionRun.update({
+      where: { id: run.id, tenantId },
+      data: {
+        status: ClinicalNoteExtractionRunStatus.AWAITING_REVIEW,
+        proposedPayload: aiJson as unknown as Prisma.InputJsonValue,
+        rejectionReport:
+          mergedRejections.length > 0
+            ? (mergedRejections as unknown as Prisma.InputJsonValue)
+            : undefined,
+        errorMessage: null,
+      },
+    });
+
+    this.logger.log(
+      `Extraction run=${run.id} note=${clinicalNoteId} awaiting professional review`
+    );
+  }
+
+  /**
+   * Aplica no prontuário o payload previamente aprovado (status AWAITING_REVIEW).
+   */
+  async applyApprovedExtraction(
+    runId: string,
+    tenantId: string,
+    approvedByUserId: string
+  ): Promise<void> {
+    const run = await this.prisma.clinicalNoteExtractionRun.findFirst({
+      where: { id: runId, tenantId },
+    });
+    if (!run) {
+      throw new BadGatewayException('Extração não encontrada');
+    }
+    if (run.status !== ClinicalNoteExtractionRunStatus.AWAITING_REVIEW) {
+      throw new BadGatewayException(
+        'Extração não está aguardando revisão para aplicação'
+      );
+    }
+    if (!run.proposedPayload || typeof run.proposedPayload !== 'object') {
+      throw new BadGatewayException('Proposta estruturada indisponível');
+    }
+
+    const aiJson = run.proposedPayload as AiClinicalEvolutionStructureResponse;
+    const mergedRejections: Array<{
+      domain: string;
+      reason: string;
+      field?: string | null;
+    }> = [...(aiJson.rejection_report ?? [])];
+
+    const note = await this.prisma.clinicalNote.findFirst({
+      where: {
+        id: run.clinicalNoteId,
+        tenantId,
+        patientId: run.patientId,
+      },
+      include: {
+        versions: {
+          where: { versionNumber: run.latestVersionNumber },
+          take: 1,
+        },
+      },
+    });
+    if (
+      !note ||
+      note.versions[0]?.sectionsContentHash !== run.sectionsContentHash ||
+      note.status !== ClinicalNoteStatus.SIGNED
+    ) {
+      throw new BadGatewayException(
+        'Nota clínica incompatível com a proposta de extração'
+      );
+    }
+
+    const {
+      patientId,
+      clinicalNoteId,
+      signedByUserId,
+      latestVersionNumber,
+    } = run;
 
     const patchKeysApplied: string[] = [];
 
@@ -803,7 +1062,7 @@ export class EvolutionStructuringService {
                 '(Nenhuma mutação de domínio aplicável após validação — execução registrada como concluída.)',
               ]
             : []),
-          `Versão: ${latestVersionNumber}; hash (prefixo): ${sectionsContentHash.slice(0, 16)}…`,
+          `Versão: ${latestVersionNumber}; hash (prefixo): ${run.sectionsContentHash.slice(0, 16)}…`,
         ].join(' ');
 
         const internal = await tx.internalNote.create({
@@ -909,6 +1168,9 @@ export class EvolutionStructuringService {
             rejectionReport: mergedRejections,
             appliedPayloadHash,
             appliedAt: new Date(),
+            reviewedAt: new Date(),
+            reviewedByUserId: approvedByUserId,
+            proposedPayload: Prisma.JsonNull,
             errorMessage:
               warnDomains.length > 0
                 ? `Nenhuma alteração aplicável após validação em: ${warnDomains.join(', ')}.`
@@ -926,6 +1188,63 @@ export class EvolutionStructuringService {
     this.logger.log(
       `Extraction run=${run.id} note=${clinicalNoteId} exams=${createdExamIds.length} meds=${createdMedicationIds.length} comorb=${createdComorbidityIds.length}`
     );
+  }
+
+  private isAiStructureDegraded(
+    aiJson: AiClinicalEvolutionStructureResponse
+  ): boolean {
+    if (aiJson.degraded === true) {
+      return true;
+    }
+    if (aiJson.parse_ok === false) {
+      return true;
+    }
+    if (aiJson.llm_available === false) {
+      return true;
+    }
+    return false;
+  }
+
+  private structureDegradedUserMessage(
+    aiJson: AiClinicalEvolutionStructureResponse
+  ): string {
+    const first = aiJson.rejection_report?.[0]?.reason?.trim();
+    if (first) {
+      return first.slice(0, 2000);
+    }
+    if (aiJson.parse_ok === false) {
+      return 'Estruturação indisponível: resposta do modelo inválida.';
+    }
+    if (aiJson.llm_available === false) {
+      return 'Estruturação indisponível: serviço de IA sem chaves configuradas.';
+    }
+    return 'Estruturação indisponível; nenhum dado foi aplicado automaticamente.';
+  }
+
+  private formatStructureFailureMessage(err: unknown): string {
+    if (err instanceof ServiceUnavailableException) {
+      const r = err.getResponse();
+      if (typeof r === 'string' && r.trim()) {
+        return r.trim().slice(0, 2000);
+      }
+      if (r && typeof r === 'object' && 'message' in r) {
+        const m = (r as { message?: string | string[] }).message;
+        if (Array.isArray(m)) {
+          return m.join(' ').slice(0, 2000);
+        }
+        if (typeof m === 'string' && m.trim()) {
+          return m.trim().slice(0, 2000);
+        }
+      }
+      return 'Estruturação indisponível: serviço de IA sem configuração ou indisponível.';
+    }
+    if (err instanceof BadGatewayException) {
+      return 'Estruturação indisponível: falha ao contactar o serviço de IA.';
+    }
+    if (err instanceof Error && err.message.trim()) {
+      return err.message.trim().slice(0, 2000);
+    }
+    return 'Estruturação indisponível; tente novamente mais tarde.';
   }
 
   private async callAiStructure(args: {
@@ -971,7 +1290,8 @@ export class EvolutionStructuringService {
       if (!res.ok) {
         if (res.status === 503) {
           throw new ServiceUnavailableException(
-            raw.slice(0, 500) || 'ai-service indisponível'
+            parseAiServiceErrorDetail(raw) ??
+              'Estruturação indisponível: serviço de IA sem configuração ou indisponível.'
           );
         }
         throw new BadGatewayException(

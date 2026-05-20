@@ -162,8 +162,24 @@ export type AiQuestionnaireResponseItem = {
   completed_at?: string | null;
 };
 
+/** Resposta do ai-service POST /clinical-evolution/suggest-orders (preview em rascunho). */
+export type AiSuggestClinicalOrdersResponse = {
+  suggestion_schema_version?: string;
+  clinical_exam_requests: AiClinicalExamRequestItem[];
+  clinical_prescription_lines: AiPrescriptionLineItem[];
+  rejection_report?: Array<{
+    domain: string;
+    reason: string;
+    field?: string | null;
+  }> | null;
+};
+
 export type AiClinicalEvolutionStructureResponse = {
   extraction_schema_version: string;
+  /** Contrato degradado (ai-service): quando true, não aplicar APPLIED. */
+  llm_available?: boolean;
+  parse_ok?: boolean;
+  degraded?: boolean;
   clinical_exam_requests: AiClinicalExamRequestItem[];
   medications?: AiMedicationItem[];
   comorbidities?: AiComorbidityItem[];

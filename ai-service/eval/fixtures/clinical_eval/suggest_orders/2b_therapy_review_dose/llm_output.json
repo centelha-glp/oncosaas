@@ -1,0 +1,10 @@
+{
+  "clinical_prescription_lines": [
+    {
+      "medication_name": "Metformina",
+      "prescription_intent": "DOSE_CHANGE",
+      "indication": "[Revisão de terapia] comorbidity_risk: Creatinina elevada com IRC; revisar dose."
+    }
+  ],
+  "rejection_report": []
+}

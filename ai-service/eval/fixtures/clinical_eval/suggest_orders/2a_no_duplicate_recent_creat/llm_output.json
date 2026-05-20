@@ -1,0 +1,9 @@
+{
+  "clinical_exam_requests": [],
+  "rejection_report": [
+    {
+      "domain": "exam_generate",
+      "reason": "Creatinina recente no snapshot; não repetir pedido."
+    }
+  ]
+}

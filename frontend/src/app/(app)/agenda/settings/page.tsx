@@ -227,7 +227,7 @@ export default function ConsultationAgendaSettingsPage() {
               disabled={usersLoading}
             >
               <SelectTrigger aria-label="Selecionar profissional">
-                <SelectValue placeholder={usersLoading ? 'A carregar…' : 'Escolher profissional'} />
+                <SelectValue placeholder={usersLoading ? 'Carregando…' : 'Escolher profissional'} />
               </SelectTrigger>
               <SelectContent>
                 {eligibleUsers.map((u) => (
@@ -256,7 +256,7 @@ export default function ConsultationAgendaSettingsPage() {
                   </p>
                 )}
                 {configFetching && (
-                  <p className="text-sm text-muted-foreground">A carregar configuração…</p>
+                  <p className="text-sm text-muted-foreground">Carregando configuração…</p>
                 )}
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
@@ -305,7 +305,7 @@ export default function ConsultationAgendaSettingsPage() {
                   </p>
                 </div>
                 <div className="space-y-2">
-                  <Label>Dias ativos (ISO: seg=1 … dom=7)</Label>
+                  <Label>Dias da semana com atendimento</Label>
                   <div className="flex flex-wrap gap-3">
                     {([1, 2, 3, 4, 5, 6, 7] as const).map((d) => (
                       <label key={d} className="flex items-center gap-2 text-sm">
@@ -361,7 +361,7 @@ export default function ConsultationAgendaSettingsPage() {
                   onClick={() => saveConfig()}
                   disabled={upsertMut.isPending || activeWeekdays.length === 0 || shifts.length === 0}
                 >
-                  {upsertMut.isPending ? 'A guardar…' : 'Guardar configuração'}
+                  {upsertMut.isPending ? 'Salvando…' : 'Salvar configuração'}
                 </Button>
               </CardContent>
             </Card>
@@ -418,7 +418,7 @@ export default function ConsultationAgendaSettingsPage() {
                 </Button>
 
                 {blocksLoading && (
-                  <p className="text-sm text-muted-foreground">A carregar bloqueios…</p>
+                  <p className="text-sm text-muted-foreground">Carregando bloqueios…</p>
                 )}
                 {!blocksLoading && blocks.length === 0 && (
                   <p className="text-sm text-muted-foreground">Nenhum bloqueio neste âmbito.</p>

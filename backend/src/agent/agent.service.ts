@@ -57,6 +57,7 @@ import {
 } from './interfaces/agent-decision.interface';
 import { resolveNavigationStepIdForAgentQuestionnaire } from './questionnaire-navigation.helper';
 import { mergeOutboundStructuredData } from './merge-outbound-structured-data';
+import { applyPatientOutputGuardrail } from '../common/utils/patient-guardrails.util';
 import { PROTOCOL_SCHEDULE_REEVALUATION_EVENT } from './protocol-evaluation.events';
 
 /** Paciente mínimo criado pelo channel-gateway para conversas WhatsApp antes do cadastro completo (secretária). */
@@ -332,11 +333,19 @@ export class AgentService {
     }
 
     // 11. Send response to patient
-    const responseText =
+    let responseText =
       executeSideEffect?.overridePatientResponse?.trim() ||
       (aiResponse.response && aiResponse.response.trim().length > 0
         ? aiResponse.response
         : 'Sua mensagem foi registrada. Um membro da equipe de enfermagem será notificado para dar continuidade ao seu atendimento.');
+
+    const outputGuard = applyPatientOutputGuardrail(responseText);
+    if (outputGuard.triggered) {
+      this.logger.warn(
+        `Patient output guardrail triggered (rule=${outputGuard.ruleId}) for conversation ${conversationId}`,
+      );
+      responseText = outputGuard.text;
+    }
 
     if (
       !executeSideEffect?.overridePatientResponse?.trim() &&

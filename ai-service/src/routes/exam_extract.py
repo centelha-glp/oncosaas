@@ -13,7 +13,9 @@ from typing import Any, List, Optional
 
 from fastapi import APIRouter, Header, HTTPException
 from openai import APIError as OpenAIAPIError
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from src.agent.clinical_evolution_structure_domains import COMPLEMENTARY_EXAM_TYPES
 
 from ..agent.llm_provider import ExamExtractStructuredParseError, llm_provider
 from ..agent.prompts.exam_extract_prompt import (
@@ -85,10 +87,25 @@ class ExamExtractComplementaryItem(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     type: str
-    name: str
+    name: str = Field(..., min_length=1, max_length=400)
     code: Optional[str] = None
     loincCode: Optional[str] = None
     result: Optional[ExamExtractComplementaryResult] = None
+
+    @field_validator("type")
+    @classmethod
+    def _validate_complementary_type(cls, value: str) -> str:
+        normalized = (value or "").strip().upper()
+        if normalized not in COMPLEMENTARY_EXAM_TYPES:
+            allowed = ", ".join(sorted(COMPLEMENTARY_EXAM_TYPES))
+            raise ValueError(f"type must be one of: {allowed}")
+        return normalized
+
+
+class ExamExtractSkippedItem(BaseModel):
+    index: int = Field(..., ge=0)
+    name: Optional[str] = None
+    reason: str = Field(..., min_length=1, max_length=500)
 
 
 class ExamExtractResponse(BaseModel):
@@ -99,9 +116,22 @@ class ExamExtractResponse(BaseModel):
         default=False,
         description="True só quando markdownSummary veio de JSON estruturado validado.",
     )
+    extractionSource: str = Field(
+        default="llm",
+        description='Origem da extração: "llm" (modelo) ou "mock" (dev/flag explícita).',
+    )
     complementaryExams: Optional[List[ExamExtractComplementaryItem]] = Field(
         default=None,
         description="Exames complementares estruturados (opcional).",
+    )
+    skippedItems: List[ExamExtractSkippedItem] = Field(
+        default_factory=list,
+        description="Itens de complementaryExams rejeitados na validação Pydantic.",
+    )
+    skippedCount: int = Field(
+        default=0,
+        ge=0,
+        description="Contagem de itens complementary_exams inválidos omitidos.",
     )
 
 
@@ -338,16 +368,36 @@ async def exam_extract(
         ) from pe
 
     validated_exams: Optional[List[ExamExtractComplementaryItem]] = None
+    skipped_items: List[ExamExtractSkippedItem] = []
+    parser_skipped = int(result.get("parserSkippedCount") or 0)
     raw_ce = result.get("complementaryExams")
     if isinstance(raw_ce, list) and raw_ce:
         validated_exams = []
-        for item in raw_ce:
+        for idx, item in enumerate(raw_ce):
             try:
                 validated_exams.append(ExamExtractComplementaryItem.model_validate(item))
-            except Exception:
-                logger.debug("exam_extract skip invalid complementaryExams item", exc_info=True)
+            except Exception as e:
+                name = None
+                if isinstance(item, dict):
+                    name = str(item.get("name") or item.get("display_name") or "")[:200] or None
+                skipped_items.append(
+                    ExamExtractSkippedItem(
+                        index=idx,
+                        name=name,
+                        reason=str(e)[:500],
+                    )
+                )
+                logger.debug(
+                    "exam_extract skip invalid complementaryExams item idx=%s",
+                    idx,
+                    exc_info=True,
+                )
         if not validated_exams:
             validated_exams = None
+
+    source = (result.get("extractionSource") or "llm").strip().lower()
+    if source not in ("llm", "mock"):
+        source = "llm"
 
     return ExamExtractResponse(
         markdownSummary=result["markdownSummary"],
@@ -356,5 +406,8 @@ async def exam_extract(
         markdownFromStructuredParse=bool(
             result.get("markdownFromStructuredParse", False)
         ),
+        extractionSource=source,
         complementaryExams=validated_exams,
+        skippedItems=skipped_items,
+        skippedCount=len(skipped_items) + max(0, parser_skipped),
     )

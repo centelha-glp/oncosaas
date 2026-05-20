@@ -84,6 +84,18 @@ export type AppointmentConfirmationStatus =
   | 'CONFIRMED'
   | 'DECLINED';
 
+/** Alinhado ao Prisma `ConsultationAttendance`. */
+export type ConsultationAttendance = 'EXPECTED' | 'NO_SHOW';
+
+/** Rótulo de fila na agenda (backend `CONSULTATION_QUEUE_LABEL`). */
+export type ConsultationQueueLabel =
+  | 'NO_SHOW'
+  | 'WAITING'
+  | 'IN_CONSULTATION'
+  | 'LATE'
+  | 'SCHEDULED'
+  | 'COMPLETED';
+
 export interface ConsultationAgendaItem {
   id: string;
   patientId: string;
@@ -99,6 +111,12 @@ export interface ConsultationAgendaItem {
   agendaDate: string;
   patient: { id: string; name: string };
   scheduledProfessional: { id: string; name: string } | null;
+  consultationCheckedInAt: string | null;
+  consultationStartedAt: string | null;
+  consultationAttendance: ConsultationAttendance;
+  queueLabel: ConsultationQueueLabel;
+  waitingMinutesLive: number | null;
+  lateMinutesLive: number | null;
 }
 
 export interface ConsultationAgendaPage {
@@ -125,6 +143,28 @@ export interface ConsultationAgendaQuery {
   limit?: number;
   /** Filtra itens cujo profissional agendado corresponde ao ID. */
   professionalId?: string;
+  /** Busca parcial por nome do paciente (servidor). */
+  q?: string;
+}
+
+export interface ConsultationAgendaMetricsQuery {
+  from: string;
+  to: string;
+  professionalId?: string;
+}
+
+/** Resposta de `GET .../consultation-agenda-metrics`. */
+export interface ConsultationAgendaMetrics {
+  completedAppointments: number;
+  noShows: number;
+  avgWaitingMinutes: number | null;
+  avgLateMinutes: number | null;
+  avgConsultationDurationMinutes: number | null;
+  sumWaitingMinutes: number;
+  sumLateMinutes: number;
+  countWaitingSample: number;
+  countLateSample: number;
+  countConsultationDurationSample: number;
 }
 
 export interface UpdateNavigationStepDto {
@@ -244,6 +284,24 @@ export const oncologyNavigationApi = {
           scope: params.scope,
           page: params.page,
           limit: params.limit,
+          ...(params.professionalId
+            ? { professionalId: params.professionalId }
+            : {}),
+          ...(params.q ? { q: params.q } : {}),
+        },
+      }
+    );
+  },
+
+  getConsultationAgendaMetrics: async (
+    params: ConsultationAgendaMetricsQuery
+  ): Promise<ConsultationAgendaMetrics> => {
+    return apiClient.get<ConsultationAgendaMetrics>(
+      '/oncology-navigation/consultation-agenda-metrics',
+      {
+        params: {
+          from: params.from,
+          to: params.to,
           ...(params.professionalId
             ? { professionalId: params.professionalId }
             : {}),
@@ -387,6 +445,20 @@ export const oncologyNavigationApi = {
     return apiClient.post<{ step: NavigationStep; sent: boolean }>(
       `/oncology-navigation/steps/${stepId}/send-confirmation`,
       body ?? {}
+    );
+  },
+
+  /** Check-in na recepção (secretaria/admin). */
+  patchConsultationCheckIn: async (stepId: string): Promise<NavigationStep> => {
+    return apiClient.patch<NavigationStep>(
+      `/oncology-navigation/steps/${stepId}/consultation-check-in`
+    );
+  },
+
+  /** Início da consulta pelo profissional agendado (exige check-in). */
+  patchConsultationStart: async (stepId: string): Promise<NavigationStep> => {
+    return apiClient.patch<NavigationStep>(
+      `/oncology-navigation/steps/${stepId}/consultation-start`
     );
   },
 

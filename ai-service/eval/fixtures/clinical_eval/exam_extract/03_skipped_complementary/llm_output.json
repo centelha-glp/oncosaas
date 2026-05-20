@@ -1,0 +1,13 @@
+{
+  "markdownSummary": "## Laboratório\n- Hemoglobina 11,2 g/dL",
+  "detectedCategories": ["LAB"],
+  "disclaimer": "Revisão clínica obrigatória.",
+  "complementaryExams": [
+    {
+      "type": "LABORATORY",
+      "name": "Hemoglobina",
+      "result": {"valueNumeric": 11.2, "unit": "g/dL"}
+    },
+    {"type": "INVALID_TYPE", "name": "Tomografia inválida"}
+  ]
+}
