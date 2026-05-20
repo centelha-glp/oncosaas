@@ -1,8 +1,10 @@
 import {
+  addDays,
   endOfMonth,
   endOfWeek,
   format,
   parseISO,
+  startOfDay,
   startOfMonth,
   startOfWeek,
 } from 'date-fns';
@@ -369,20 +371,108 @@ export function combineLocalDateAndTime(date: Date, timeHHmm: string): Date {
   return out;
 }
 
+/** Ordena por horário agendado (`expectedDate`); itens sem data ficam no fim. */
+export function sortConsultationAgendaItemsByExpectedDate(
+  items: ConsultationAgendaItem[]
+): ConsultationAgendaItem[] {
+  return [...items].sort((a, b) => {
+    if (!a.expectedDate && !b.expectedDate) return 0;
+    if (!a.expectedDate) return 1;
+    if (!b.expectedDate) return -1;
+    return parseISO(a.expectedDate).getTime() - parseISO(b.expectedDate).getTime();
+  });
+}
+
+export function consultationAgendaItemDayKey(item: ConsultationAgendaItem): string {
+  try {
+    return format(parseISO(item.agendaDate), 'yyyy-MM-dd');
+  } catch {
+    return item.agendaDate.slice(0, 10);
+  }
+}
+
 export function groupConsultationAgendaByDay(
   items: ConsultationAgendaItem[]
 ): Map<string, ConsultationAgendaItem[]> {
   const map = new Map<string, ConsultationAgendaItem[]>();
   for (const item of items) {
-    let key: string;
-    try {
-      key = format(parseISO(item.agendaDate), 'yyyy-MM-dd');
-    } catch {
-      key = item.agendaDate.slice(0, 10);
-    }
+    const key = consultationAgendaItemDayKey(item);
     const list = map.get(key) ?? [];
     list.push(item);
     map.set(key, list);
   }
+  for (const [key, list] of map) {
+    map.set(key, sortConsultationAgendaItemsByExpectedDate(list));
+  }
   return map;
+}
+
+/** Filtros locais aplicados à página atual da lista (não alteram a query da API). */
+export type ConsultationAgendaOperationalFilter = 'overdue' | 'awaiting_confirmation';
+
+export function itemMatchesConsultationAgendaOperationalFilters(
+  item: ConsultationAgendaItem,
+  active: ConsultationAgendaOperationalFilter[]
+): boolean {
+  if (active.length === 0) {
+    return true;
+  }
+  return active.every((filter) => {
+    if (filter === 'overdue') {
+      return item.status === 'OVERDUE';
+    }
+    if (filter === 'awaiting_confirmation') {
+      return item.appointmentConfirmationStatus === 'AWAITING_RESPONSE';
+    }
+    return true;
+  });
+}
+
+export function filterConsultationAgendaItemsByOperational(
+  items: ConsultationAgendaItem[],
+  active: ConsultationAgendaOperationalFilter[]
+): ConsultationAgendaItem[] {
+  if (active.length === 0) {
+    return items;
+  }
+  return items.filter((item) =>
+    itemMatchesConsultationAgendaOperationalFilters(item, active)
+  );
+}
+
+export function consultationAgendaTodayRange(now = new Date()): {
+  from: string;
+  to: string;
+} {
+  const ymd = toYmd(startOfDay(now));
+  return { from: ymd, to: ymd };
+}
+
+export function consultationAgendaNext7DaysRange(now = new Date()): {
+  from: string;
+  to: string;
+} {
+  const start = startOfDay(now);
+  return { from: toYmd(start), to: toYmd(addDays(start, 6)) };
+}
+
+/** Lista paginada: total na API maior que itens na página atual. */
+export function consultationAgendaListHasPaginationGap(params: {
+  total: number;
+  itemCount: number;
+  totalPages: number;
+}): boolean {
+  return params.total > params.itemCount || params.totalPages > 1;
+}
+
+/** Deep link para o prontuário com etapa de navegação pré-selecionada. */
+export function patientChartEvolutionHref(
+  patientId: string,
+  navigationStepId: string
+): string {
+  const params = new URLSearchParams({
+    tab: 'prontuario',
+    navigationStepId,
+  });
+  return `/patients/${patientId}?${params.toString()}`;
 }

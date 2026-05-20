@@ -20,7 +20,6 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from ..agent.clinical_evolution_structure_domains import (
-    RejectionItemOut,
     validate_extended_domains,
 )
 from ..agent.clinical_evolution_structure_tools import STRUCTURE_EVOLUTION_TOOLS

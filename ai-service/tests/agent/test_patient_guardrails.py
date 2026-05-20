@@ -1,6 +1,5 @@
 """Testes unitários para patient_guardrails."""
 
-import pytest
 
 from src.agent.patient_guardrails import (
     MAX_PATIENT_MESSAGE_CHARS,
