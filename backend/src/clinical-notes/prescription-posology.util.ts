@@ -8,8 +8,8 @@ export function getPrescriptionPosologyVerb(
   routeCode: string
 ): 'tomar' | 'inalar' | 'aplicar' {
   const code = routeCode.trim().toUpperCase();
-  if (code === 'VO' || code === 'SL') return 'tomar';
-  if (code === 'INH') return 'inalar';
+  if (code === 'VO' || code === 'SL') {return 'tomar';}
+  if (code === 'INH') {return 'inalar';}
   return 'aplicar';
 }
 

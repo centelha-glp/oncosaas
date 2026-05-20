@@ -34,9 +34,9 @@ describe('EvolutionStructuringService', () => {
   };
   const config = {
     get: jest.fn((k: string) => {
-      if (k === 'ENCRYPTION_KEY') return 'test-encryption-key-32-chars-min!!';
-      if (k === 'AI_SERVICE_URL') return 'http://localhost:8001';
-      if (k === 'BACKEND_SERVICE_TOKEN') return 'test-token';
+      if (k === 'ENCRYPTION_KEY') {return 'test-encryption-key-32-chars-min!!';}
+      if (k === 'AI_SERVICE_URL') {return 'http://localhost:8001';}
+      if (k === 'BACKEND_SERVICE_TOKEN') {return 'test-token';}
       return undefined;
     }),
   };

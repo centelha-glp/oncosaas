@@ -94,7 +94,7 @@ export class MedicationCatalogService {
         });
 
       for (const drug of drugsWithoutPresentation) {
-        if (drug._count.presentations > 0) continue;
+        if (drug._count.presentations > 0) {continue;}
         items.push({
           drugCode: drug.code,
           presentationCode: null,
