@@ -6,7 +6,7 @@ import {
 } from './complementary-exam-canonical.util';
 
 describe('complementary-exam-canonical.util', () => {
-  it('agrupa creatinina, dosagem com eTFG e eTFG isolado em RENAL_CREAT_ETFG', () => {
+  it('agrupa creatinina e dosagem com eTFG em RENAL_CREAT_ETFG', () => {
     const renal = `CANON|${CANONICAL_GROUP_RENAL_CREAT_ETFG}`;
     expect(
       resolveCanonicalExamGroupId('LABORATORY', 'Creatinina', 'CREAT'),
@@ -17,8 +17,12 @@ describe('complementary-exam-canonical.util', () => {
         'Dosagem de Creatinina com eTFG',
       ),
     ).toBe(renal);
-    expect(resolveCanonicalExamGroupId('LABORATORY', 'eTFG')).toBe(renal);
-    expect(resolveCanonicalExamGroupId('LABORATORY', 'eGFR')).toBe(renal);
+  });
+
+  it('não agrupa eTFG/eGFR isolado com creatinina para evitar sobrescrita de resultado', () => {
+    const renal = `CANON|${CANONICAL_GROUP_RENAL_CREAT_ETFG}`;
+    expect(resolveCanonicalExamGroupId('LABORATORY', 'eTFG')).not.toBe(renal);
+    expect(resolveCanonicalExamGroupId('LABORATORY', 'eGFR')).not.toBe(renal);
   });
 
   it('exclui creatinina urinária do grupo renal', () => {
