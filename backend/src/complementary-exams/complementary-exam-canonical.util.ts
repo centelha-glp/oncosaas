@@ -36,16 +36,6 @@ function matchesRenalCreatEtfg(
   const n = name.toLowerCase();
   if (/creatinina/.test(n)) {return true;}
 
-  if (
-    /^e\s*tfg\b|^egfr\b|^tfg\b/.test(n) ||
-    /\betfg\b/.test(n) ||
-    /\begfr\b/.test(n) ||
-    /taxa\s+de\s+filtra/.test(n) ||
-    /filtra[cç][aã]o\s+glomerular/.test(n)
-  ) {
-    return true;
-  }
-
   return false;
 }
 

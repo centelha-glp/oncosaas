@@ -278,7 +278,7 @@ describe('applyComplementaryExamsFromAiItems', () => {
     expect(results[0]?.performedAt.toISOString()).toBe('2025-04-20T00:00:00.000Z');
   });
 
-  it('sinónimos creatinina + eTFG → 1 exam, 2 results', async () => {
+  it('creatinina + eTFG no mesmo dia preserva as duas métricas em exames separados', async () => {
     const { tx, exams, results } = makeTx();
     const items: AiComplementaryExamItem[] = [
       {
@@ -290,7 +290,7 @@ describe('applyComplementaryExamsFromAiItems', () => {
       {
         type: 'LABORATORY',
         name: 'eTFG',
-        result: { performed_at: '2025-02-01', value_numeric: 72 },
+        result: { performed_at: '2025-01-01', value_numeric: 72 },
       },
     ];
 
@@ -300,9 +300,10 @@ describe('applyComplementaryExamsFromAiItems', () => {
       items,
     );
 
-    expect(exams).toHaveLength(1);
+    expect(exams).toHaveLength(2);
     expect(results).toHaveLength(2);
-    expect(tx.complementaryExam.create).toHaveBeenCalledTimes(1);
+    expect(results.map((r) => r.valueNumeric)).toEqual([1.0, 72]);
+    expect(tx.complementaryExam.create).toHaveBeenCalledTimes(2);
   });
 
   it('creatinina com painel eTFG no nome reutiliza mesmo exame', async () => {
