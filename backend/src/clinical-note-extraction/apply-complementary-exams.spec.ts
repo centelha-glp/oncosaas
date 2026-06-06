@@ -43,8 +43,8 @@ function makeTx() {
               (e) =>
                 e.tenantId === where.tenantId &&
                 e.patientId === where.patientId &&
-                (where.type === undefined || e.type === where.type),
-            ),
+                (where.type === undefined || e.type === where.type)
+            )
         ),
         create: jest.fn(
           async ({
@@ -66,7 +66,7 @@ function makeTx() {
             };
             exams.push(row);
             return row;
-          },
+          }
         ),
       },
       complementaryExamResult: {
@@ -86,8 +86,8 @@ function makeTx() {
                 r.tenantId === where.tenantId &&
                 r.examId === where.examId &&
                 r.performedAt.getTime() === where.performedAt.getTime() &&
-                r.deletedAt === null,
-            ) ?? null,
+                r.deletedAt === null
+            ) ?? null
         ),
         create: jest.fn(
           async ({
@@ -110,7 +110,7 @@ function makeTx() {
             };
             results.push(row);
             return row;
-          },
+          }
         ),
         update: jest.fn(
           async ({
@@ -121,12 +121,14 @@ function makeTx() {
             data: { valueNumeric?: number | null };
           }) => {
             const row = results.find((r) => r.id === where.id);
-            if (!row) {throw new Error('not found');}
+            if (!row) {
+              throw new Error('not found');
+            }
             if (data.valueNumeric !== undefined) {
               row.valueNumeric = data.valueNumeric;
             }
             return row;
-          },
+          }
         ),
       },
     },
@@ -162,7 +164,7 @@ describe('applyComplementaryExamsFromAiItems', () => {
     const out = await applyComplementaryExamsFromAiItems(
       tx as unknown as Prisma.TransactionClient,
       baseArgs,
-      items,
+      items
     );
 
     expect(exams).toHaveLength(1);
@@ -195,7 +197,7 @@ describe('applyComplementaryExamsFromAiItems', () => {
     const out = await applyComplementaryExamsFromAiItems(
       tx as unknown as Prisma.TransactionClient,
       baseArgs,
-      items,
+      items
     );
 
     expect(results).toHaveLength(1);
@@ -227,7 +229,7 @@ describe('applyComplementaryExamsFromAiItems', () => {
     await applyComplementaryExamsFromAiItems(
       tx as unknown as Prisma.TransactionClient,
       baseArgs,
-      items,
+      items
     );
 
     expect(results).toHaveLength(2);
@@ -255,7 +257,7 @@ describe('applyComplementaryExamsFromAiItems', () => {
     await applyComplementaryExamsFromAiItems(
       tx as unknown as Prisma.TransactionClient,
       baseArgs,
-      items,
+      items
     );
 
     expect(tx.complementaryExam.create).toHaveBeenCalledTimes(1);
@@ -273,12 +275,14 @@ describe('applyComplementaryExamsFromAiItems', () => {
           name: 'Hb',
           result: { performed_at: '2025-04-20', value_numeric: 14 },
         },
-      ],
+      ]
     );
-    expect(results[0]?.performedAt.toISOString()).toBe('2025-04-20T00:00:00.000Z');
+    expect(results[0]?.performedAt.toISOString()).toBe(
+      '2025-04-20T00:00:00.000Z'
+    );
   });
 
-  it('sinónimos creatinina + eTFG → 1 exam, 2 results', async () => {
+  it('creatinina + eTFG no mesmo instante → 2 exams, 2 results', async () => {
     const { tx, exams, results } = makeTx();
     const items: AiComplementaryExamItem[] = [
       {
@@ -290,19 +294,20 @@ describe('applyComplementaryExamsFromAiItems', () => {
       {
         type: 'LABORATORY',
         name: 'eTFG',
-        result: { performed_at: '2025-02-01', value_numeric: 72 },
+        result: { performed_at: '2025-01-01', value_numeric: 72 },
       },
     ];
 
     await applyComplementaryExamsFromAiItems(
       tx as unknown as Prisma.TransactionClient,
       baseArgs,
-      items,
+      items
     );
 
-    expect(exams).toHaveLength(1);
+    expect(exams).toHaveLength(2);
     expect(results).toHaveLength(2);
-    expect(tx.complementaryExam.create).toHaveBeenCalledTimes(1);
+    expect(tx.complementaryExam.create).toHaveBeenCalledTimes(2);
+    expect(results.map((r) => r.valueNumeric)).toEqual([1.0, 72]);
   });
 
   it('creatinina com painel eTFG no nome reutiliza mesmo exame', async () => {
@@ -321,7 +326,7 @@ describe('applyComplementaryExamsFromAiItems', () => {
           name: 'Dosagem de Creatinina com eTFG',
           result: { performed_at: '2025-02-01', value_numeric: 1.0 },
         },
-      ],
+      ]
     );
     expect(exams).toHaveLength(1);
   });
@@ -342,7 +347,7 @@ describe('applyComplementaryExamsFromAiItems', () => {
           name: '25-Hidroxi-Vitamina D',
           result: { performed_at: '2025-03-01', value_numeric: 28 },
         },
-      ],
+      ]
     );
     expect(exams).toHaveLength(1);
     expect(tx.complementaryExam.create).toHaveBeenCalledTimes(1);
