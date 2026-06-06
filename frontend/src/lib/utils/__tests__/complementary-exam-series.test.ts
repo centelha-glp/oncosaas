@@ -14,7 +14,10 @@ import {
   guessComponentUnit,
   normalizeComplementaryResultComponents,
 } from '../complementary-exam-series';
-import type { ComplementaryExam, ComplementaryExamResult } from '@/lib/api/patients';
+import type {
+  ComplementaryExam,
+  ComplementaryExamResult,
+} from '@/lib/api/patients';
 
 const baseExam = (): ComplementaryExam => ({
   id: 'e1',
@@ -86,7 +89,7 @@ describe('complementary-exam-series', () => {
     expect(rows.map((r) => r.id)).toEqual(['a', 'c']);
   });
 
-  it('groupComplementaryExamsByName funde creatinina e eTFG com cabeçalho Creatinina', () => {
+  it('groupComplementaryExamsByName não funde creatinina e eTFG isolado no mesmo instante', () => {
     const e1 = baseExam();
     e1.id = 'renal-1';
     e1.name = 'Creatinina';
@@ -111,7 +114,7 @@ describe('complementary-exam-series', () => {
     e2.results = [
       {
         id: 'r2',
-        performedAt: '2025-02-01T00:00:00.000Z',
+        performedAt: '2025-01-01T00:00:00.000Z',
         collectionId: null,
         valueNumeric: 70,
         valueText: null,
@@ -124,9 +127,13 @@ describe('complementary-exam-series', () => {
       },
     ];
     const grouped = groupComplementaryExamsByName([e1, e2]);
-    expect(grouped).toHaveLength(1);
-    expect(grouped[0]?.name).toBe('Creatinina');
-    expect(grouped[0]?.results).toHaveLength(2);
+    expect(grouped).toHaveLength(2);
+    expect(
+      grouped.map((e) => e.name).sort((a, b) => a.localeCompare(b, 'pt-BR'))
+    ).toEqual(['Creatinina', 'eTFG']);
+    expect(
+      grouped.flatMap((e) => e.results.map((r) => r.valueNumeric))
+    ).toEqual([1, 70]);
   });
 
   it('groupComplementaryExamsByName funde sinónimos de vitamina D 25-OH', () => {
@@ -240,12 +247,12 @@ describe('complementary-exam-series', () => {
         report: null,
       },
     ];
-    expect(formatComplementaryResultPerformedAt(results, results[0]!.performedAt)).toBe(
-      '10/03/2025 08:00'
-    );
-    expect(formatComplementaryResultPerformedAt(results, '2025-04-01T00:00:00.000Z')).toBe(
-      '01/04/2025'
-    );
+    expect(
+      formatComplementaryResultPerformedAt(results, results[0]!.performedAt)
+    ).toBe('10/03/2025 08:00');
+    expect(
+      formatComplementaryResultPerformedAt(results, '2025-04-01T00:00:00.000Z')
+    ).toBe('01/04/2025');
   });
 
   it('normalizeComplementaryResultComponents aceita string JSON (hemograma-like)', () => {
@@ -255,7 +262,11 @@ describe('complementary-exam-series', () => {
     ]);
     const rows = normalizeComplementaryResultComponents(json);
     expect(rows).toHaveLength(2);
-    expect(rows[0]).toMatchObject({ name: 'Hb', valueNumeric: 12.5, unit: 'g/dL' });
+    expect(rows[0]).toMatchObject({
+      name: 'Hb',
+      valueNumeric: 12.5,
+      unit: 'g/dL',
+    });
     expect(rows[1]).toMatchObject({ name: 'Leucócitos', valueNumeric: 8000 });
   });
 
@@ -280,9 +291,9 @@ describe('complementary-exam-series', () => {
         criticalHigh: null,
         criticalLow: null,
         report: null,
-        components: JSON.stringify([{ name: 'ALT', valueNumeric: 20 }]) as unknown as NonNullable<
-          ComplementaryExamResult['components']
-        >,
+        components: JSON.stringify([
+          { name: 'ALT', valueNumeric: 20 },
+        ]) as unknown as NonNullable<ComplementaryExamResult['components']>,
       },
     ];
     expect(examHasPanelComponents(e)).toBe(true);
@@ -407,7 +418,9 @@ describe('complementary-exam-series', () => {
       report: null,
       components: [{ name: '  ALT  ', valueNumeric: 42 }],
     };
-    expect(findComponentInResult('Painel', result, 'alt')?.valueNumeric).toBe(42);
+    expect(findComponentInResult('Painel', result, 'alt')?.valueNumeric).toBe(
+      42
+    );
     expect(findComponentInResult('Painel', result, 'AST')).toBeUndefined();
   });
 

@@ -17,7 +17,7 @@ function isUrinaryCreatinineName(name: string): boolean {
   return (
     /creatinina.*urin|urin[aá].*creatinina|clearance|depura[cç][aã]o/.test(n) ||
     /creatinina.*24\s*h|24\s*h.*creatinina|creatinina.*24h|24h.*creatinina/.test(
-      n,
+      n
     )
   );
 }
@@ -43,16 +43,6 @@ function matchesRenalCreatEtfg(
   const n = name.toLowerCase();
   if (/creatinina/.test(n)) return true;
 
-  if (
-    /^e\s*tfg\b|^egfr\b|^tfg\b/.test(n) ||
-    /\betfg\b/.test(n) ||
-    /\begfr\b/.test(n) ||
-    /taxa\s+de\s+filtra/.test(n) ||
-    /filtra[cç][aã]o\s+glomerular/.test(n)
-  ) {
-    return true;
-  }
-
   return false;
 }
 
@@ -60,7 +50,9 @@ function matchesVitD25oh(type: string, name: string): boolean {
   if (type !== 'LABORATORY') return false;
   const n = name.toLowerCase();
 
-  if (/25[\s\-]*hidroxi[\s\-]*vitamina\s*d|25[\s\-]*hidroxi\s*vit\s*d/.test(n)) {
+  if (
+    /25[\s\-]*hidroxi[\s\-]*vitamina\s*d|25[\s\-]*hidroxi\s*vit\s*d/.test(n)
+  ) {
     return true;
   }
 

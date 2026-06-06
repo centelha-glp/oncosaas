@@ -10,7 +10,7 @@ function isUrinaryCreatinineName(name: string): boolean {
   return (
     /creatinina.*urin|urin[aá].*creatinina|clearance|depura[cç][aã]o/.test(n) ||
     /creatinina.*24\s*h|24\s*h.*creatinina|creatinina.*24h|24h.*creatinina/.test(
-      n,
+      n
     )
   );
 }
@@ -23,26 +23,22 @@ function isUrinaryCreatinineCode(code: string | null | undefined): boolean {
 function matchesRenalCreatEtfg(
   type: string,
   name: string,
-  code?: string | null,
+  code?: string | null
 ): boolean {
-  if (type !== 'LABORATORY') {return false;}
+  if (type !== 'LABORATORY') {
+    return false;
+  }
   if (isUrinaryCreatinineName(name) || isUrinaryCreatinineCode(code)) {
     return false;
   }
 
   const c = (code ?? '').trim().toUpperCase();
-  if (c && RENAL_CREAT_CODES.has(c)) {return true;}
+  if (c && RENAL_CREAT_CODES.has(c)) {
+    return true;
+  }
 
   const n = name.toLowerCase();
-  if (/creatinina/.test(n)) {return true;}
-
-  if (
-    /^e\s*tfg\b|^egfr\b|^tfg\b/.test(n) ||
-    /\betfg\b/.test(n) ||
-    /\begfr\b/.test(n) ||
-    /taxa\s+de\s+filtra/.test(n) ||
-    /filtra[cç][aã]o\s+glomerular/.test(n)
-  ) {
+  if (/creatinina/.test(n)) {
     return true;
   }
 
@@ -50,7 +46,9 @@ function matchesRenalCreatEtfg(
 }
 
 function matchesVitD25oh(type: string, name: string): boolean {
-  if (type !== 'LABORATORY') {return false;}
+  if (type !== 'LABORATORY') {
+    return false;
+  }
   const n = name.toLowerCase();
 
   if (/25[\s-]*hidroxi[\s-]*vitamina\s*d|25[\s-]*hidroxi\s*vit\s*d/.test(n)) {
@@ -62,9 +60,13 @@ function matchesVitD25oh(type: string, name: string): boolean {
   const has25oh =
     /25\s*\(?\s*oh\s*\)?\s*d|25[\s-]*oh|25[\s-]*hidroxi|\(oh\)d/.test(n);
 
-  if (hasVitD && has25oh) {return true;}
+  if (hasVitD && has25oh) {
+    return true;
+  }
 
-  if (/25[\s-]*hidroxi/.test(n) && /vit/.test(n)) {return true;}
+  if (/25[\s-]*hidroxi/.test(n) && /vit/.test(n)) {
+    return true;
+  }
 
   return false;
 }
@@ -77,7 +79,7 @@ export function resolveCanonicalExamGroupId(
   type: string,
   name: string,
   code?: string | null,
-  loincCode?: string | null,
+  loincCode?: string | null
 ): string {
   if (matchesRenalCreatEtfg(type, name, code)) {
     return `CANON|${CANONICAL_GROUP_RENAL_CREAT_ETFG}`;
@@ -99,7 +101,7 @@ export function resolveCanonicalExamGroupId(
 
 export function preferredDisplayNameForGroup(
   canonicalId: string,
-  fallbackName: string,
+  fallbackName: string
 ): string {
   if (canonicalId === `CANON|${CANONICAL_GROUP_RENAL_CREAT_ETFG}`) {
     return 'Creatinina';

@@ -704,14 +704,21 @@ describe('AgentService — intake WhatsApp e secretária', () => {
     });
 
     it('ordena e limita vagas ofertadas ao máximo configurado', async () => {
+      const futureSlot = (daysFromNow: number, hourUtc: number): string => {
+        const d = new Date(Date.now() + daysFromNow * 24 * 60 * 60 * 1000);
+        d.setUTCHours(hourUtc, 0, 0, 0);
+        return d.toISOString();
+      };
+      const from = futureSlot(1, 0);
+      const to = futureSlot(30, 23);
       const many = [
-        '2026-06-10T16:00:00.000Z',
-        '2026-06-02T09:00:00.000Z',
-        '2026-06-05T11:00:00.000Z',
-        '2026-06-03T08:00:00.000Z',
-        '2026-06-09T14:00:00.000Z',
-        '2026-06-11T10:00:00.000Z',
-        '2026-06-12T12:00:00.000Z',
+        futureSlot(5, 16),
+        futureSlot(2, 9),
+        futureSlot(3, 11),
+        futureSlot(1, 8),
+        futureSlot(4, 14),
+        futureSlot(6, 10),
+        futureSlot(7, 12),
       ];
       mockOncologyNavigationService.getConsultationAvailableSlots.mockResolvedValue({
         slots: many,
@@ -732,8 +739,8 @@ describe('AgentService — intake WhatsApp e secretária', () => {
             payload: {
               scheduledProfessionalId: PRO_ID,
               stepKey: 'navigation_consultation',
-              from: '2026-06-01T00:00:00.000Z',
-              to: '2026-06-30T23:59:59.000Z',
+              from,
+              to,
             },
           },
         },
