@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { ClinicalNoteStatus, ClinicalNoteType, UserRole } from '@generated/prisma/client';
 import { ClinicalNoteOrdersService } from './clinical-note-orders.service';
 import { ClinicalNotesService } from './clinical-notes.service';
@@ -49,6 +49,17 @@ describe('ClinicalNoteOrdersService', () => {
   });
 
   describe('createExamRequest', () => {
+    it('rejects when note belongs to another tenant or patient', async () => {
+      mockPrisma.clinicalNote.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.createExamRequest('pat-1', 'note-1', 'tenant-1', actor, {
+          displayName: 'Hemograma',
+        })
+      ).rejects.toThrow(NotFoundException);
+      expect(mockPrisma.clinicalExamRequest.create).not.toHaveBeenCalled();
+    });
+
     it('scopes note to patient and tenant', async () => {
       mockPrisma.clinicalNote.findFirst.mockResolvedValue({
         id: 'note-1',
@@ -84,40 +95,179 @@ describe('ClinicalNoteOrdersService', () => {
         where: { id: 'note-1', tenantId: 'tenant-1', patientId: 'pat-1' },
         select: expect.any(Object),
       });
+      expect(mockPrisma.clinicalExamRequest.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            tenantId: 'tenant-1',
+            patientId: 'pat-1',
+            clinicalNoteId: 'note-1',
+          }),
+        })
+      );
     });
 
-    it('allows when note is signed', async () => {
+    it.each([ClinicalNoteStatus.SIGNED, ClinicalNoteStatus.VOIDED])(
+      'rejects changes when note is %s',
+      async (status) => {
+        mockPrisma.clinicalNote.findFirst.mockResolvedValue({
+          id: 'note-1',
+          status,
+          noteType: ClinicalNoteType.MEDICAL,
+          patientId: 'pat-1',
+        });
+
+        await expect(
+          service.createExamRequest('pat-1', 'note-1', 'tenant-1', actor, {
+            displayName: 'Hemograma',
+          })
+        ).rejects.toThrow(BadRequestException);
+        expect(mockPrisma.clinicalExamRequest.create).not.toHaveBeenCalled();
+      }
+    );
+  });
+
+  describe('deleteExamRequest', () => {
+    it('rejects when note belongs to another tenant or patient', async () => {
+      mockPrisma.clinicalNote.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.deleteExamRequest(
+          'pat-1',
+          'note-1',
+          'exam-request-1',
+          'tenant-1',
+          actor
+        )
+      ).rejects.toThrow(NotFoundException);
+      expect(mockPrisma.clinicalExamRequest.findFirst).not.toHaveBeenCalled();
+      expect(mockPrisma.clinicalExamRequest.delete).not.toHaveBeenCalled();
+    });
+
+    it('scopes ownership lookup and delete by tenant', async () => {
       mockPrisma.clinicalNote.findFirst.mockResolvedValue({
         id: 'note-1',
-        status: ClinicalNoteStatus.SIGNED,
+        status: ClinicalNoteStatus.DRAFT,
         noteType: ClinicalNoteType.MEDICAL,
         patientId: 'pat-1',
       });
+      mockClinicalNotes.canCreateOrSignNoteType.mockReturnValue(true);
+      mockPrisma.clinicalExamRequest.findFirst.mockResolvedValue({
+        id: 'exam-request-1',
+      });
+      mockPrisma.clinicalExamRequest.delete.mockResolvedValue({
+        id: 'exam-request-1',
+      });
 
+      await service.deleteExamRequest(
+        'pat-1',
+        'note-1',
+        'exam-request-1',
+        'tenant-1',
+        actor
+      );
+
+      expect(mockPrisma.clinicalExamRequest.findFirst).toHaveBeenCalledWith({
+        where: {
+          id: 'exam-request-1',
+          tenantId: 'tenant-1',
+          clinicalNoteId: 'note-1',
+          patientId: 'pat-1',
+        },
+        select: { id: true },
+      });
+      expect(mockPrisma.clinicalExamRequest.delete).toHaveBeenCalledWith({
+        where: { id: 'exam-request-1', tenantId: 'tenant-1' },
+      });
+    });
+
+    it.each([ClinicalNoteStatus.SIGNED, ClinicalNoteStatus.VOIDED])(
+      'rejects deleting exam request when note is %s',
+      async (status) => {
+        mockPrisma.clinicalNote.findFirst.mockResolvedValue({
+          id: 'note-1',
+          status,
+          noteType: ClinicalNoteType.MEDICAL,
+          patientId: 'pat-1',
+        });
+
+        await expect(
+          service.deleteExamRequest(
+            'pat-1',
+            'note-1',
+            'exam-request-1',
+            'tenant-1',
+            actor
+          )
+        ).rejects.toThrow(BadRequestException);
+        expect(mockPrisma.clinicalExamRequest.delete).not.toHaveBeenCalled();
+      }
+    );
+  });
+
+  describe('createPrescriptionLine', () => {
+    it('rejects create when note belongs to another tenant or patient', async () => {
+      mockPrisma.clinicalNote.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.createPrescriptionLine(
+          'pat-1',
+          'note-1',
+          'tenant-1',
+          actor,
+          { medicationName: 'Ondansetrona' }
+        )
+      ).rejects.toThrow(NotFoundException);
+      expect(mockPrisma.clinicalPrescriptionLine.create).not.toHaveBeenCalled();
+    });
+
+    it('scopes create payload to tenant, patient, and note', async () => {
+      mockPrisma.clinicalNote.findFirst.mockResolvedValue({
+        id: 'note-1',
+        status: ClinicalNoteStatus.DRAFT,
+        noteType: ClinicalNoteType.MEDICAL,
+        patientId: 'pat-1',
+      });
       mockPrisma.clinicalNoteVersion.findFirst.mockResolvedValue({
-        versionNumber: 2,
+        versionNumber: 3,
       });
       mockClinicalNotes.canCreateOrSignNoteType.mockReturnValue(true);
-      mockPrisma.clinicalExamRequest.create.mockResolvedValue({
-        id: 'ex-1',
-        clinicalNoteVersionNumber: 2,
-        displayName: 'Hemograma',
-        code: null,
-        loincCode: null,
-        requestedBy: { id: actor.id, name: 'Dra.' },
+      mockPrisma.clinicalPrescriptionLine.create.mockResolvedValue({
+        id: 'line-1',
+        clinicalNoteVersionNumber: 3,
+        medicationName: 'Ondansetrona',
+        catalogKey: null,
+        presentationCatalogCode: null,
+        dosage: null,
+        frequency: null,
+        route: null,
+        duration: null,
+        indication: null,
+        prescribedBy: { id: actor.id, name: 'Dra.' },
         createdAt: new Date(),
         updatedAt: new Date(),
       });
 
-      await expect(
-        service.createExamRequest('pat-1', 'note-1', 'tenant-1', actor, {
-          displayName: 'Hemograma',
-        })
-      ).resolves.toBeTruthy();
-    });
-  });
+      await service.createPrescriptionLine(
+        'pat-1',
+        'note-1',
+        'tenant-1',
+        actor,
+        { medicationName: 'Ondansetrona' }
+      );
 
-  describe('createPrescriptionLine', () => {
+      expect(mockPrisma.clinicalPrescriptionLine.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            tenantId: 'tenant-1',
+            patientId: 'pat-1',
+            clinicalNoteId: 'note-1',
+            clinicalNoteVersionNumber: 3,
+            prescribedById: actor.id,
+          }),
+        })
+      );
+    });
+
     it('rejects nursing evolution', async () => {
       mockPrisma.clinicalNote.findFirst.mockResolvedValue({
         id: 'note-1',
@@ -162,6 +312,113 @@ describe('ClinicalNoteOrdersService', () => {
         })
       ).rejects.toThrow(BadRequestException);
     });
+
+    it.each([ClinicalNoteStatus.SIGNED, ClinicalNoteStatus.VOIDED])(
+      'rejects creating prescription line when note is %s',
+      async (status) => {
+        mockPrisma.clinicalNote.findFirst.mockResolvedValue({
+          id: 'note-1',
+          status,
+          noteType: ClinicalNoteType.MEDICAL,
+          patientId: 'pat-1',
+        });
+
+        await expect(
+          service.createPrescriptionLine(
+            'pat-1',
+            'note-1',
+            'tenant-1',
+            actor,
+            { medicationName: 'Ondansetrona' }
+          )
+        ).rejects.toThrow(BadRequestException);
+        expect(
+          mockPrisma.clinicalPrescriptionLine.create
+        ).not.toHaveBeenCalled();
+      }
+    );
+
+    it('rejects delete when note belongs to another tenant or patient', async () => {
+      mockPrisma.clinicalNote.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.deletePrescriptionLine(
+          'pat-1',
+          'note-1',
+          'line-1',
+          'tenant-1',
+          actor
+        )
+      ).rejects.toThrow(NotFoundException);
+      expect(
+        mockPrisma.clinicalPrescriptionLine.findFirst
+      ).not.toHaveBeenCalled();
+      expect(mockPrisma.clinicalPrescriptionLine.delete).not.toHaveBeenCalled();
+    });
+
+    it('scopes prescription delete ownership and tenant where', async () => {
+      mockPrisma.clinicalNote.findFirst.mockResolvedValue({
+        id: 'note-1',
+        status: ClinicalNoteStatus.DRAFT,
+        noteType: ClinicalNoteType.MEDICAL,
+        patientId: 'pat-1',
+      });
+      mockClinicalNotes.canCreateOrSignNoteType.mockReturnValue(true);
+      mockPrisma.clinicalPrescriptionLine.findFirst.mockResolvedValue({
+        id: 'line-1',
+      });
+      mockPrisma.clinicalPrescriptionLine.delete.mockResolvedValue({
+        id: 'line-1',
+      });
+
+      await service.deletePrescriptionLine(
+        'pat-1',
+        'note-1',
+        'line-1',
+        'tenant-1',
+        actor
+      );
+
+      expect(mockPrisma.clinicalPrescriptionLine.findFirst).toHaveBeenCalledWith(
+        {
+          where: {
+            id: 'line-1',
+            tenantId: 'tenant-1',
+            clinicalNoteId: 'note-1',
+            patientId: 'pat-1',
+          },
+          select: { id: true },
+        }
+      );
+      expect(mockPrisma.clinicalPrescriptionLine.delete).toHaveBeenCalledWith({
+        where: { id: 'line-1', tenantId: 'tenant-1' },
+      });
+    });
+
+    it.each([ClinicalNoteStatus.SIGNED, ClinicalNoteStatus.VOIDED])(
+      'rejects deleting prescription line when note is %s',
+      async (status) => {
+        mockPrisma.clinicalNote.findFirst.mockResolvedValue({
+          id: 'note-1',
+          status,
+          noteType: ClinicalNoteType.MEDICAL,
+          patientId: 'pat-1',
+        });
+
+        await expect(
+          service.deletePrescriptionLine(
+            'pat-1',
+            'note-1',
+            'line-1',
+            'tenant-1',
+            actor
+          )
+        ).rejects.toThrow(BadRequestException);
+        expect(
+          mockPrisma.clinicalPrescriptionLine.delete
+        ).not.toHaveBeenCalled();
+      }
+    );
   });
 
   describe('listPrescriptionHistory', () => {
