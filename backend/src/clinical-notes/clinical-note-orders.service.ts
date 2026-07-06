@@ -41,8 +41,10 @@ export class ClinicalNoteOrdersService {
     if (!note) {
       throw new NotFoundException('Evolução não encontrada para este paciente');
     }
-    if (note.status === ClinicalNoteStatus.VOIDED) {
-      throw new BadRequestException('Não é possível alterar pedidos em evolução anulada');
+    if (note.status !== ClinicalNoteStatus.DRAFT) {
+      throw new BadRequestException(
+        'Não é possível alterar pedidos em evolução não editável'
+      );
     }
     return note;
   }
