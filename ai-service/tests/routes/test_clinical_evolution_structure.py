@@ -60,8 +60,7 @@ def test_structure_evolution_empty_when_no_llm_keys(client: TestClient, monkeypa
     assert data["performance_status_history"] == []
     assert data["clinical_prescription_lines"] == []
     assert data["questionnaire_responses"] == []
-    pp = data.get("patient_patch") or {}
-    assert all(v is None for v in pp.values())
+    assert data["patient_patch"] == {}
     assert data["rejection_report"] == []
 
 
@@ -74,7 +73,7 @@ def test_structure_evolution_parses_llm_json(client: TestClient, monkeypatch):
             '{"clinical_exam_requests":[{"display_name":"Hemograma"}],'
             '"medications":[{"name":"Metformina","dosage":"850 mg","category":"ANTIDIABETIC"}],'
             '"comorbidities":[{"name":"DM2","type":"DIABETES_TYPE_2","severity":"MODERATE","controlled":true}],'
-            '"patient_patch":{"occupation":"Aposentado"},'
+            '"patient_patch":{"cancerType":null,"stage":null,"occupation":"Aposentado"},'
             '"rejection_report":[]}'
         )
 
@@ -102,4 +101,4 @@ def test_structure_evolution_parses_llm_json(client: TestClient, monkeypatch):
     assert data["medications"][0]["name"] == "Metformina"
     assert len(data["comorbidities"]) == 1
     assert data["comorbidities"][0]["name"] == "DM2"
-    assert data["patient_patch"]["occupation"] == "Aposentado"
+    assert data["patient_patch"] == {"occupation": "Aposentado"}
