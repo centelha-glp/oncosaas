@@ -2069,10 +2069,15 @@ describe('OncologyNavigationService', () => {
       };
       mockPrisma.navigationStep.update.mockResolvedValue(updated as never);
 
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date('2026-01-01T12:00:00.000Z'));
+
       const result = await service.createConsultationAppointment(
         { ...baseDto, expectedDate: '2026-06-22T15:00:00.000Z' },
         TENANT
       );
+
+      jest.useRealTimers();
 
       expect(mockChannelGateway.sendMessage).toHaveBeenCalled();
       expect(mockPrisma.scheduledAction.create).toHaveBeenCalled();
