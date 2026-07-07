@@ -33,6 +33,8 @@ const PATIENT_CTX = '6ba7b810-9dad-11d1-80b4-00c04fd430c8';
 const PRO_ID = '550e8400-e29b-41d4-a716-446655440000';
 const STEP_ID = '7ba7b810-9dad-11d1-80b4-00c04fd430c8';
 const PHONE_RAW = '+5511988887777';
+const futureIso = (daysAhead: number): string =>
+  new Date(Date.now() + daysAhead * 24 * 60 * 60 * 1000).toISOString();
 
 const mockPrisma = {
   patient: {
@@ -486,14 +488,22 @@ describe('AgentService — intake WhatsApp e secretária', () => {
     });
 
     it('getInternalConsultationAvailability usa tenant interno e retorna slots ordenados/capados', async () => {
+      const slot1 = futureIso(10);
+      const slot2 = futureIso(11);
+      const slot3 = futureIso(12);
+      const slot4 = futureIso(13);
+      const slot5 = futureIso(14);
+      const slot6 = futureIso(15);
       const many = [
-        '2026-06-12T12:00:00.000Z',
-        '2026-06-10T08:00:00.000Z',
-        '2026-06-11T10:00:00.000Z',
-        '2026-06-13T14:00:00.000Z',
-        '2026-06-14T16:00:00.000Z',
-        '2026-06-15T18:00:00.000Z',
+        slot3,
+        slot1,
+        slot2,
+        slot4,
+        slot5,
+        slot6,
       ];
+      const queryFrom = futureIso(1);
+      const queryTo = futureIso(5);
       mockOncologyNavigationService.getConsultationAvailableSlots.mockResolvedValue({
         slots: many,
       });
@@ -501,8 +511,8 @@ describe('AgentService — intake WhatsApp e secretária', () => {
       const result = await service.getInternalConsultationAvailability(TENANT, {
         scheduledProfessionalId: PRO_ID,
         stepKey: 'navigation_consultation',
-        from: '2026-06-01T00:00:00.000Z',
-        to: '2026-06-05T23:59:59.000Z',
+        from: queryFrom,
+        to: queryTo,
         tenantId: OTHER_TENANT,
       });
 
@@ -511,16 +521,16 @@ describe('AgentService — intake WhatsApp e secretária', () => {
         expect.objectContaining({
           professionalId: PRO_ID,
           stepKey: 'navigation_consultation',
-          from: '2026-06-01T00:00:00.000Z',
-          to: '2026-06-05T23:59:59.000Z',
+          from: queryFrom,
+          to: queryTo,
         })
       );
       expect(result.slots).toEqual([
-        '2026-06-10T08:00:00.000Z',
-        '2026-06-11T10:00:00.000Z',
-        '2026-06-12T12:00:00.000Z',
-        '2026-06-13T14:00:00.000Z',
-        '2026-06-14T16:00:00.000Z',
+        slot1,
+        slot2,
+        slot3,
+        slot4,
+        slot5,
       ]);
       expect(result.slots).toHaveLength(
         SCHEDULING_SECRETARY_AVAILABILITY_OFFERED_SLOTS_MAX
@@ -705,14 +715,16 @@ describe('AgentService — intake WhatsApp e secretária', () => {
 
     it('ordena e limita vagas ofertadas ao máximo configurado', async () => {
       const many = [
-        '2026-06-10T16:00:00.000Z',
-        '2026-06-02T09:00:00.000Z',
-        '2026-06-05T11:00:00.000Z',
-        '2026-06-03T08:00:00.000Z',
-        '2026-06-09T14:00:00.000Z',
-        '2026-06-11T10:00:00.000Z',
-        '2026-06-12T12:00:00.000Z',
+        futureIso(18),
+        futureIso(10),
+        futureIso(13),
+        futureIso(11),
+        futureIso(17),
+        futureIso(19),
+        futureIso(20),
       ];
+      const queryFrom = futureIso(9);
+      const queryTo = futureIso(30);
       mockOncologyNavigationService.getConsultationAvailableSlots.mockResolvedValue({
         slots: many,
       });
@@ -732,8 +744,8 @@ describe('AgentService — intake WhatsApp e secretária', () => {
             payload: {
               scheduledProfessionalId: PRO_ID,
               stepKey: 'navigation_consultation',
-              from: '2026-06-01T00:00:00.000Z',
-              to: '2026-06-30T23:59:59.000Z',
+              from: queryFrom,
+              to: queryTo,
             },
           },
         },

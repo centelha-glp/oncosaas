@@ -215,7 +215,11 @@ def _build_response_from_parsed(parsed: dict[str, Any]) -> StructureEvolutionRes
     )
 
 
-@router.post("/structure", response_model=StructureEvolutionResponse)
+@router.post(
+    "/structure",
+    response_model=StructureEvolutionResponse,
+    response_model_exclude_none=True,
+)
 async def structure_signed_evolution(body: StructureEvolutionRequest) -> StructureEvolutionResponse:
     empty = StructureEvolutionResponse()
 
