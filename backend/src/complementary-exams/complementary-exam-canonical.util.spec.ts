@@ -1,33 +1,35 @@
 import {
-  CANONICAL_GROUP_RENAL_CREAT_ETFG,
+  CANONICAL_GROUP_RENAL_CREATININE,
+  CANONICAL_GROUP_RENAL_ETFG,
   CANONICAL_GROUP_VIT_D_25OH,
   preferredDisplayNameForGroup,
   resolveCanonicalExamGroupId,
 } from './complementary-exam-canonical.util';
 
 describe('complementary-exam-canonical.util', () => {
-  it('agrupa creatinina, dosagem com eTFG e eTFG isolado em RENAL_CREAT_ETFG', () => {
-    const renal = `CANON|${CANONICAL_GROUP_RENAL_CREAT_ETFG}`;
+  it('separa creatinina sérica de eTFG/eGFR', () => {
+    const creatinine = `CANON|${CANONICAL_GROUP_RENAL_CREATININE}`;
+    const etfg = `CANON|${CANONICAL_GROUP_RENAL_ETFG}`;
     expect(
       resolveCanonicalExamGroupId('LABORATORY', 'Creatinina', 'CREAT'),
-    ).toBe(renal);
+    ).toBe(creatinine);
     expect(
       resolveCanonicalExamGroupId(
         'LABORATORY',
         'Dosagem de Creatinina com eTFG',
       ),
-    ).toBe(renal);
-    expect(resolveCanonicalExamGroupId('LABORATORY', 'eTFG')).toBe(renal);
-    expect(resolveCanonicalExamGroupId('LABORATORY', 'eGFR')).toBe(renal);
+    ).toBe(etfg);
+    expect(resolveCanonicalExamGroupId('LABORATORY', 'eTFG')).toBe(etfg);
+    expect(resolveCanonicalExamGroupId('LABORATORY', 'eGFR')).toBe(etfg);
   });
 
   it('exclui creatinina urinária do grupo renal', () => {
     expect(
       resolveCanonicalExamGroupId('LABORATORY', 'Creatinina urinária', 'CREAT-U'),
-    ).not.toBe(`CANON|${CANONICAL_GROUP_RENAL_CREAT_ETFG}`);
+    ).not.toBe(`CANON|${CANONICAL_GROUP_RENAL_CREATININE}`);
     expect(
       resolveCanonicalExamGroupId('LABORATORY', 'Creatinina urina 24h', 'CREAT-24H'),
-    ).not.toBe(`CANON|${CANONICAL_GROUP_RENAL_CREAT_ETFG}`);
+    ).not.toBe(`CANON|${CANONICAL_GROUP_RENAL_CREATININE}`);
   });
 
   it('agrupa sinónimos de vitamina D 25-OH', () => {
@@ -61,10 +63,13 @@ describe('complementary-exam-canonical.util', () => {
   it('preferredDisplayNameForGroup devolve rótulos canónicos', () => {
     expect(
       preferredDisplayNameForGroup(
-        `CANON|${CANONICAL_GROUP_RENAL_CREAT_ETFG}`,
-        'eTFG',
+        `CANON|${CANONICAL_GROUP_RENAL_CREATININE}`,
+        'Creat',
       ),
     ).toBe('Creatinina');
+    expect(
+      preferredDisplayNameForGroup(`CANON|${CANONICAL_GROUP_RENAL_ETFG}`, 'eGFR'),
+    ).toBe('eTFG');
     expect(
       preferredDisplayNameForGroup(
         `CANON|${CANONICAL_GROUP_VIT_D_25OH}`,
