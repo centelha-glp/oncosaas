@@ -86,7 +86,7 @@ describe('complementary-exam-series', () => {
     expect(rows.map((r) => r.id)).toEqual(['a', 'c']);
   });
 
-  it('groupComplementaryExamsByName funde creatinina e eTFG com cabeçalho Creatinina', () => {
+  it('groupComplementaryExamsByName mantém creatinina e eTFG em séries separadas', () => {
     const e1 = baseExam();
     e1.id = 'renal-1';
     e1.name = 'Creatinina';
@@ -124,9 +124,11 @@ describe('complementary-exam-series', () => {
       },
     ];
     const grouped = groupComplementaryExamsByName([e1, e2]);
-    expect(grouped).toHaveLength(1);
+    expect(grouped).toHaveLength(2);
     expect(grouped[0]?.name).toBe('Creatinina');
-    expect(grouped[0]?.results).toHaveLength(2);
+    expect(grouped[0]?.results).toHaveLength(1);
+    expect(grouped[1]?.name).toBe('eTFG');
+    expect(grouped[1]?.results).toHaveLength(1);
   });
 
   it('groupComplementaryExamsByName funde sinónimos de vitamina D 25-OH', () => {

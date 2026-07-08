@@ -72,7 +72,10 @@ export function PrescriptionLineForm({
         .then((res) => {
           const drug =
             res.items.find((d) => d.code === catalogKey) ?? res.items[0] ?? null;
-          if (drug) setSelectedDrug(drug);
+          if (drug) {
+            setSelectedDrug(drug);
+            setDrugQuery(drug.displayName);
+          }
         })
         .catch(() => {
           /* catálogo indisponível: usuário pode reselecionar manualmente */
@@ -104,6 +107,10 @@ export function PrescriptionLineForm({
     queryFn: () => medicationCatalogApi.listRoutes(),
     staleTime: 10 * 60_000,
   });
+
+  const selectedDrugMatchesQuery =
+    selectedDrug !== null &&
+    drugQuery.trim() === selectedDrug.displayName.trim();
 
   const drugComboboxOptions = useMemo(
     () =>
@@ -144,7 +151,7 @@ export function PrescriptionLineForm({
         indication: medIndication.trim() || undefined,
       });
     } else {
-      if (!selectedDrug) return;
+      if (!selectedDrug || !selectedDrugMatchesQuery) return;
       onSubmit({
         medicationName: medName.trim() || selectedDrug.displayName,
         catalogKey: selectedDrug.code,
@@ -167,7 +174,16 @@ export function PrescriptionLineForm({
     setDrugQuery('');
   };
 
-  const canSubmit = freeText ? Boolean(medName.trim()) : Boolean(selectedDrug);
+  const canSubmit = freeText ? Boolean(medName.trim()) : selectedDrugMatchesQuery;
+
+  const handleDrugQueryChange = (value: string) => {
+    setDrugQuery(value);
+    if (selectedDrug && value.trim() !== selectedDrug.displayName.trim()) {
+      setSelectedDrug(null);
+      setPresentationCode('');
+      setMedRoute('');
+    }
+  };
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2">
@@ -182,7 +198,7 @@ export function PrescriptionLineForm({
             <ExamCatalogCombobox
               options={drugComboboxOptions}
               value={drugQuery}
-              onValueChange={setDrugQuery}
+              onValueChange={handleDrugQueryChange}
               onSelectOption={(opt) => {
                 const drug = opt.data;
                 setSelectedDrug(drug);
