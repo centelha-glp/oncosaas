@@ -278,7 +278,7 @@ describe('applyComplementaryExamsFromAiItems', () => {
     expect(results[0]?.performedAt.toISOString()).toBe('2025-04-20T00:00:00.000Z');
   });
 
-  it('sinónimos creatinina + eTFG → 1 exam, 2 results', async () => {
+  it('creatinina + eTFG no mesmo instante → 2 exams, 2 results preservados', async () => {
     const { tx, exams, results } = makeTx();
     const items: AiComplementaryExamItem[] = [
       {
@@ -290,19 +290,43 @@ describe('applyComplementaryExamsFromAiItems', () => {
       {
         type: 'LABORATORY',
         name: 'eTFG',
-        result: { performed_at: '2025-02-01', value_numeric: 72 },
+        result: { performed_at: '2025-01-01', value_numeric: 72 },
       },
     ];
 
-    await applyComplementaryExamsFromAiItems(
+    const out = await applyComplementaryExamsFromAiItems(
       tx as unknown as Prisma.TransactionClient,
       baseArgs,
       items,
     );
 
-    expect(exams).toHaveLength(1);
-    expect(results).toHaveLength(2);
-    expect(tx.complementaryExam.create).toHaveBeenCalledTimes(1);
+    expect(exams).toEqual([
+      expect.objectContaining({ id: 'exam-1', name: 'Creatinina' }),
+      expect.objectContaining({ id: 'exam-2', name: 'eTFG' }),
+    ]);
+    expect(
+      results.map((result) => ({
+        examId: result.examId,
+        performedAt: result.performedAt.toISOString(),
+        valueNumeric: result.valueNumeric,
+      })),
+    ).toEqual([
+      {
+        examId: 'exam-1',
+        performedAt: '2025-01-01T00:00:00.000Z',
+        valueNumeric: 1.0,
+      },
+      {
+        examId: 'exam-2',
+        performedAt: '2025-01-01T00:00:00.000Z',
+        valueNumeric: 72,
+      },
+    ]);
+    expect(out).toEqual({
+      complementaryExamIds: ['exam-1', 'exam-2'],
+      complementaryExamResultIds: ['res-1', 'res-2'],
+    });
+    expect(tx.complementaryExam.create).toHaveBeenCalledTimes(2);
   });
 
   it('creatinina com painel eTFG no nome reutiliza mesmo exame', async () => {

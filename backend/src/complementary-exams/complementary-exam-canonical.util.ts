@@ -1,6 +1,7 @@
 import { normalizeExamLabelKey } from './collapse-redundant-components.util';
 
-export const CANONICAL_GROUP_RENAL_CREAT_ETFG = 'RENAL_CREAT_ETFG';
+export const CANONICAL_GROUP_RENAL_CREATININE = 'RENAL_CREATININE';
+export const CANONICAL_GROUP_RENAL_ETFG = 'RENAL_ETFG';
 export const CANONICAL_GROUP_VIT_D_25OH = 'VIT_D_25OH';
 
 const RENAL_CREAT_CODES = new Set(['CREAT', 'CR']);
@@ -20,7 +21,7 @@ function isUrinaryCreatinineCode(code: string | null | undefined): boolean {
   return c === 'CREAT-U' || c === 'CREAT-24H';
 }
 
-function matchesRenalCreatEtfg(
+function matchesSerumCreatinine(
   type: string,
   name: string,
   code?: string | null,
@@ -33,20 +34,19 @@ function matchesRenalCreatEtfg(
   const c = (code ?? '').trim().toUpperCase();
   if (c && RENAL_CREAT_CODES.has(c)) {return true;}
 
-  const n = name.toLowerCase();
-  if (/creatinina/.test(n)) {return true;}
+  return /creatinina/.test(name.toLowerCase());
+}
 
-  if (
+function matchesEtfg(type: string, name: string): boolean {
+  if (type !== 'LABORATORY') {return false;}
+  const n = name.toLowerCase();
+  return (
     /^e\s*tfg\b|^egfr\b|^tfg\b/.test(n) ||
     /\betfg\b/.test(n) ||
     /\begfr\b/.test(n) ||
     /taxa\s+de\s+filtra/.test(n) ||
     /filtra[cç][aã]o\s+glomerular/.test(n)
-  ) {
-    return true;
-  }
-
-  return false;
+  );
 }
 
 function matchesVitD25oh(type: string, name: string): boolean {
@@ -79,8 +79,11 @@ export function resolveCanonicalExamGroupId(
   code?: string | null,
   loincCode?: string | null,
 ): string {
-  if (matchesRenalCreatEtfg(type, name, code)) {
-    return `CANON|${CANONICAL_GROUP_RENAL_CREAT_ETFG}`;
+  if (matchesSerumCreatinine(type, name, code)) {
+    return `CANON|${CANONICAL_GROUP_RENAL_CREATININE}`;
+  }
+  if (matchesEtfg(type, name)) {
+    return `CANON|${CANONICAL_GROUP_RENAL_ETFG}`;
   }
   if (matchesVitD25oh(type, name)) {
     return `CANON|${CANONICAL_GROUP_VIT_D_25OH}`;
@@ -101,9 +104,10 @@ export function preferredDisplayNameForGroup(
   canonicalId: string,
   fallbackName: string,
 ): string {
-  if (canonicalId === `CANON|${CANONICAL_GROUP_RENAL_CREAT_ETFG}`) {
+  if (canonicalId === `CANON|${CANONICAL_GROUP_RENAL_CREATININE}`) {
     return 'Creatinina';
   }
+  if (canonicalId === `CANON|${CANONICAL_GROUP_RENAL_ETFG}`) {return 'eTFG';}
   if (canonicalId === `CANON|${CANONICAL_GROUP_VIT_D_25OH}`) {
     return 'Vitamina D 25-OH';
   }
