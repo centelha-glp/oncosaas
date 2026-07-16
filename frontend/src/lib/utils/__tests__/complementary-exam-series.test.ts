@@ -86,7 +86,7 @@ describe('complementary-exam-series', () => {
     expect(rows.map((r) => r.id)).toEqual(['a', 'c']);
   });
 
-  it('groupComplementaryExamsByName funde creatinina e eTFG com cabeçalho Creatinina', () => {
+  it('groupComplementaryExamsByName preserva creatinina e eTFG no mesmo instante', () => {
     const e1 = baseExam();
     e1.id = 'renal-1';
     e1.name = 'Creatinina';
@@ -111,7 +111,7 @@ describe('complementary-exam-series', () => {
     e2.results = [
       {
         id: 'r2',
-        performedAt: '2025-02-01T00:00:00.000Z',
+        performedAt: '2025-01-01T00:00:00.000Z',
         collectionId: null,
         valueNumeric: 70,
         valueText: null,
@@ -124,9 +124,28 @@ describe('complementary-exam-series', () => {
       },
     ];
     const grouped = groupComplementaryExamsByName([e1, e2]);
-    expect(grouped).toHaveLength(1);
-    expect(grouped[0]?.name).toBe('Creatinina');
-    expect(grouped[0]?.results).toHaveLength(2);
+    expect(grouped).toHaveLength(2);
+    expect(
+      grouped.map((exam) => ({
+        name: exam.name,
+        resultIds: exam.results.map((row) => row.id),
+        values: exam.results.map((row) => row.valueNumeric),
+        chartValues: buildParentNumericChartPoints(exam.results).map((point) => point.value),
+      }))
+    ).toEqual([
+      {
+        name: 'Creatinina',
+        resultIds: ['r1'],
+        values: [1.0],
+        chartValues: [1.0],
+      },
+      {
+        name: 'eTFG',
+        resultIds: ['r2'],
+        values: [70],
+        chartValues: [70],
+      },
+    ]);
   });
 
   it('groupComplementaryExamsByName funde sinónimos de vitamina D 25-OH', () => {
