@@ -2,6 +2,16 @@ import { Injectable, OnModuleDestroy, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
 
+const RPUSH_WITH_TTL_SCRIPT = `
+local count = redis.call('RPUSH', KEYS[1], ARGV[1])
+local expire_result = redis.pcall('EXPIRE', KEYS[1], ARGV[2], 'NX')
+if type(expire_result) == 'table' and expire_result.err then
+  redis.call('RPOP', KEYS[1])
+  return expire_result
+end
+return count
+`;
+
 @Injectable()
 export class RedisService implements OnModuleDestroy {
   private readonly logger = new Logger(RedisService.name);
@@ -60,6 +70,25 @@ export class RedisService implements OnModuleDestroy {
   /** Anexa à lista Redis (buffer efémero, ex.: uploads de sessão). */
   async rpush(key: string, value: string): Promise<number> {
     return this.client.rpush(key, value);
+  }
+
+  /** Anexa à lista e garante expiração atômica na primeira escrita. */
+  async rpushWithTtl(
+    key: string,
+    value: string,
+    ttlSeconds: number
+  ): Promise<number> {
+    const result = await this.client.eval(
+      RPUSH_WITH_TTL_SCRIPT,
+      1,
+      key,
+      value,
+      String(Math.max(1, ttlSeconds))
+    );
+    if (typeof result !== 'number') {
+      throw new Error('Redis returned an invalid upload buffer length');
+    }
+    return result;
   }
 
   async llen(key: string): Promise<number> {
