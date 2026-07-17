@@ -267,13 +267,19 @@ export class ExamIngestService {
       throw new BadRequestException('Ficheiro demasiado grande');
     }
 
-    const raw = await this.redis.get(this.sessionMetaKey(sessionId));
+    const metaKey = this.sessionMetaKey(sessionId);
+    const raw = await this.redis.get(metaKey);
     if (!raw) {throw new NotFoundException('Sessão expirada ou inválida');}
     const meta = JSON.parse(raw) as ExamIngestSessionMeta;
     if (meta.tenantId !== tenantId) {throw new ForbiddenException();}
     if (meta.patientId !== patientId) {throw new ForbiddenException();}
+    const remainingTtl = await this.redis.ttl(metaKey);
+    if (remainingTtl <= 0) {
+      throw new NotFoundException('Sessão expirada ou inválida');
+    }
 
-    const current = await this.redis.llen(this.sessionFilesKey(sessionId));
+    const filesKey = this.sessionFilesKey(sessionId);
+    const current = await this.redis.llen(filesKey);
     if (current >= EXAM_INGEST_MAX_FILES_PER_SESSION) {
       throw new BadRequestException('Limite de ficheiros por sessão atingido');
     }
@@ -282,13 +288,13 @@ export class ExamIngestService {
       mimeType,
       dataBase64: buffer.toString('base64'),
     };
-    await this.redis.rpush(
-      this.sessionFilesKey(sessionId),
-      JSON.stringify(entry)
+    const fileCount = await this.redis.rpushWithTtl(
+      filesKey,
+      JSON.stringify(entry),
+      remainingTtl
     );
 
-    const n = await this.redis.llen(this.sessionFilesKey(sessionId));
-    return { fileCount: n };
+    return { fileCount };
   }
 
   async appendFileByUploadToken(

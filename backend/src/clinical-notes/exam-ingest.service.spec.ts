@@ -5,6 +5,7 @@ import {
   BadRequestException,
   ForbiddenException,
   GatewayTimeoutException,
+  NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ExamIngestService } from './exam-ingest.service';
@@ -18,6 +19,7 @@ describe('ExamIngestService', () => {
     set: jest.fn(),
     del: jest.fn(),
     rpush: jest.fn(),
+    rpushWithTtl: jest.fn(),
     llen: jest.fn(),
     lrange: jest.fn(),
     ttl: jest.fn(),
@@ -47,6 +49,63 @@ describe('ExamIngestService', () => {
       ],
     }).compile();
     service = module.get(ExamIngestService);
+  });
+
+  it('mantém o buffer Redis limitado ao TTL restante da sessão', async () => {
+    redis.get.mockResolvedValue(
+      JSON.stringify({
+        tenantId: 't1',
+        userId: 'u1',
+        patientId: 'p1',
+        createdAt: new Date().toISOString(),
+        uploadToken: 'tokhex',
+      })
+    );
+    redis.llen.mockResolvedValueOnce(0);
+    redis.ttl.mockResolvedValue(600);
+    redis.rpushWithTtl.mockResolvedValue(1);
+
+    await service.appendFileFromBuffer({
+      sessionId: '550e8400-e29b-41d4-a716-446655440000',
+      tenantId: 't1',
+      patientId: 'p1',
+      mimeType: 'image/png',
+      buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+    });
+
+    expect(redis.rpushWithTtl).toHaveBeenCalledWith(
+      'ei:files:550e8400-e29b-41d4-a716-446655440000',
+      expect.any(String),
+      600
+    );
+    expect(redis.rpush).not.toHaveBeenCalled();
+  });
+
+  it('não grava ficheiro quando a sessão já expirou', async () => {
+    redis.get.mockResolvedValue(
+      JSON.stringify({
+        tenantId: 't1',
+        userId: 'u1',
+        patientId: 'p1',
+        createdAt: new Date().toISOString(),
+        uploadToken: 'tokhex',
+      })
+    );
+    redis.ttl.mockResolvedValue(0);
+
+    await expect(
+      service.appendFileFromBuffer({
+        sessionId: '550e8400-e29b-41d4-a716-446655440000',
+        tenantId: 't1',
+        patientId: 'p1',
+        mimeType: 'image/png',
+        buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+      })
+    ).rejects.toBeInstanceOf(NotFoundException);
+
+    expect(redis.llen).not.toHaveBeenCalled();
+    expect(redis.rpushWithTtl).not.toHaveBeenCalled();
+    expect(redis.rpush).not.toHaveBeenCalled();
   });
 
   it('extract envia JSON ao ai-service e limpa Redis após sucesso', async () => {
