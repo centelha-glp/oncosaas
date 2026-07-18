@@ -257,7 +257,7 @@ describe('ExamIngestService', () => {
     ).rejects.toBeInstanceOf(GatewayTimeoutException);
   });
 
-  it('extract persiste complementaryExams com collectionId quando o ai-service devolve itens', async () => {
+  it('extract não persiste complementaryExams antes da confirmação', async () => {
     prisma.patient.findFirst.mockResolvedValue({ id: 'p1' });
     const examCreate = jest.fn().mockResolvedValue({ id: 'exam-1' });
     const resCreate = jest.fn().mockResolvedValue({ id: 'res-1' });
@@ -303,16 +303,13 @@ describe('ExamIngestService', () => {
       plainText: 'x',
     });
 
-    expect(prisma.$transaction).toHaveBeenCalled();
-    expect(examCreate).toHaveBeenCalled();
-    expect(resCreate).toHaveBeenCalled();
-    const resData = (resCreate.mock.calls[0][0] as { data: { collectionId?: string } })
-      .data;
-    expect(typeof resData.collectionId).toBe('string');
-    expect(resData.collectionId).toBe(out.collectionId);
-    expect(out.complementaryExamsSavedCount).toBe(1);
-    expect(out.complementaryExamResultSavedCount).toBe(1);
-    expect(out.complementaryExamIds).toEqual(['exam-1']);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(examCreate).not.toHaveBeenCalled();
+    expect(resCreate).not.toHaveBeenCalled();
+    expect(typeof out.collectionId).toBe('string');
+    expect(out.complementaryExamsSavedCount).toBe(0);
+    expect(out.complementaryExamResultSavedCount).toBe(0);
+    expect(out.complementaryExamIds).toEqual([]);
     fetchSpy.mockRestore();
   });
 

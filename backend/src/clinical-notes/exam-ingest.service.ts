@@ -499,38 +499,8 @@ export class ExamIngestService {
       const upstreamExams =
         json.complementaryExams ?? json.complementary_exams;
       const mappedExams = mapUpstreamComplementaryExams(upstreamExams);
-      let collectionId: string | undefined;
-      let complementaryExamsSavedCount = 0;
-      let complementaryExamResultSavedCount = 0;
-      const complementaryExamIds: string[] = [];
-      if (mappedExams.length > 0) {
-        collectionId = randomUUID();
-        const rej: Array<{
-          domain: string;
-          reason: string;
-          field?: string | null;
-        }> = [];
-        const applied = await this.prisma.$transaction(async (tx) => {
-          return applyComplementaryExamsFromAiItems(
-            tx,
-            {
-              tenantId,
-              patientId,
-              mergedRejections: rej,
-              collectionId,
-            },
-            mappedExams
-          );
-        });
-        complementaryExamsSavedCount = applied.complementaryExamIds.length;
-        complementaryExamResultSavedCount = applied.complementaryExamResultIds.length;
-        complementaryExamIds.push(...applied.complementaryExamIds);
-        if (rej.length > 0) {
-          this.logger.warn(
-            `exam-ingest complementaryExams rejeições=${rej.length} tenant=${tenantId} patient=${patientId}`
-          );
-        }
-      }
+      const collectionId =
+        mappedExams.length > 0 ? randomUUID() : undefined;
 
       if (sessionId) {
         if (uploadTokenToInvalidate) {
@@ -546,9 +516,9 @@ export class ExamIngestService {
         disclaimer: json.disclaimer,
         markdownFromStructuredParse: true,
         collectionId,
-        complementaryExamsSavedCount,
-        complementaryExamResultSavedCount,
-        complementaryExamIds,
+        complementaryExamsSavedCount: 0,
+        complementaryExamResultSavedCount: 0,
+        complementaryExamIds: [],
       };
     } finally {
       clearTimeout(t);
